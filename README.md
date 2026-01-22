@@ -6,9 +6,14 @@
 
 **一个无需安装的在线 API 调试工具，支持自建代理服务器，轻松调试任意 API。**
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)[![Vue](https://img.shields.io/badge/Vue-3.x-brightgreen.svg)](https://vuejs.org/)[![Node.js](https://img.shields.io/badge/Node.js-16+-green.svg)](https://nodejs.org/)[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Vue](https://img.shields.io/badge/Vue-3.x-brightgreen.svg)](https://vuejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-16+-green.svg)](https://nodejs.org/)
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org/)
 
-[在线演示](#-在线演示) • [功能特性](#-功能特性) • [快速开始](#-快速开始) • [文档](#-详细文档)
+[功能特性](#-功能特性) • [快速开始](#-快速开始) • [详细文档](#-详细文档)
+
+</div>
 
 ---
 
@@ -82,8 +87,11 @@ npm install express axios express-rate-limit chokidar express-session basic-auth
 node main.js
 ```
 
+</details>
+
 <details>
-<summary><b>🐍 Python 版（需要绕过 Cloudflare 人机验证时可用）</b></summary>
+<summary><b>🐍 Python 版（需要绕过 Cloudflare 时使用）</b></summary>
+
 ```bash
 cd backend
 
@@ -93,6 +101,8 @@ pip install flask flask-session flask-limiter watchdog cloudscraper requests
 # 启动服务
 python main.py
 ```
+
+</details>
 
 启动成功后，代理服务运行在 `http://localhost:8082`
 
@@ -173,6 +183,7 @@ export const PROXY_CONFIG = {
 1. **生产环境务必配置认证** - 设置 `user` 和 `pwd`
 2. **修改 Session 密钥** - 替换 `session.secret` 为强密码
 3. **启用 HTTPS** - 在 Nginx 层配置 SSL 证书
+4. **不要禁用 SSRF 防护** - 除非你完全了解风险
 
 ---
 
@@ -193,3 +204,5 @@ export const PROXY_CONFIG = {
 **Made with ❤️ by [Iskongkongyo](https://github.com/Iskongkongyo)**
 
 ⭐ 如果这个项目对你有帮助，请给个 Star！
+
+</div>
