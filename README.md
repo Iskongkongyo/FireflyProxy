@@ -127,8 +127,8 @@ npm run serve
 | 模块 | 文档链接 | 说明 |
 |------|----------|------|
 | 🖥️ 前端 | [vue-request-app/README.md](./vue-request-app/README.md) | 技术栈、使用指南、项目结构 |
-| 🟢 Node.js 后端 | [backend/README(nodejs).md](./backend/README(nodejs).md) | 配置详解、安全机制、生产部署 |
-| 🐍 Python 后端 | [backend/README(python).md](./backend/README(python).md) | Cloudflare 绕过、Gunicorn 部署 |
+| 🟢 Node.js 后端 | [backend/nodejs/README.md](./backend/nodejs/README.md) | 配置详解、安全机制、生产部署 |
+| 🐍 Python 后端 | [backend/python/README.md](./backend/python/README.md) | Cloudflare 绕过、Gunicorn 部署 |
 
 ---
 
