@@ -1,0 +1,23 @@
+{
+	"port": 8082,
+	"timeout": 30,
+	"session": {
+		"secret": "your-secret-key-here",
+		"name": "proxySession",
+		"cookie_max_age": 86400,
+		"cookie_secure": false,
+		"cookie_httponly": true
+	},
+	"accessOrigin": "*",
+	"user": "",
+	"pwd": "",
+	"defaultSkip": "",
+	"limiter": {
+		"windowMs": 60,
+		"max": 60,
+		"message": "Too many requests, please try again later.",
+		"statusCode": 429
+	},
+	"blacklist": [],
+	"max_redirects": 5
+}
