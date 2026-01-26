@@ -325,13 +325,30 @@ def log_request():
 
 
 # ---------------------------
-# 9. 静态资源
+# 9. 静态资源 (SPA 支持)
 # ---------------------------
+WEB_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webPro")
+
+@app.route("/web")
+@app.route("/web/")
+def serve_web_index():
+    """提供前端首页"""
+    from flask import send_from_directory
+    return send_from_directory(WEB_ROOT, "index.html")
+
 @app.route("/web/<path:filename>")
 def serve_static(filename):
-    """提供静态资源"""
+    """提供静态资源，支持 SPA fallback"""
     from flask import send_from_directory
-    return send_from_directory("webPro", filename)
+    file_path = os.path.join(WEB_ROOT, filename)
+    
+    # 如果文件存在，直接返回
+    if os.path.isfile(file_path):
+        return send_from_directory(WEB_ROOT, filename)
+    
+    # SPA Fallback: 所有不存在的路径都返回 index.html
+    # 让 Vue Router 在前端处理路由
+    return send_from_directory(WEB_ROOT, "index.html")
 
 
 # ---------------------------

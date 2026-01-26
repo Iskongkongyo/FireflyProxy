@@ -313,7 +313,7 @@
 				}
 
 				const that = this;
-				if (!this.display) {
+				if (!this.display && this.$refs.userAuth) {
 					this.$refs.userAuth.handle();
 				}
 				if (patt == 1) {
@@ -361,7 +361,7 @@
 					}
 				});
 
-				this.$refs.userAuth.handle();
+				this.$refs.userAuth?.handle();
 
 				if (!result && this.auth) {
 					array.push({
@@ -482,7 +482,7 @@
 				let headers = [];
 
 				// 处理子组件Auth请求头内容
-				if (!display) {
+				if (!display && this.$refs.userAuth) {
 					this.$refs.userAuth.handle();
 					this.auth ? headers.push({
 						"key": "authorization",
@@ -553,7 +553,9 @@
 				if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(this.method.toUpperCase())) {
 					// 从子组件获取请求体信息
 					this.latest = null;
-					this.$refs.body.buildAndEmit();
+					if (this.$refs.body) {
+						this.$refs.body.buildAndEmit();
+					}
 					if (this.latest) {
 						config.data = this.latest.body;
 						config.headers = config.headers || {};

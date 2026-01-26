@@ -336,8 +336,13 @@ app.use(async (req, res, next) => {
     next();
 });
 
-// 静态资源
+// 静态资源 (SPA 支持)
 app.use("/web", express.static("webPro"));
+
+// SPA Fallback: /web 下所有未匹配静态文件的路径都返回 index.html
+app.use("/web", (req, res, next) => {
+    res.sendFile(path.join(__dirname, "webPro", "index.html"));
+});
 
 // ---------------------------
 // 7. 动态中间件执行
