@@ -88,7 +88,7 @@
 		},
 		methods: {
 			goToHome() {
-				this.$router.push('/web/');
+				this.$router.push('/');
 			},
 			historyRecords() {
 				const records = JSON.parse(localStorage.getItem('history') || "[]");

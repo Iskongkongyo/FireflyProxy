@@ -2,7 +2,7 @@
 	<div v-if="isShow" style="text-align: right;"><a href="https://github.com/Iskongkongyo/PostmanWeb"
 			target="_blank"><img style="width:60px;height:50px" src="../public/github.png" /></a></div><br />
 	<router-view @update-message="handleMessageUpdate"></router-view>
-	<div class="footer">
+	<div v-if="isShow" class="footer">
 		Copyright &copy; <a href="https://github.com/Iskongkongyo" target="_blank">Iskongkongyo</a> All Rights
 		Reserved
 	</div>

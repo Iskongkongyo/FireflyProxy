@@ -385,7 +385,7 @@
 			},
 			historyRecords() {
 				this.$emit('update-message', false);
-				this.$router.push('/web/history');
+				this.$router.push('/history');
 			},
 			async copyLinkToClipboard(text, msg) {
 				try {
