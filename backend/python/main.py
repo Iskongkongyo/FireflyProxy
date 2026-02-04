@@ -468,7 +468,8 @@ def proxy_handler(path):
             return redirect(config["defaultSkip"])
         return make_response("""
             <h3>Proxy Service Ready</h3>
-            <p>Please provide a valid target URL via query parameter: <code>/?url=https://example.com</code></p>
+            <p>支持的参数： <code>url:请求地址</code> <code>headers:可选，自定义请求头</code> <code>method:可选，默认为发送请求时的请求方法</code></p>
+            <p>参数请求示例： <code>/?url=https://example.com&headers={"Authorization":"Bearer xxx"}&method=</code></p>
         """, 400)
     
     # 计算最终代理 URL
@@ -480,13 +481,23 @@ def proxy_handler(path):
     
     logger.info(f"[Debug] Proxy request - fullUrl: {full_url}")
     
+    # 解析请求方法：优先使用查询字符串 ?method=XXX，否则使用前端实际请求方法
+    VALID_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+    method_param = request.args.get("method", "").upper()
+    if method_param in VALID_METHODS:
+        proxy_method = method_param
+    else:
+        proxy_method = request.method
+    
+    logger.info(f"[Debug] Using method: {proxy_method}")
+    
     try:
         # 执行代理请求
         proxy_response = proxy_request(
             target_url=full_url,
-            method=request.method,
+            method=proxy_method,
             headers=dict(request.headers),
-            data=request.get_data() if request.method in ["POST", "PUT", "PATCH", "DELETE"] else None
+            data=request.get_data() if proxy_method in ["POST", "PUT", "PATCH", "DELETE"] else None
         )
         
         # [Redirect Sync] 检测是否发生了重定向

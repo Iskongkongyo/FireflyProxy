@@ -329,7 +329,8 @@ app.use(async (req, res, next) => {
         if (config.defaultSkip) return res.redirect(config.defaultSkip);
         return res.status(400).send(`
             <h3>Proxy Service Ready</h3>
-            <p>Please provide a valid target URL via query parameter: <code>/?url=https://example.com</code></p>
+            <p>支持的参数： <code>url:请求地址</code> <code>headers:可选，自定义请求头</code> <code>method:可选，默认为发送请求时的请求方法</code></p>
+            <p>参数请求示例： <code>/?url=https://example.com&headers={"Authorization":"Bearer xxx"}&method=</code></p>
         `);
     }
 
@@ -396,12 +397,19 @@ app.use("/", async (req, res, next) => {
             }
         }
 
+        // 解析请求方法：优先使用查询字符串 ?method=XXX，否则使用前端实际请求方法
+        const VALID_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+        const methodParam = (req.query.method || "").toUpperCase();
+        const proxyMethod = VALID_METHODS.includes(methodParam) ? methodParam : req.method;
+
+        console.log(`[Debug] Using method: ${proxyMethod}`);
+
         // 2. 发起 Axios 请求
         const response = await axios({
-            method: req.method,
+            method: proxyMethod,
             url: fullUrl,
             headers: headers,
-            data: (req.method === 'GET' || req.method === 'HEAD') ? undefined : req, // 流式透传请求体
+            data: (proxyMethod === 'GET' || proxyMethod === 'HEAD') ? undefined : req, // 流式透传请求体
             responseType: 'stream', // 关键：流式响应
             decompress: false, // 禁止 axios 自动解压，透传原始压缩数据（防止 Content-Length 不匹配导致截断）
             maxRedirects: config.max_redirects || 5, // 开启自动重定向

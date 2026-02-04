@@ -35,6 +35,14 @@ backend/run.log
 backend/error.log
 *.log
 
+# 网页静态内容
+backend/nodejs/webPro/
+backend/python/webPro/
+
+# 日志文件
+backend/nodejs/*.log
+backend/python/*.log
+
 # 配置文件 (包含敏感信息，如密码)
 # 建议创建 main.json.example 作为模板
 backend/main.json
