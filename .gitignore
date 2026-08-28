@@ -1,0 +1,116 @@
+# ============================
+# PostmanWeb .gitignore
+# ============================
+
+# ============================
+# 前端 (Vue.js) - vue-request-app/
+# ============================
+
+# 依赖目录
+node_modules/
+vue-request-app/node_modules/
+
+# 构建产物
+dist/
+vue-request-app/dist/
+
+# 本地环境变量文件
+.env.local
+.env.*.local
+vue-request-app/.env.local
+vue-request-app/.env.*.local
+
+# 日志文件
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ============================
+# 后端 (Node.js & Python)
+# ============================
+
+# 运行日志 (会自动生成)
+backend/run.log
+backend/error.log
+*.log
+
+# 网页静态内容
+backend/nodejs/webPro/
+backend/python/webPro/
+
+# 日志文件
+backend/nodejs/*.log
+backend/python/*.log
+
+# 配置文件 (包含敏感信息，如密码)
+# 建议创建 main.json.example 作为模板
+backend/main.json
+backend/nodejs/main.json
+
+# 后端测试与覆盖率产物
+backend/nodejs/coverage/
+backend/nodejs/.test-tmp/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+
+# Python 虚拟环境
+venv/
+ENV/
+env/
+.venv/
+
+# ============================
+# 编辑器 & IDE
+# ============================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# WebStorm / IntelliJ IDEA
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ============================
+# 操作系统
+# ============================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============================
+# 其他
+# ============================
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+
+# 打包文件 (如果有)
+*.zip
+*.tar.gz
+*.rar
