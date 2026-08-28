@@ -124,11 +124,14 @@ Browser Mode 可以进行：
 
 # 2. 当前代码基线
 
-截至本文制定时，Node 实现主要位于：
+基线制定时 Node 实现主要位于 `main.js`；1.1 完成后已拆分为：
 
 ```text
 backend/nodejs/main.js
+backend/nodejs/app.js
 ```
+
+其中 `main.js` 负责进程生命周期，`app.js` 导出可注入配置、可关闭的 `createApp()` runtime；代理行为尚未在本阶段进一步模块化。
 
 当前已经具备：
 

@@ -28,7 +28,8 @@ proxyWeb/
 │   ├── main.json.example        # 后端配置模板
 │   ├── echo.js                  # 独立回显服务（开发辅助）
 │   └── nodejs/
-│       ├── main.js              # Node.js 代理入口
+│       ├── main.js              # 进程启动与关闭入口
+│       ├── app.js               # Express App Factory 与当前代理逻辑
 │       ├── main.json            # 当前本地配置
 │       └── README.md            # 后端说明
 ├── vue-request-app/             # Vue 3 前端

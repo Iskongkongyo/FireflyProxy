@@ -1,9 +1,21 @@
 # proxyWeb Node.js 后端
 
-这是当前 API 代理的单文件 Node.js 实现，基于 Express 和 Axios。它支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
+这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。代理支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
 
 > [!WARNING]
 > 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是 DNS SSRF、重定向校验和代理认证头隔离仍未完成。请先阅读“当前安全限制”。
+
+## 运行结构
+
+```text
+main.js
+  └── createApp()
+        ├── app.js               # Express middleware 与代理路由
+        ├── config watcher       # 可由 runtime.close() 关闭
+        └── runtime.getConfig()  # 启动端口及当前配置
+```
+
+测试可通过 `createApp({ configPath, watchConfig: false })` 注入隔离配置而不自动监听端口。生产入口仍使用 `npm start`，现有 HTTP 接口和默认启动行为不变。
 
 ## 环境与安装
 

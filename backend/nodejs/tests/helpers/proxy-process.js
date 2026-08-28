@@ -86,6 +86,7 @@ async function stopChild(child) {
     if (await Promise.race([exited, timeout]) === "timeout") {
         child.kill("SIGKILL");
         await exited;
+        throw new Error("Proxy did not exit within the graceful shutdown timeout.");
     }
 }
 
