@@ -7,18 +7,17 @@
 
 ## 环境与安装
 
-建议使用 Node.js 22+。此目录目前没有 `package.json` 或锁文件，首次安装需要初始化 npm 项目：
+建议使用 Node.js 22+。依赖清单和锁文件已经提交，可复现安装：
 
 ```powershell
 Set-Location .\backend\nodejs
-if (!(Test-Path .\package.json)) { npm init -y }
-npm install express axios express-rate-limit chokidar express-session basic-auth ipaddr.js winston
+npm ci
 ```
 
 代码从进程的当前工作目录读取 `./main.json`，静态目录也按当前工作目录解析为 `./webPro`，所以请始终在 `backend/nodejs/` 中启动：
 
 ```powershell
-node .\main.js
+npm start
 ```
 
 若 `main.json` 不存在，把 `../main.json.example` 复制到此目录并修改。缺少配置文件时服务会使用内置默认值，但默认 Session secret 每次启动都会变化，且代理不会启用认证，不适合实际部署。
@@ -153,6 +152,17 @@ GET /assets/app.css
 - 前端 `/web/` 返回错误：确认已部署 `webPro/index.html` 以及其静态资源。
 - 403 `Invalid Target URL or Local IP`：目标是非法 URL、localhost、字面私网 IP 或命中了黑名单。
 
-## 尚缺的工程化文件
+## 开发与测试
 
-当前后端没有依赖清单、锁文件、`npm start`/`npm test` 脚本和自动化测试。这会影响可复现安装与持续集成，已在 vNext 的 Milestone 0/P0 中列为应优先补齐的基线工作。
+| 命令 | 用途 |
+| --- | --- |
+| `npm start` | 启动后端 |
+| `npm run dev` | 使用 Node.js watch mode 启动 |
+| `npm test` | 运行全部测试，串行执行集成用例 |
+| `npm run test:unit` | 运行本地 Fixture 单元测试 |
+| `npm run test:integration` | 运行当前代理行为契约测试 |
+| `npm run lint` | 检查生产入口与测试辅助脚本语法 |
+
+测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
+
+DNS SSRF、重定向逐跳验证、代理认证头隔离、CORS 收紧和日志脱敏已登记为 P0 TODO 测试；在对应安全阶段实现前不会被误标为通过。2026-08-28 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

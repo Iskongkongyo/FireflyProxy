@@ -149,7 +149,7 @@ backend/nodejs/main.js
 
 基线复核时还确认了以下工程状态：
 
-- 后端目录尚无 `package.json`、锁文件、`npm start` / `npm test` 脚本和自动化测试；
+- 基线制定时后端尚无 npm 工程和测试；0.1–0.3 已补充 `package.json`、锁文件、标准脚本、本地 Fixture 与现有行为契约测试；
 - 后端配置路径是相对当前工作目录的 `./main.json`，必须从 `backend/nodejs/` 启动；
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；

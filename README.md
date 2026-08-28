@@ -42,7 +42,7 @@ proxyWeb/
 
 ## 快速开始
 
-建议使用 Node.js 22+。前端已有锁文件；后端当前尚无 `package.json` 和锁文件，首次安装会在 `backend/nodejs/` 中生成它们。
+建议使用 Node.js 22+。前后端均已提交依赖锁文件，使用 `npm ci` 可复现安装。
 
 ### 1. 启动后端
 
@@ -50,9 +50,8 @@ proxyWeb/
 
 ```powershell
 Set-Location .\backend\nodejs
-if (!(Test-Path .\package.json)) { npm init -y }
-npm install express axios express-rate-limit chokidar express-session basic-auth ipaddr.js winston
-node .\main.js
+npm ci
+npm start
 ```
 
 后端从**当前工作目录**读取 `./main.json`，因此应在 `backend/nodejs/` 内启动。若该文件不存在，可先把 `../main.json.example` 复制为 `./main.json`，并至少修改 `session.secret`。
