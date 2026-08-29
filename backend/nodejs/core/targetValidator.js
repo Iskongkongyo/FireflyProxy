@@ -7,8 +7,44 @@ const INVALID_PERCENT_ENCODING = /%(?![0-9A-Fa-f]{2})/;
 const RAW_WHITESPACE_OR_CONTROL = /[\u0000-\u0020\u007f]/;
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
-function createValidationError(code, message, statusCode, details) {
-    return new ProxyError(code, message, { statusCode, details });
+const NON_PUBLIC_CIDRS = Object.freeze([
+    "0.0.0.0/8",
+    "10.0.0.0/8",
+    "100.64.0.0/10",
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "172.16.0.0/12",
+    "192.0.0.0/24",
+    "192.0.2.0/24",
+    "192.31.196.0/24",
+    "192.52.193.0/24",
+    "192.88.99.0/24",
+    "192.168.0.0/16",
+    "192.175.48.0/24",
+    "198.18.0.0/15",
+    "198.51.100.0/24",
+    "203.0.113.0/24",
+    "224.0.0.0/4",
+    "240.0.0.0/4",
+    "::/96",
+    "::1/128",
+    "64:ff9b::/96",
+    "64:ff9b:1::/48",
+    "100::/64",
+    "2001::/23",
+    "2001:db8::/32",
+    "2002::/16",
+    "2620:4f:8000::/48",
+    "3fff::/20",
+    "5f00::/16",
+    "fc00::/7",
+    "fe80::/10",
+    "fec0::/10",
+    "ff00::/8"
+].map(value => Object.freeze(ipaddr.parseCIDR(value))));
+
+function createValidationError(code, message, statusCode, details, cause) {
+    return new ProxyError(code, message, { statusCode, details, cause });
 }
 
 function invalidUrl(details) {
@@ -34,6 +70,15 @@ function normalizeIpAddress(value) {
         family: address.kind() === "ipv4" ? 4 : 6,
         range: address.range()
     };
+}
+
+function isPublicAddress(value) {
+    const normalized = normalizeIpAddress(value);
+    if (!normalized) return false;
+    const address = ipaddr.parse(normalized.address);
+    return !NON_PUBLIC_CIDRS.some(([network, prefix]) => (
+        network.kind() === address.kind() && address.match(network, prefix)
+    ));
 }
 
 function normalizeDnsHostname(value) {
@@ -124,7 +169,7 @@ async function validateTarget(value, context = {}) {
 
     if (ip) {
         hostname = ip.address;
-        if (ip.range !== "unicast") {
+        if (!isPublicAddress(hostname)) {
             throw createValidationError(
                 ERROR_CODES.SSRF_BLOCKED,
                 "Target address is not public",
@@ -158,6 +203,82 @@ async function validateTarget(value, context = {}) {
         );
     }
 
+    if (!ip) {
+        if (typeof context.resolveHostname !== "function") {
+            throw createValidationError(
+                ERROR_CODES.DNS_FAILED,
+                "Unable to resolve target hostname",
+                502,
+                { hostname, reason: "resolver-unavailable" }
+            );
+        }
+
+        let resolved;
+        try {
+            resolved = await context.resolveHostname(hostname);
+        } catch (error) {
+            throw createValidationError(
+                ERROR_CODES.DNS_FAILED,
+                "Unable to resolve target hostname",
+                502,
+                { hostname, reason: error.code || "lookup-failed" },
+                error
+            );
+        }
+
+        if (!Array.isArray(resolved) || resolved.length === 0) {
+            throw createValidationError(
+                ERROR_CODES.DNS_FAILED,
+                "Unable to resolve target hostname",
+                502,
+                { hostname, reason: "empty-result" }
+            );
+        }
+
+        const unique = new Map();
+        for (const result of resolved) {
+            const sourceAddress = result && typeof result.address === "string"
+                ? stripIpv6Brackets(result.address)
+                : null;
+            const source = sourceAddress && ipaddr.isValid(sourceAddress)
+                ? ipaddr.parse(sourceAddress)
+                : null;
+            const normalized = result && normalizeIpAddress(result.address);
+            const sourceFamily = source && source.kind() === "ipv4" ? 4 : 6;
+            if (!source || !normalized || ![4, 6].includes(result.family) || result.family !== sourceFamily) {
+                throw createValidationError(
+                    ERROR_CODES.DNS_FAILED,
+                    "Unable to resolve target hostname",
+                    502,
+                    { hostname, reason: "invalid-result" }
+                );
+            }
+            if (!isPublicAddress(normalized.address)) {
+                throw createValidationError(
+                    ERROR_CODES.SSRF_BLOCKED,
+                    "Target resolves to a non-public address",
+                    403,
+                    { hostname, address: normalized.address, range: normalized.range }
+                );
+            }
+            unique.set(`${normalized.family}:${normalized.address}`, Object.freeze({
+                address: normalized.address,
+                family: normalized.family
+            }));
+        }
+
+        addresses = [...unique.values()];
+        if (addresses.length === 0) {
+            throw createValidationError(
+                ERROR_CODES.DNS_FAILED,
+                "Unable to resolve target hostname",
+                502,
+                { hostname, reason: "empty-normalized-result" }
+            );
+        }
+        selectedAddress = addresses[0].address;
+    }
+
     return Object.freeze({
         url: url.href,
         protocol: url.protocol,
@@ -169,6 +290,7 @@ async function validateTarget(value, context = {}) {
 }
 
 module.exports = {
+    isPublicAddress,
     isHostnameBlocked,
     normalizeHostnameRule,
     normalizeIpAddress,

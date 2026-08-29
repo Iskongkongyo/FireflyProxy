@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 与 P1 尚未达到 Definition of Done，不能将规划中的 DNS SSRF、Cookie Jar、HTML/CSS Rewrite、WebSocket 等能力写成当前已实现功能。
+- P0 与 P1 尚未达到 Definition of Done，不能将规划中的 DNS Pinning、Redirect 安全、Cookie Jar、HTML/CSS Rewrite、WebSocket 等能力写成当前已实现功能。
 
 当前前端主要结构：
 
@@ -244,7 +244,7 @@ backend/nodejs/
 
 # 5. P0-2. 重做 SSRF Validator
 
-> 状态：🟨 路线图 2.3 已于 2026-08-29 完成 URL 与字面 IP 基础校验。`validateTarget()` 已提供规范目标结构，并覆盖 URL credentials、编码变体、IPv4/IPv6/IPv4-mapped IPv6、非公网范围与 hostname 规则；域名的 `addresses`/`selectedAddress` 仍待 2.4 DNS 校验和 2.5 Pinning 填充。
+> 状态：✅ 路线图 2.3–2.4 已于 2026-08-29 完成 Validator。`validateTarget()` 已覆盖 URL credentials、编码变体、IPv4/IPv6/IPv4-mapped IPv6、非公网范围、hostname 规则与全部 DNS A/AAAA 结果，并返回请求级 `addresses`/`selectedAddress`；实际连接绑定属于后续 2.5。
 
 当前同步布尔函数：
 
@@ -315,6 +315,8 @@ URL 中携带账号密码时不要写入日志。
 ---
 
 # 6. P0-3. DNS SSRF 防护
+
+> 状态：✅ 已于 2026-08-29 完成路线图 2.4。可注入 Resolver 使用 `lookup(all: true, verbatim: true)` 并设置超时上界；public/private/mixed/空结果/失败/超时、多 A/AAAA、family 不一致与 IPv4-mapped IPv6 均已进入强制测试。DNS Pinning/TOCTOU 仍由下一节与路线图 2.5 跟踪。
 
 必须使用：
 

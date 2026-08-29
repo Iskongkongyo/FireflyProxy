@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
+    isPublicAddress,
     isHostnameBlocked,
     normalizeHostnameRule,
     validateTarget
@@ -18,14 +19,25 @@ async function expectTargetError(target, code, statusCode) {
 }
 
 test("target validator accepts canonical HTTP(S) domains and public literals", async () => {
-    const domain = await validateTarget("https://Example.COM.:443/path?ok=yes");
+    const domain = await validateTarget("https://Example.COM.:443/path?ok=yes", {
+        resolveHostname: async hostname => {
+            assert.equal(hostname, "example.com");
+            return [
+                { address: "93.184.216.34", family: 4 },
+                { address: "2606:4700:4700::1111", family: 6 }
+            ];
+        }
+    });
     assert.deepEqual(domain, {
         url: "https://example.com/path?ok=yes",
         protocol: "https:",
         hostname: "example.com",
         port: 443,
-        addresses: [],
-        selectedAddress: null
+        addresses: [
+            { address: "93.184.216.34", family: 4 },
+            { address: "2606:4700:4700::1111", family: 6 }
+        ],
+        selectedAddress: "93.184.216.34"
     });
 
     const ipv4 = await validateTarget("http://8.8.8.8:8080/");
@@ -40,6 +52,79 @@ test("target validator accepts canonical HTTP(S) domains and public literals", a
     const mapped = await validateTarget("http://[::ffff:8.8.8.8]/");
     assert.equal(mapped.url, "http://8.8.8.8/");
     assert.deepEqual(mapped.addresses, [{ address: "8.8.8.8", family: 4 }]);
+});
+
+test("public address policy explicitly rejects special-purpose ranges", () => {
+    assert.equal(isPublicAddress("93.184.216.34"), true);
+    assert.equal(isPublicAddress("2606:4700:4700::1111"), true);
+    for (const address of [
+        "0.0.0.0",
+        "100.100.100.200",
+        "169.254.169.254",
+        "192.0.0.9",
+        "198.51.100.1",
+        "::1",
+        "64:ff9b::1",
+        "100::1",
+        "2001:db8::1",
+        "fc00::1",
+        "fe80::1"
+    ]) {
+        assert.equal(isPublicAddress(address), false, address);
+    }
+});
+
+test("DNS validation preserves all public A/AAAA results and normalizes mapped IPv6", async () => {
+    const target = await validateTarget("https://multi.example/", {
+        resolveHostname: async () => [
+            { address: "93.184.216.34", family: 4 },
+            { address: "2606:4700:4700::1111", family: 6 },
+            { address: "93.184.216.34", family: 4 },
+            { address: "::ffff:8.8.8.8", family: 6 }
+        ]
+    });
+
+    assert.deepEqual(target.addresses, [
+        { address: "93.184.216.34", family: 4 },
+        { address: "2606:4700:4700::1111", family: 6 },
+        { address: "8.8.8.8", family: 4 }
+    ]);
+    assert.equal(target.selectedAddress, "93.184.216.34");
+});
+
+test("DNS validation rejects private-only and mixed public/private results", async () => {
+    for (const records of [
+        [{ address: "10.0.0.1", family: 4 }],
+        [
+            { address: "93.184.216.34", family: 4 },
+            { address: "127.0.0.1", family: 4 }
+        ],
+        [{ address: "::ffff:127.0.0.1", family: 6 }]
+    ]) {
+        await assert.rejects(
+            validateTarget("https://blocked.example/", {
+                resolveHostname: async () => records
+            }),
+            error => error.code === "PROXY_SSRF_BLOCKED" && error.statusCode === 403
+        );
+    }
+});
+
+test("DNS validation fails closed for unavailable, empty and malformed resolvers", async () => {
+    const cases = [
+        {},
+        { resolveHostname: async () => [] },
+        { resolveHostname: async () => [{ address: "not-an-ip", family: 4 }] },
+        { resolveHostname: async () => [{ address: "8.8.8.8", family: 6 }] },
+        { resolveHostname: async () => { throw Object.assign(new Error("missing"), { code: "ENOTFOUND" }); } }
+    ];
+
+    for (const context of cases) {
+        await assert.rejects(
+            validateTarget("https://missing.example/", context),
+            error => error.code === "PROXY_DNS_FAILED" && error.statusCode === 502
+        );
+    }
 });
 
 test("target validator rejects malformed URLs, credentials and unsupported protocols", async () => {

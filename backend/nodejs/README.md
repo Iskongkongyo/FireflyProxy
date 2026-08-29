@@ -3,7 +3,7 @@
 这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。代理支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
 
 > [!WARNING]
-> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是 DNS SSRF、DNS Pinning 和重定向逐跳校验仍未完成。请先阅读“当前安全限制”。
+> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是 DNS Pinning 和重定向逐跳校验仍未完成。请先阅读“当前安全限制”。
 
 ## 运行结构
 
@@ -177,13 +177,14 @@ GET /assets/app.css
 
 路线图 2.2 已完成严格 CORS 与客户端地址边界：带凭据请求必须命中显式 Origin allowlist，预检方法和请求头会校验；无 Origin 请求不会获得 CORS 响应头。`trustProxy` 默认关闭，限流使用 Express 按显式信任策略计算的 `req.ip`。如部署在 Nginx/Caddy 等反向代理后，必须按实际可信跳数或地址配置，错误配置仍会使日志与限流采用错误的客户端地址。
 
+路线图 2.3–2.4 已完成 URL、字面 IP 与 DNS 结果校验：域名通过可注入 Resolver 执行 `lookup({ all: true, verbatim: true })`，保留全部规范化 A/AAAA；空结果、失败、超时、非法结果，以及任一非公网或混合公网/私网结果都会安全失败。验证后的地址列表保留在请求目标上下文中，供下一阶段连接层使用。
+
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
-1. **DNS SSRF 校验尚未完成。** URL 与字面 IP 校验已经拒绝 credentials、非法编码、localhost、IPv4/IPv6 非公网范围和配置的 hostname 规则，但尚未解析域名并校验全部 A/AAAA 结果。指向私网的域名仍可能绕过检查。
-2. **存在 DNS Rebinding/TOCTOU 风险。** 校验与 Axios 实际建立连接没有绑定到同一个已验证 IP。
-3. **重定向未逐跳校验。** Axios 自动跟随跳转，新的 `Location` 目标不会再次执行 SSRF 检查。
-4. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
-5. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
+1. **存在 DNS Rebinding/TOCTOU 风险。** 校验与 Axios 实际建立连接尚未绑定到同一个已验证 IP；恶意域名仍可能在第二次解析时切换地址。
+2. **重定向未逐跳校验。** Axios 自动跟随跳转，新的 `Location` 目标不会再次执行 SSRF 检查。
+3. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
+4. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
 
 配置 `user`/`pwd` 不能消除上述问题。完成 P0 安全测试前，不建议提供公网生产部署步骤。
 
@@ -214,7 +215,8 @@ GET /assets/app.css
 - 前端 `/web/` 返回错误：确认已部署 `webPro/index.html` 以及其静态资源。
 - 400 `PROXY_INVALID_URL`：目标 URL 格式、编码或 credentials 非法。
 - 403 `PROXY_PROTOCOL_BLOCKED`：目标不是 HTTP(S) URL。
-- 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP，或命中 `security.blockedHostnames`。
+- 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP、域名的任一 DNS 结果为非公网地址，或命中 `security.blockedHostnames`。
+- 502 `PROXY_DNS_FAILED`：域名解析失败、超时、返回空列表或非法地址记录。
 
 ## 开发与测试
 
@@ -229,4 +231,4 @@ GET /assets/app.css
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
 
-后端当前 71 项测试通过、2 项 P0 TODO（DNS SSRF 与重定向逐跳验证）、0 项失败；空目标、URL credentials、非法编码、IPv4/IPv6 非公网网段、预留配置不可绕过、hostname 规则、Session 重校验、CORS、代理跳数、伪造 `X-Forwarded-For`、认证隔离和凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 80 项测试通过、2 项 P0 TODO（DNS Pinning 与重定向逐跳验证）、0 项失败；DNS public/private/mixed/空结果/失败/超时、多 A/AAAA、IPv4-mapped IPv6、URL/IP、CORS、代理跳数、认证隔离和凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

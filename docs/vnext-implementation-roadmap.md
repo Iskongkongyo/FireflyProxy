@@ -33,7 +33,7 @@
 | 2.1 | 认证头隔离与日志脱敏 | 先关闭凭据泄漏风险 | 1.3 | ✅ |
 | 2.2 | CORS 与 trust proxy | 明确浏览器和代理边界 | 1.3 | ✅ |
 | 2.3 | URL/IP Validator | 统一目标基础校验 | 1.3 | ✅ |
-| 2.4 | DNS SSRF 校验 | 域名全部解析结果受控 | 2.3 | ⬜ |
+| 2.4 | DNS SSRF 校验 | 域名全部解析结果受控 | 2.3 | ✅ |
 | 2.5 | DNS Pinning | 校验 IP 与连接 IP 一致 | 2.4 | ⬜ |
 | 2.6 | 安全 Redirect Loop | 每一跳重新校验 | 2.5 | ⬜ |
 | 2.7 | 进程策略与资源限制 | 错误可控、资源有界 | 2.1–2.6 | ⬜ |
@@ -488,3 +488,15 @@
 - URL userinfo 在请求日志阶段即脱敏，空目标使用统一错误响应，预留配置不能关闭字面地址门禁；新增纯函数、配置迁移和子进程集成门禁，后端 71 项通过、2 项后续 P0 门禁 TODO、0 项失败。
 
 下一阶段为 2.4 DNS SSRF 校验。
+
+### 第八轮执行记录
+
+2026-08-29 已完成 2.4：
+
+- 新增 `core/dnsResolver.js`，默认使用 `dns.promises.lookup(hostname, { all: true, verbatim: true })`，并提供可注入 lookup、5 秒上界、空结果与失败分类。
+- `validateTarget()` 对域名的全部 A/AAAA 结果进行格式、family、一致性与显式特殊用途 CIDR 校验；任一 private、mixed 或非法结果即整体拒绝，不从结果中挑选性放行。
+- 解析结果按规范地址去重并保留顺序，IPv4-mapped IPv6 转换为 IPv4；完整 `addresses` 与 `selectedAddress` 写入请求级目标上下文，供 2.5 连接层消费。
+- 测试 DNS 与真实连接解析分层，避免依赖公网；覆盖 public、private、mixed、空结果、失败、超时、多 A/AAAA、重复记录、family 不一致和 IPv4-mapped IPv6。
+- 私网域名 TODO 已转为强制门禁；后端 80 项通过、2 项后续 P0 门禁 TODO（DNS Pinning、Redirect）、0 项失败。
+
+下一阶段为 2.5 DNS Pinning 与连接层。

@@ -100,7 +100,7 @@ async function removeTestDirectory(tempDir) {
     await fs.rm(resolvedTarget, { recursive: true, force: true });
 }
 
-async function startProxy(overrides = {}) {
+async function startProxy(overrides = {}, options = {}) {
     const port = overrides.port || await getFreePort();
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "proxyweb-contract-"));
     const configPath = path.join(tempDir, "main.json");
@@ -124,7 +124,9 @@ async function startProxy(overrides = {}) {
         env: {
             ...process.env,
             PROXYWEB_FIXTURE_HOST: "fixture.test",
-            PROXYWEB_FIXTURE_ADDRESS: "127.0.0.1"
+            PROXYWEB_FIXTURE_ADDRESS: "127.0.0.1",
+            PROXYWEB_FIXTURE_VALIDATION_ADDRESS: "93.184.216.34",
+            PROXYWEB_VALIDATION_DNS_RECORDS: JSON.stringify(options.dnsRecords || {})
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true

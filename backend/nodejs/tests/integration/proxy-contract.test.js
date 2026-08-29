@@ -485,8 +485,35 @@ test("legacy headers query remains compatible and advertises deprecation", async
     assert.match(response.headers.get("warning"), /headers query parameter is deprecated/);
 });
 
-test.todo("domain targets resolving to private addresses are rejected");
+test("domain targets with private, mixed, empty or failed DNS results are rejected", async () => {
+    const dnsProxy = await startProxy({}, {
+        dnsRecords: {
+            "private.test": [{ address: "10.0.0.1", family: 4 }],
+            "mixed.test": [
+                { address: "93.184.216.34", family: 4 },
+                { address: "127.0.0.1", family: 4 }
+            ],
+            "empty.test": [],
+            "missing.test": { error: "ENOTFOUND" }
+        }
+    });
+    try {
+        for (const hostname of ["private.test", "mixed.test"]) {
+            const response = await fetch(`${dnsProxy.origin}/?url=${encodeURIComponent(`http://${hostname}/`)}`);
+            assert.equal(response.status, 403);
+            assert.equal((await response.json()).error.code, "PROXY_SSRF_BLOCKED");
+        }
+        for (const hostname of ["empty.test", "missing.test"]) {
+            const response = await fetch(`${dnsProxy.origin}/?url=${encodeURIComponent(`http://${hostname}/`)}`);
+            assert.equal(response.status, 502);
+            assert.equal((await response.json()).error.code, "PROXY_DNS_FAILED");
+        }
+    } finally {
+        await dnsProxy.close();
+    }
+});
 test.todo("every redirect target is revalidated before connecting");
+test.todo("validated DNS addresses are pinned to the upstream connection");
 
 test("request and error logs redact legacy and dedicated upstream credentials", async () => {
     const logProxy = await startProxy();

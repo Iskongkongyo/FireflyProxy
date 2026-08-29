@@ -109,3 +109,40 @@ test("createApp keeps configuration state isolated between runtimes", async () =
         await removeConfigDirectory(secondFile.tempDir);
     }
 });
+
+test("createApp uses an injected DNS resolver before opening an upstream connection", async () => {
+    const { tempDir, configPath } = await createConfigFile(19021);
+    const resolvedHostnames = [];
+    const runtime = createApp({
+        configPath,
+        watchConfig: false,
+        dnsResolver: {
+            async resolve(hostname) {
+                resolvedHostnames.push(hostname);
+                return [{ address: "127.0.0.1", family: 4 }];
+            }
+        }
+    });
+
+    try {
+        const server = runtime.app.listen(0, "127.0.0.1");
+        await new Promise((resolve, reject) => {
+            server.once("listening", resolve);
+            server.once("error", reject);
+        });
+        try {
+            const address = server.address();
+            const response = await fetch(
+                `http://127.0.0.1:${address.port}/?url=${encodeURIComponent("http://resolver.test/")}`
+            );
+            assert.equal(response.status, 403);
+            assert.equal((await response.json()).error.code, "PROXY_SSRF_BLOCKED");
+            assert.deepEqual(resolvedHostnames, ["resolver.test"]);
+        } finally {
+            await closeServer(server);
+        }
+    } finally {
+        await runtime.close();
+        await removeConfigDirectory(tempDir);
+    }
+});

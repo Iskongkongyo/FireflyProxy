@@ -5,7 +5,7 @@
 ![界面预览](./vue-request-app/review.png)
 
 > [!WARNING]
-> 当前后端尚未完成 DNS 级 SSRF 校验和重定向逐跳校验，**不要直接暴露到公网，也不要把它当作生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
+> 当前后端尚未完成 DNS Pinning 和重定向逐跳校验，**不要直接暴露到公网，也不要把它当作生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
 
 ## 当前能力
 
@@ -117,7 +117,7 @@ npm run build
 
 ## 当前安全边界
 
-- URL Validator 已拒绝非 HTTP(S) 协议、URL credentials、非法编码、localhost，以及 loopback/private/link-local/unspecified/multicast/reserved 等字面 IPv4/IPv6；域名解析结果尚未校验，仍存在 DNS SSRF / DNS Rebinding 风险。
+- URL Validator 已拒绝非 HTTP(S) 协议、URL credentials、非法编码、localhost，以及 loopback/private/link-local/unspecified/multicast/reserved 等字面 IPv4/IPv6。域名使用 `lookup(all: true, verbatim: true)` 校验全部 A/AAAA，任一结果非公网即整体拒绝；实际连接尚未绑定该地址列表，仍存在 DNS Rebinding / TOCTOU 风险。
 - Axios 自动跟随重定向，跳转后的每一跳尚未重新执行目标校验。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
 - 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。

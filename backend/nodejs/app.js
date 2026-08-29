@@ -13,6 +13,7 @@ const chokidar = require("chokidar");
 const session = require("express-session");
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
+const { createDnsResolver } = require("./core/dnsResolver");
 const { createErrorMiddleware } = require("./core/errors");
 const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
 const { createLogger } = require("./core/logger");
@@ -31,12 +32,17 @@ const { createRequestLogger } = require("./middleware/requestLogger");
  * @param {import('winston').Logger} [options.logger] injected logger
  * @param {Object} [options.loggerOptions] logger factory options
  * @param {Function} [options.requestIdFactory] injected request ID factory
+ * @param {{resolve: Function}} [options.dnsResolver] injected DNS resolver
  * @returns {{app: import('express').Express, logger: import('winston').Logger, getConfig: Function, reloadConfig: Function, close: Function}}
  */
 function createApp(options = {}) {
 
 const ownsLogger = !options.logger;
 const logger = options.logger || createLogger(options.loggerOptions);
+const dnsResolver = options.dnsResolver || createDnsResolver();
+if (!dnsResolver || typeof dnsResolver.resolve !== "function") {
+    throw new TypeError("dnsResolver.resolve must be a function");
+}
 
 // ---------------------------
 // 1. 全局配置与热更新状态
@@ -171,7 +177,8 @@ app.use(async (req, res, next) => {
     if (Object.prototype.hasOwnProperty.call(req.query, "url")) {
         try {
             const target = await validateTarget(req.query.url, {
-                blockedHostnames: config.security.blockedHostnames
+                blockedHostnames: config.security.blockedHostnames,
+                resolveHostname: hostname => dnsResolver.resolve(hostname)
             });
             req.validatedTarget = target;
             logger.info("[Session] Target updated", { requestId: req.id, targetUrl: target.url });
@@ -236,7 +243,8 @@ app.use("/", async (req, res, next) => {
             ? req.validatedTarget.url
             : getTargetUrl(req.session.targetUrl, req.originalUrl);
         const target = req.validatedTarget || await validateTarget(candidateUrl, {
-            blockedHostnames: config.security.blockedHostnames
+            blockedHostnames: config.security.blockedHostnames,
+            resolveHostname: hostname => dnsResolver.resolve(hostname)
         });
         const fullUrl = target.url;
 
