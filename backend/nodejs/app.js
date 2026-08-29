@@ -5,7 +5,6 @@
  * vNext refactor proceeds. Security hardening is tracked separately in P0.
  */
 
-const fs = require("fs");
 const path = require("path");
 const express = require("express");
 const axios = require("axios"); // [Changed] Use axios for manual proxying
@@ -16,6 +15,8 @@ const basicAuth = require("basic-auth");
 const net = require("net");
 const ipaddr = require("ipaddr.js"); // 必须安装
 const winston = require("winston");
+const { createDefaultConfig } = require("./config/defaults");
+const { loadConfigFile, parseConfigObject } = require("./config/loader");
 
 // ---------------------------
 // 日志配置 (Winston Logger)
@@ -102,6 +103,7 @@ console.error = (...args) => {
  * @param {Object} [options]
  * @param {string} [options.configPath] configuration path, resolved from cwd by default
  * @param {boolean} [options.watchConfig=true] watch configuration changes
+ * @param {NodeJS.ProcessEnv|Object} [options.env] environment source for interpolation
  * @returns {{app: import('express').Express, getConfig: Function, reloadConfig: Function, close: Function}}
  */
 function createApp(options = {}) {
@@ -110,30 +112,14 @@ function createApp(options = {}) {
 // 1. 全局配置与热更新状态
 // ---------------------------
 const CONFIG_PATH = options.configPath || "./main.json";
+const CONFIG_ENV = options.env || process.env;
+const CONFIG_DEFAULTS = parseConfigObject({}, {
+    defaults: createDefaultConfig(CONFIG_ENV),
+    env: CONFIG_ENV
+}).config;
 
-// 默认配置 (Safe Defaults)
-let config = {
-    port: 8082,
-    timeout: 30,
-    session: {
-        secret: "change-this-secret-in-prod-" + Date.now(),
-        name: "proxySession",
-        resave: false,
-        saveUninitialized: false,
-        cookie: { maxAge: 86400000, secure: false, httpOnly: true }
-    },
-    accessOrigin: "*",
-    user: "",
-    pwd: "",
-    defaultSkip: "",
-    limiter: {
-        windowMs: 60 * 1000,
-        max: 60,
-        message: "Too many requests, please try again later.",
-        statusCode: 429
-    },
-    blacklist: [] // 支持正则字符串
-};
+// 启动时先保留一份有效默认配置；文件加载失败时继续使用它。
+let config = CONFIG_DEFAULTS;
 
 // 动态中间件引用
 let currentRateLimiter = null;
@@ -142,52 +128,46 @@ let currentRateLimiter = null;
 // 加载配置函数
 function loadConfig() {
     try {
-        if (fs.existsSync(CONFIG_PATH)) {
-            const raw = fs.readFileSync(CONFIG_PATH, "utf8");
-            const parsed = JSON.parse(raw);
+        const loaded = loadConfigFile({
+            configPath: CONFIG_PATH,
+            defaults: CONFIG_DEFAULTS,
+            env: CONFIG_ENV
+        });
+        const nextRateLimiter = buildRateLimiter(loaded.config);
 
-            // 深度合并配置 (简易版)
-            config = {
-                ...config,
-                ...parsed,
-                session: { ...config.session, ...parsed.session },
-                limiter: { ...config.limiter, ...parsed.limiter }
-            };
+        // 只有解析、Schema 和中间件创建全部成功后才原子替换。
+        config = loaded.config;
+        currentRateLimiter = nextRateLimiter;
 
-            // ⚡ 触发热更新：重新生成依赖配置的中间件
-            reloadMiddleware();
-
-            console.log(`[Config] ✅ Configuration loaded. Timeout: ${config.timeout}s`);
-        } else {
-            console.warn("[Config] ⚠️ Config file not found, using defaults.");
+        for (const warning of loaded.warnings) {
+            console.warn(`[Config] ⚠️ ${warning.message}`);
         }
+        if (loaded.source === "defaults") {
+            console.warn("[Config] ⚠️ Config file not found, using defaults.");
+        } else {
+            console.log(`[Config] ✅ Configuration loaded. Timeout: ${config.timeoutMs}ms`);
+        }
+        console.log("[System] 🔄 RateLimiter reloaded dynamically.");
+        return { ok: true, config, warnings: loaded.warnings };
     } catch (err) {
-        console.error("[Config] ❌ Error loading config:", err.message);
-        // 出错时不覆盖旧配置，保持服务可用
+        console.error(`[Config] ❌ Error loading config (${err.code || "CONFIG_UNKNOWN"}):`, err.message);
+        return { ok: false, config, error: err };
     }
 }
 
-// ---------------------------
-// 代理事件处理 (Handlers) - 必须在 reloadMiddleware 之前定义
-// ---------------------------
-
-
-// 重建中间件实例 (热更新核心)
-function reloadMiddleware() {
-    // 1. 更新 Rate Limiter
-    currentRateLimiter = rateLimit({
-        windowMs: config.limiter.windowMs,
-        max: config.limiter.max,
+// 创建可原子替换的动态限流器。
+function buildRateLimiter(nextConfig) {
+    return rateLimit({
+        windowMs: nextConfig.limiter.windowMs,
+        max: nextConfig.limiter.max,
         standardHeaders: true,
         legacyHeaders: false,
         // 移除自定义 keyGenerator，利用 app.set('trust proxy') 正确识别 IP
         handler: (req, res) => {
             console.warn(`[RateLimit] ⛔ Blocked request from ${req.ip}`);
-            res.status(config.limiter.statusCode).send(config.limiter.message);
+            res.status(nextConfig.limiter.statusCode).send(nextConfig.limiter.message);
         }
     });
-
-    console.log("[System] 🔄 RateLimiter reloaded dynamically.");
 }
 
 // ---------------------------
@@ -195,13 +175,18 @@ function reloadMiddleware() {
 // ---------------------------
 const app = express();
 
+// 先加载配置，再初始化只在启动时读取配置的 Express/Session 选项。
+const initialLoad = loadConfig();
+if (!initialLoad.ok) {
+    currentRateLimiter = buildRateLimiter(config);
+    console.warn("[Config] ⚠️ Invalid startup configuration; continuing with validated defaults.");
+}
+
 // 信任反向代理 (Nginx/Cloudflare 等前置时必须开启)
 // 'loopback' 仅信任本机，'linklocal' 信任本地网络，数字代表代理层数
 // 如果您直接暴露在公网，请设为 false；如果在 Nginx 后，设为 1
-app.set('trust proxy', 1);
+app.set('trust proxy', config.trustProxy);
 
-// 初始化加载
-loadConfig();
 const configWatcher = options.watchConfig === false
     ? null
     : chokidar.watch(CONFIG_PATH).on("change", () => {
@@ -222,25 +207,46 @@ app.use((req, res, next) => {
 
 // Session 配置
 // ⚠️ 生产环境建议替换为 RedisStore，避免内存泄漏
+const {
+    maxAgeMs,
+    secure,
+    httpOnly,
+    sameSite,
+    ...sessionOptions
+} = config.session;
 app.use(session({
-    ...config.session,
+    ...sessionOptions,
+    cookie: { maxAge: maxAgeMs, secure, httpOnly, sameSite }
     // store: new RedisStore({ client: redisClient }), // Example for Prod
 }));
 
-// CORS 安全配置
-app.use((req, res, next) => {
+function resolveCorsOrigin(req) {
     const clientOrigin = req.headers.origin || req.headers.referer;
-    let allowOrigin = config.accessOrigin;
+    const allowedOrigins = config.cors.allowedOrigins;
+    const configuredOrigin = allowedOrigins[0] || "*";
 
-    // 只有在配置允许所有时，才反射 Origin 以支持 Credentials
-    if (config.accessOrigin === "*" && clientOrigin) {
+    if (allowedOrigins.includes("*") && clientOrigin) {
         try {
-            allowOrigin = new URL(clientOrigin).origin;
-        } catch (e) { /* Ignore invalid origin */ }
+            return new URL(clientOrigin).origin;
+        } catch { /* Preserve the configured fallback for invalid input. */ }
     }
 
-    res.setHeader("Access-Control-Allow-Origin", allowOrigin || "*");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
+    if (clientOrigin) {
+        try {
+            const normalized = new URL(clientOrigin).origin;
+            if (allowedOrigins.includes(normalized)) return normalized;
+        } catch { /* Preserve baseline behavior until the CORS security stage. */ }
+    }
+
+    return configuredOrigin;
+}
+
+// CORS 安全配置
+app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", resolveCorsOrigin(req));
+    if (config.cors.allowCredentials) {
+        res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
     res.setHeader("Access-Control-Expose-Headers", "*"); // 允许前端获取所有响应头
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", req.headers["access-control-request-headers"] || "content-type, authorization");
@@ -418,9 +424,9 @@ app.use("/", async (req, res, next) => {
             data: (proxyMethod === 'GET' || proxyMethod === 'HEAD') ? undefined : req, // 流式透传请求体
             responseType: 'stream', // 关键：流式响应
             decompress: false, // 禁止 axios 自动解压，透传原始压缩数据（防止 Content-Length 不匹配导致截断）
-            maxRedirects: config.max_redirects || 5, // 开启自动重定向
+            maxRedirects: config.api.followRedirects ? config.api.maxRedirects : 0,
             validateStatus: null, // 允许所有状态码
-            timeout: config.timeout * 1000 // 配置文件单位为秒，Axios 需要毫秒
+            timeout: config.timeoutMs
         });
 
         // 3. [Redirect Sync] 检测 URL 变化
@@ -447,13 +453,10 @@ app.use("/", async (req, res, next) => {
         });
 
         // CORS & Security Headers (Ensure these are set)
-        const clientOrigin = req.headers.origin || req.headers.referer;
-        let allowOrigin = config.accessOrigin;
-        if (config.accessOrigin === "*" && clientOrigin) {
-            try { allowOrigin = new URL(clientOrigin).origin; } catch (e) { }
+        res.setHeader("Access-Control-Allow-Origin", resolveCorsOrigin(req));
+        if (config.cors.allowCredentials) {
+            res.setHeader("Access-Control-Allow-Credentials", "true");
         }
-        res.setHeader("Access-Control-Allow-Origin", allowOrigin || "*");
-        res.setHeader("Access-Control-Allow-Credentials", "true");
         // 动态设置 Exposed Headers，因为 Credentials=true 时不能用 *
         const exposedHeaders = Object.keys(response.headers).join(", ");
         res.setHeader("Access-Control-Expose-Headers", exposedHeaders);

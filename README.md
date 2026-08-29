@@ -98,17 +98,18 @@ npm run build
 | 字段 | 单位/含义 | 是否可热加载 |
 | --- | --- | --- |
 | `port` | 监听端口 | 否，需重启 |
-| `timeout` | 上游请求超时，秒 | 是 |
+| `trustProxy` | Express 信任代理策略；模板默认 `false` | 否，需重启 |
+| `timeoutMs` | 上游请求超时，毫秒 | 是 |
 | `user` / `pwd` | 代理自身 Basic Auth；两者均非空时启用 | 是 |
-| `accessOrigin` | CORS 来源 | 是 |
+| `cors.allowedOrigins` | 允许的浏览器 Origin 数组 | 是 |
 | `session.secret` | Session 签名密钥 | 否，需重启 |
-| `session.cookie.maxAge` | Cookie 生命周期，毫秒 | 否，需重启 |
+| `session.maxAgeMs` | Cookie 生命周期，毫秒 | 否，需重启 |
 | `limiter.windowMs` | 限流窗口，毫秒 | 是 |
 | `limiter.max` | 每个窗口的请求数 | 是 |
 | `blacklist` | 被拼接为正则表达式的字符串列表 | 是 |
-| `max_redirects` | Axios 自动重定向上限 | 是 |
+| `api.maxRedirects` | Axios 自动重定向上限 | 是 |
 
-`backend/nodejs/main.json` 中若仍使用 `cookie_max_age`、`cookie_secure`、`cookie_httponly` 等旧字段，当前代码不会把它们映射到 `session.cookie`；请按示例文件改为嵌套格式。
+旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins` 与 `api.maxRedirects`。迁移会记录弃用警告，建议按模板尽快更新。
 
 ## 当前安全边界
 
@@ -116,8 +117,8 @@ npm run build
 - Axios 自动跟随重定向，跳转后的每一跳尚未重新执行目标校验。
 - 代理自身 Basic Auth 和上游 `Authorization` 仍共用请求头路径，代理凭据可能被转发到目标站点。
 - `headers` 查询参数、分享链接、请求日志和浏览器历史可能包含 Token。不要在当前版本中使用真实生产凭据。
-- `accessOrigin: "*"` 会反射请求 Origin 并允许 Credentials，不应作为公网配置。
-- `trust proxy` 当前硬编码为 `1`；实际代理层数不同会影响客户端 IP 与限流判断。
+- `cors.allowedOrigins: ["*"]` 会反射请求 Origin 并允许 Credentials，不应作为公网配置。
+- `trustProxy` 已可配置，但旧配置与内置默认值仍为 `1` 以保持兼容；新模板默认 `false`。部署拓扑不匹配仍会影响客户端 IP 与限流判断。
 - Session 使用进程内存存储，不适合多实例或长期生产运行。
 
 这些问题已作为 vNext P0 阻塞项记录。更详细的运行方式与限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。

@@ -13,7 +13,7 @@
     "test": "node --test --test-concurrency=1",
     "test:unit": "node --test --test-concurrency=1 tests/unit/*.test.js",
     "test:integration": "node --test --test-concurrency=1 tests/integration/*.test.js",
-    "lint": "node --check main.js && node --check app.js && node --check tests/fixtures/upstream-server.js && node --check tests/helpers/fixture-dns-preload.js && node --check tests/helpers/proxy-process.js"
+    "lint": "node --check main.js && node --check app.js && node --check config/defaults.js && node --check config/schema.js && node --check config/loader.js && node --check tests/fixtures/upstream-server.js && node --check tests/helpers/fixture-dns-preload.js && node --check tests/helpers/proxy-process.js"
   },
   "dependencies": {
     "axios": "^1.7.9",
@@ -23,6 +23,7 @@
     "express-rate-limit": "^7.5.0",
     "express-session": "^1.18.1",
     "ipaddr.js": "^2.2.0",
-    "winston": "^3.17.0"
+    "winston": "^3.17.0",
+    "zod": "^4.4.3"
   }
 }

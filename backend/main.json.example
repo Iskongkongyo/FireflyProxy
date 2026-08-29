@@ -1,16 +1,23 @@
 {
   "port": 8082,
-  "timeout": 30,
+  "trustProxy": false,
+  "timeoutMs": 30000,
   "user": "",
   "pwd": "",
-  "accessOrigin": "*",
   "defaultSkip": "",
   "session": {
     "secret": "please-change-this-secret-in-production",
     "name": "proxySession",
     "resave": false,
     "saveUninitialized": false,
-    "cookie": { "maxAge": 86400000, "secure": false, "httpOnly": true }
+    "maxAgeMs": 86400000,
+    "secure": false,
+    "httpOnly": true,
+    "sameSite": "lax"
+  },
+  "cors": {
+    "allowedOrigins": ["http://localhost:8080"],
+    "allowCredentials": true
   },
   "limiter": {
     "windowMs": 60000,
@@ -19,5 +26,22 @@
     "statusCode": 429
   },
   "blacklist": [],
-  "max_redirects": 5
+  "security": {
+    "ssrf": true,
+    "allowPrivateNetworks": false,
+    "maxRewriteBytes": 5242880
+  },
+  "api": {
+    "followRedirects": true,
+    "maxRedirects": 5
+  },
+  "browser": {
+    "enabled": false,
+    "maxRedirects": 10,
+    "rewriteHtml": true,
+    "rewriteCss": true,
+    "cookieJar": true,
+    "runtimeBridge": false,
+    "headerPolicy": "compat"
+  }
 }

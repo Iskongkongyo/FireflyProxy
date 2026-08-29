@@ -59,7 +59,8 @@ test("createApp loads an injected config without opening a port", async () => {
 
     try {
         assert.equal(runtime.getConfig().port, 19001);
-        assert.equal(runtime.getConfig().accessOrigin, "http://factory.test");
+        assert.deepEqual(runtime.getConfig().cors.allowedOrigins, ["http://factory.test"]);
+        assert.equal(runtime.getConfig().timeoutMs, 3000);
         assert.equal(typeof runtime.app.listen, "function");
 
         const server = runtime.app.listen(0, "127.0.0.1");

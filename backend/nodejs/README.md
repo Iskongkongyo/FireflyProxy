@@ -41,21 +41,24 @@ npm start
 ```json
 {
   "port": 8082,
-  "timeout": 30,
+  "trustProxy": false,
+  "timeoutMs": 30000,
   "user": "",
   "pwd": "",
-  "accessOrigin": "*",
   "defaultSkip": "",
   "session": {
     "secret": "please-change-this-secret-in-production",
     "name": "proxySession",
     "resave": false,
     "saveUninitialized": false,
-    "cookie": {
-      "maxAge": 86400000,
-      "secure": false,
-      "httpOnly": true
-    }
+    "maxAgeMs": 86400000,
+    "secure": false,
+    "httpOnly": true,
+    "sameSite": "lax"
+  },
+  "cors": {
+    "allowedOrigins": ["http://localhost:8080"],
+    "allowCredentials": true
   },
   "limiter": {
     "windowMs": 60000,
@@ -64,28 +67,51 @@ npm start
     "statusCode": 429
   },
   "blacklist": [],
-  "max_redirects": 5
+  "api": {
+    "followRedirects": true,
+    "maxRedirects": 5
+  }
 }
 ```
+
+完整模板还包含 `security` 和 `browser` 预留段。它们已经进入 Schema，供后续 P0/P1 使用；当前版本尚未根据这些字段启停 SSRF 或 Browser Mode，不能用它们绕过现有安全检查或开启未实现功能。
 
 | 字段 | 类型/单位 | 当前行为 |
 | --- | --- | --- |
 | `port` | Number | 启动时读取；修改后必须重启 |
-| `timeout` | Number，秒 | 每次上游请求读取，可热加载 |
+| `trustProxy` | Boolean/Number/String/String[] | 启动时应用到 Express；修改后必须重启 |
+| `timeoutMs` | Number，毫秒 | 每次上游请求读取，可热加载 |
 | `user` / `pwd` | String | 两者都非空时启用代理自身 Basic Auth |
-| `accessOrigin` | String | CORS 来源；请求时读取 |
+| `cors.allowedOrigins` | String[] | 允许的 HTTP(S) Origin 或 `*`；请求时读取 |
+| `cors.allowCredentials` | Boolean | 是否发送 Credentials CORS 响应头 |
 | `defaultSkip` | String | Session 尚无目标 URL 时的跳转地址 |
 | `session.secret` | String | Session 签名密钥；中间件启动后不会热更新 |
-| `session.cookie.maxAge` | Number，毫秒 | Session Cookie 生命周期；需重启生效 |
-| `session.cookie.secure` | Boolean | 仅 HTTPS 场景设为 `true`；需重启生效 |
+| `session.maxAgeMs` | Number，毫秒 | Session Cookie 生命周期；需重启生效 |
+| `session.secure` | Boolean | 仅 HTTPS 场景设为 `true`；需重启生效 |
+| `session.httpOnly` / `sameSite` | Boolean/String | Session Cookie 属性；需重启生效 |
 | `limiter.windowMs` | Number，毫秒 | 限流窗口；保存配置后重建限流器 |
 | `limiter.max` | Number | 每个窗口允许的请求数 |
 | `blacklist` | String[] | 拼接成正则表达式匹配完整目标 URL |
-| `max_redirects` | Number | Axios 自动跟随重定向的最大次数 |
+| `api.followRedirects` | Boolean | 是否允许 Axios 自动跟随跳转；可热加载 |
+| `api.maxRedirects` | Number | 自动跟随重定向的最大次数；可热加载 |
 
-当前 `backend/nodejs/main.json` 中的 `cookie_max_age`、`cookie_secure`、`cookie_httponly` 不是代码读取的字段，`limiter.windowMs` 也必须使用毫秒。请迁移到上面的嵌套 `session.cookie` 格式。
+### 旧配置迁移
 
-配置文件由 Chokidar 监听。超时、认证、CORS、黑名单、重定向数和限流可以在后续请求中使用新值；监听端口和已经创建的 Session 中间件不能热更新。
+| 旧字段 | 新字段 | 迁移单位 |
+| --- | --- | --- |
+| `timeout` | `timeoutMs` | 秒乘以 1000 |
+| `accessOrigin` | `cors.allowedOrigins` | 字符串转为单元素数组 |
+| `session.cookie.maxAge` | `session.maxAgeMs` | 保持毫秒 |
+| `session.cookie_max_age` | `session.maxAgeMs` | 秒乘以 1000 |
+| `session.cookie_secure` | `session.secure` | 不变 |
+| `session.cookie_httponly` | `session.httpOnly` | 不变 |
+| `max_redirects` | `api.maxRedirects` | 不变 |
+
+若配置包含旧字段且 `limiter.windowMs <= 1000`，迁移器会把它视为旧版秒值并乘以 1000。每次加载旧字段都会输出弃用警告，但现有服务不会因此中断。
+
+字符串支持 `${PROXYWEB_SESSION_SECRET}` 形式的环境变量插值；缺少被引用的变量会拒绝配置。Schema 会拒绝未知字段、错误类型、非法端口、非正数时间和越界 Redirect 数。
+
+配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。超时、认证、CORS、黑名单、API Redirect 和限流可以热加载，端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
 
 ## 请求接口
 
@@ -131,8 +157,8 @@ GET /assets/app.css
 3. **重定向未逐跳校验。** Axios 自动跟随跳转，新的 `Location` 目标不会再次执行 SSRF 检查。
 4. **代理认证可能泄漏。** 代理自身使用标准 `Authorization: Basic ...`，转发头清理又没有移除 `authorization`，因此该凭据可能发送给上游。
 5. **敏感头位于 URL。** `headers` 查询参数会进入访问日志、浏览器历史、剪贴板和分享链接；当前日志还会记录完整请求 URL。
-6. **CORS 过宽。** `accessOrigin: "*"` 会反射客户端 Origin 并同时允许 Credentials，不应直接用于公网。
-7. **`trust proxy` 硬编码为 1。** 部署拓扑不匹配时，客户端 IP 与限流键可能不可信。
+6. **CORS 过宽。** `cors.allowedOrigins: ["*"]` 仍会反射客户端 Origin 并同时允许 Credentials，不应直接用于公网。
+7. **`trust proxy` 需要按部署拓扑设置。** 兼容默认值仍为 `1`；部署拓扑不匹配时，客户端 IP 与限流键可能不可信，新模板已默认关闭。
 8. **黑名单不是域名精确匹配。** 列表内容作为正则拼接，错误或过宽表达式可能误拦截，恶意表达式也可能带来性能问题。
 9. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
 10. **错误响应泄露细节。** 部分 502 响应会把底层错误消息返回客户端。

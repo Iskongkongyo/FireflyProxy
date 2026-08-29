@@ -28,7 +28,7 @@
 | 0.2 | 本地 Fixture 与测试骨架 | 不依赖公网的测试环境 | 0.1 | ✅ |
 | 0.3 | 现有行为契约 | 重构前回归保护 | 0.2 | ✅ |
 | 1.1 | App Factory 与入口拆分 | 可测试的 Express 应用 | 0.3 | ✅ |
-| 1.2 | 配置系统统一 | Schema、单位和迁移明确 | 1.1 | ⬜ |
+| 1.2 | 配置系统统一 | Schema、单位和迁移明确 | 1.1 | ✅ |
 | 1.3 | 日志、Header 与错误基础模块 | 安全模块共用基础设施 | 1.2 | ⬜ |
 | 2.1 | 认证头隔离与日志脱敏 | 先关闭凭据泄漏风险 | 1.3 | ⬜ |
 | 2.2 | CORS 与 trust proxy | 明确浏览器和代理边界 | 1.3 | ⬜ |
@@ -425,4 +425,17 @@
 - 现有 16 项代理契约全部保持通过。
 - 新增 2 项 App Factory 单元测试，验证配置注入、延迟监听与 runtime 隔离。
 
-下一阶段为 1.2 配置系统统一。
+第二轮完成后进入 1.2 配置系统统一。
+
+### 第三轮执行记录
+
+2026-08-29 已完成 1.2：
+
+- 增加 `config/defaults.js`、`config/schema.js`、`config/loader.js` 和 Zod Schema。
+- 运行时统一使用 `timeoutMs`、`session.maxAgeMs`、`limiter.windowMs`。
+- 兼容迁移 `timeout`、`accessOrigin`、旧 Session Cookie 字段与 `max_redirects`。
+- 支持 `${ENV_NAME}` 插值、严格未知字段检查和深度冻结配置。
+- 热更新改为原子替换；JSON、环境变量、Schema 或限流器失败时保留最后有效配置。
+- 配置/Fixture 单元测试 12 项、代理契约 17 项通过，5 项 P0 安全门禁保持 TODO。
+
+下一阶段为 1.3 日志、Header 与统一错误基础模块。

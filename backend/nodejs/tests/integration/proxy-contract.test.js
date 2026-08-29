@@ -187,6 +187,20 @@ test("invalid configuration reload keeps the previous working configuration", as
     }
 });
 
+test("schema-invalid configuration reload is rejected atomically", async () => {
+    const hotProxy = await startProxy();
+    try {
+        const outputIndex = hotProxy.getOutput().length;
+        await hotProxy.updateConfig({ limiter: { max: 0 } });
+        await hotProxy.waitForOutput(/CONFIG_SCHEMA_INVALID/, outputIndex);
+
+        const response = await fetch(`${hotProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`);
+        assert.equal(response.status, 200);
+    } finally {
+        await hotProxy.close();
+    }
+});
+
 test.todo("proxy Basic Auth credentials are removed before forwarding upstream");
 test.todo("domain targets resolving to private addresses are rejected");
 test.todo("every redirect target is revalidated before connecting");
