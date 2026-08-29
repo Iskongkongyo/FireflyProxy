@@ -6,7 +6,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 
 const BACKEND_DIR = path.resolve(__dirname, "..", "..");
-const MAIN_PATH = path.join(BACKEND_DIR, "main.js");
+const TEST_SERVER_PATH = path.join(__dirname, "proxy-server.js");
 const DNS_PRELOAD_PATH = path.join(__dirname, "fixture-dns-preload.js");
 
 function getFreePort() {
@@ -119,7 +119,7 @@ async function startProxy(overrides = {}, options = {}) {
     await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 
     let output = "";
-    const child = spawn(process.execPath, ["--require", DNS_PRELOAD_PATH, MAIN_PATH], {
+    const child = spawn(process.execPath, ["--require", DNS_PRELOAD_PATH, TEST_SERVER_PATH], {
         cwd: tempDir,
         env: {
             ...process.env,

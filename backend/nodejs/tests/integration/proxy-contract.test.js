@@ -513,7 +513,25 @@ test("domain targets with private, mixed, empty or failed DNS results are reject
     }
 });
 test.todo("every redirect target is revalidated before connecting");
-test.todo("validated DNS addresses are pinned to the upstream connection");
+
+test("validated DNS addresses are pinned without a second system lookup", async () => {
+    const pinnedProxy = await startProxy({}, {
+        dnsRecords: {
+            "rebind.test": [{ address: "93.184.216.34", family: 4 }]
+        }
+    });
+    try {
+        const fixturePort = new URL(fixture.origin).port;
+        const target = `http://rebind.test:${fixturePort}/echo`;
+        const response = await fetch(`${pinnedProxy.origin}/?url=${encodeURIComponent(target)}`);
+        const payload = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.equal(payload.headers.host, `rebind.test:${fixturePort}`);
+    } finally {
+        await pinnedProxy.close();
+    }
+});
 
 test("request and error logs redact legacy and dedicated upstream credentials", async () => {
     const logProxy = await startProxy();

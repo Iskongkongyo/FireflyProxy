@@ -3,7 +3,7 @@
 这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。代理支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
 
 > [!WARNING]
-> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是 DNS Pinning 和重定向逐跳校验仍未完成。请先阅读“当前安全限制”。
+> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是重定向逐跳校验等后续 P0 阶段仍未完成。请先阅读“当前安全限制”。
 
 ## 运行结构
 
@@ -12,7 +12,7 @@ main.js
   └── createApp()
         ├── app.js               # Express middleware 与代理路由
         ├── config/              # 默认值、Schema、迁移和加载
-        ├── core/                # Logger/redact、Header 分类与统一错误
+        ├── core/                # DNS/Pinning、Validator、日志、Header 与统一错误
         ├── middleware/          # request ID 与请求日志
         ├── config watcher       # 可由 runtime.close() 关闭
         └── runtime.getConfig()  # 启动端口及当前配置
@@ -177,14 +177,13 @@ GET /assets/app.css
 
 路线图 2.2 已完成严格 CORS 与客户端地址边界：带凭据请求必须命中显式 Origin allowlist，预检方法和请求头会校验；无 Origin 请求不会获得 CORS 响应头。`trustProxy` 默认关闭，限流使用 Express 按显式信任策略计算的 `req.ip`。如部署在 Nginx/Caddy 等反向代理后，必须按实际可信跳数或地址配置，错误配置仍会使日志与限流采用错误的客户端地址。
 
-路线图 2.3–2.4 已完成 URL、字面 IP 与 DNS 结果校验：域名通过可注入 Resolver 执行 `lookup({ all: true, verbatim: true })`，保留全部规范化 A/AAAA；空结果、失败、超时、非法结果，以及任一非公网或混合公网/私网结果都会安全失败。验证后的地址列表保留在请求目标上下文中，供下一阶段连接层使用。
+路线图 2.3–2.5 已完成 URL、字面 IP、DNS 结果校验与连接绑定：域名通过可注入 Resolver 执行 `lookup({ all: true, verbatim: true })`，保留全部规范化 A/AAAA；空结果、失败、超时、非法结果，以及任一非公网或混合公网/私网结果都会安全失败。每个请求创建独立 HTTP/HTTPS Agent，其 `lookup` 只能返回冻结后的验证地址集合；Axios 的环境代理发现被关闭，HTTPS 保持原 hostname、Host、SNI 和 `rejectUnauthorized: true`。平台提供远端 socket 地址时还会再次核对其是否属于验证集合。
 
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
-1. **存在 DNS Rebinding/TOCTOU 风险。** 校验与 Axios 实际建立连接尚未绑定到同一个已验证 IP；恶意域名仍可能在第二次解析时切换地址。
-2. **重定向未逐跳校验。** Axios 自动跟随跳转，新的 `Location` 目标不会再次执行 SSRF 检查。
-3. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
-4. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
+1. **重定向未逐跳校验。** Axios 仍会自动跟随跳转，新的 `Location` 尚未重新执行完整 URL/DNS/Pinning 校验；初始请求的 pinned Agent 不能替代 proxyWeb 自己管理的安全跳转循环。
+2. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
+3. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
 
 配置 `user`/`pwd` 不能消除上述问题。完成 P0 安全测试前，不建议提供公网生产部署步骤。
 
@@ -231,4 +230,4 @@ GET /assets/app.css
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
 
-后端当前 80 项测试通过、2 项 P0 TODO（DNS Pinning 与重定向逐跳验证）、0 项失败；DNS public/private/mixed/空结果/失败/超时、多 A/AAAA、IPv4-mapped IPv6、URL/IP、CORS、代理跳数、认证隔离和凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 87 项测试通过、1 项 P0 TODO（重定向逐跳验证）、0 项失败；DNS public/private/mixed/空结果/失败/超时、多 A/AAAA、IPv4-mapped IPv6、DNS Pinning、远端地址一致性、TLS SNI/严格证书选项、自签名证书拒绝、URL/IP、CORS、代理跳数、认证隔离和凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

@@ -17,6 +17,7 @@ const { createDnsResolver } = require("./core/dnsResolver");
 const { createErrorMiddleware } = require("./core/errors");
 const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
 const { createLogger } = require("./core/logger");
+const { createPinnedConnection } = require("./core/pinnedConnection");
 const { validateTarget } = require("./core/targetValidator");
 const { createProxyAuth } = require("./middleware/auth");
 const { createCorsMiddleware, exposeCorsHeaders } = require("./middleware/cors");
@@ -33,6 +34,7 @@ const { createRequestLogger } = require("./middleware/requestLogger");
  * @param {Object} [options.loggerOptions] logger factory options
  * @param {Function} [options.requestIdFactory] injected request ID factory
  * @param {{resolve: Function}} [options.dnsResolver] injected DNS resolver
+ * @param {Function} [options.connectionFactory] injected pinned connection factory
  * @returns {{app: import('express').Express, logger: import('winston').Logger, getConfig: Function, reloadConfig: Function, close: Function}}
  */
 function createApp(options = {}) {
@@ -42,6 +44,10 @@ const logger = options.logger || createLogger(options.loggerOptions);
 const dnsResolver = options.dnsResolver || createDnsResolver();
 if (!dnsResolver || typeof dnsResolver.resolve !== "function") {
     throw new TypeError("dnsResolver.resolve must be a function");
+}
+const connectionFactory = options.connectionFactory || createPinnedConnection;
+if (typeof connectionFactory !== "function") {
+    throw new TypeError("connectionFactory must be a function");
 }
 
 // ---------------------------
@@ -232,6 +238,14 @@ function getTargetUrl(baseUrl, path) {
     return p ? new URL(baseUrl).origin + "/" + p : baseUrl;
 }
 
+function getResponseRemoteAddress(response) {
+    return response?.data?.socket?.remoteAddress
+        || response?.request?.socket?.remoteAddress
+        || response?.request?._currentRequest?.socket?.remoteAddress
+        || response?.request?.res?.socket?.remoteAddress
+        || null;
+}
+
 // 动态代理 (Axios Manual Proxy)
 app.use("/", async (req, res, next) => {
     const reqUrl = req.validatedTarget?.url || req.session.targetUrl;
@@ -268,18 +282,49 @@ app.use("/", async (req, res, next) => {
 
         logger.info("[Proxy] Method selected", { requestId: req.id, method: proxyMethod });
 
-        // 2. 发起 Axios 请求
-        const response = await axios({
-            method: proxyMethod,
-            url: fullUrl,
-            headers: headers,
-            data: (proxyMethod === 'GET' || proxyMethod === 'HEAD') ? undefined : req, // 流式透传请求体
-            responseType: 'stream', // 关键：流式响应
-            decompress: false, // 禁止 axios 自动解压，透传原始压缩数据（防止 Content-Length 不匹配导致截断）
-            maxRedirects: config.api.followRedirects ? config.api.maxRedirects : 0,
-            validateStatus: null, // 允许所有状态码
-            timeout: config.timeoutMs
-        });
+        // 2. 发起绑定到已验证地址的 Axios 请求
+        const connection = connectionFactory(target);
+        if (
+            !connection
+            || !connection.httpAgent
+            || !connection.httpsAgent
+            || typeof connection.assertRemoteAddress !== "function"
+            || typeof connection.destroy !== "function"
+        ) {
+            throw new TypeError("connectionFactory returned an invalid pinned connection");
+        }
+
+        let response;
+        try {
+            response = await axios({
+                method: proxyMethod,
+                url: fullUrl,
+                headers: headers,
+                data: (proxyMethod === 'GET' || proxyMethod === 'HEAD') ? undefined : req, // 流式透传请求体
+                responseType: 'stream', // 关键：流式响应
+                decompress: false, // 禁止 axios 自动解压，透传原始压缩数据（防止 Content-Length 不匹配导致截断）
+                maxRedirects: config.api.followRedirects ? config.api.maxRedirects : 0,
+                validateStatus: null, // 允许所有状态码
+                timeout: config.timeoutMs,
+                proxy: false,
+                httpAgent: connection.httpAgent,
+                httpsAgent: connection.httpsAgent
+            });
+            connection.assertRemoteAddress(getResponseRemoteAddress(response));
+        } catch (error) {
+            connection.destroy();
+            throw error;
+        }
+
+        let connectionReleased = false;
+        const releaseConnection = () => {
+            if (connectionReleased) return;
+            connectionReleased = true;
+            connection.destroy();
+        };
+        response.data.once("end", releaseConnection);
+        response.data.once("error", releaseConnection);
+        res.once("close", releaseConnection);
 
         // 3. [Redirect Sync] 检测 URL 变化
         const finalUrl = response.request.res.responseUrl;

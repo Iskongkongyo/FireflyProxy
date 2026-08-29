@@ -34,7 +34,7 @@
 | 2.2 | CORS 与 trust proxy | 明确浏览器和代理边界 | 1.3 | ✅ |
 | 2.3 | URL/IP Validator | 统一目标基础校验 | 1.3 | ✅ |
 | 2.4 | DNS SSRF 校验 | 域名全部解析结果受控 | 2.3 | ✅ |
-| 2.5 | DNS Pinning | 校验 IP 与连接 IP 一致 | 2.4 | ⬜ |
+| 2.5 | DNS Pinning | 校验 IP 与连接 IP 一致 | 2.4 | ✅ |
 | 2.6 | 安全 Redirect Loop | 每一跳重新校验 | 2.5 | ⬜ |
 | 2.7 | 进程策略与资源限制 | 错误可控、资源有界 | 2.1–2.6 | ⬜ |
 | 2.8 | P0 集成门禁 | P0 Definition of Done | 2.1–2.7 | ⬜ |
@@ -500,3 +500,16 @@
 - 私网域名 TODO 已转为强制门禁；后端 80 项通过、2 项后续 P0 门禁 TODO（DNS Pinning、Redirect）、0 项失败。
 
 下一阶段为 2.5 DNS Pinning 与连接层。
+
+### 第九轮执行记录
+
+2026-08-29 已完成 2.5：
+
+- 新增 `core/pinnedConnection.js`；每个请求创建独立 HTTP/HTTPS Agent，连接 `lookup` 仅返回 `validateTarget()` 冻结的地址集合，不再进行第二次系统 DNS 查询。
+- lookup 严格绑定原 hostname，支持 IPv4/IPv6 family 与 `all` 语义；hostname 变化或请求不存在的 family 会安全失败。
+- Axios 显式关闭环境代理发现，并注入请求级 Agent；HTTPS 保留原 Host/SNI，显式启用 `rejectUnauthorized: true`。
+- 平台暴露远端 socket 地址时，会规范化 IPv4-mapped IPv6 并再次核对验证集合；不一致返回稳定 SSRF 拒绝。
+- 测试层使用独立连接工厂把公网测试地址映射到本地 Fixture，不在生产配置中加入私网绕过开关；DNS Rebinding/二次解析 TODO 已转为强制门禁。
+- 后端 87 项通过、1 项后续 P0 门禁 TODO（Redirect）、0 项失败；覆盖多地址/family、hostname 变化、远端地址不一致、TLS SNI/严格证书选项与自签名证书拒绝。
+
+下一阶段为 2.6 安全 Redirect Loop。
