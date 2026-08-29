@@ -11,6 +11,9 @@
 main.js
   └── createApp()
         ├── app.js               # Express middleware 与代理路由
+        ├── config/              # 默认值、Schema、迁移和加载
+        ├── core/                # Logger/redact、Header 分类与统一错误
+        ├── middleware/          # request ID 与请求日志
         ├── config watcher       # 可由 runtime.close() 关闭
         └── runtime.getConfig()  # 启动端口及当前配置
 ```
@@ -125,7 +128,21 @@ ANY /?url=<percent-encoded-target>&headers=<percent-encoded-json>&method=<option
 - 未提供 `method` 时使用客户端实际 HTTP 方法；提供时只接受 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS。
 - 非 GET/HEAD 请求体以流的方式转发。
 - `headers` 是兼容旧前端的 JSON 对象；解析失败时只记录警告并继续请求。
+- 入站和自定义 Header 合并后会统一移除 hop-by-hop、`Proxy-Authorization` 及其 `Connection` 扩展字段。普通 `Authorization` 仍会作为上游认证头保留；代理自身认证隔离将在 2.1 完成。
 - 上游状态码和大多数响应头会透传，响应体以流方式管道输出。
+
+每个请求都会获得服务端生成的 request ID，并通过 `X-Request-ID` 响应头返回。代理自身产生的 JSON 错误使用稳定格式：
+
+```json
+{
+  "error": {
+    "code": "PROXY_UPSTREAM_ERROR",
+    "message": "Upstream request failed"
+  }
+}
+```
+
+底层异常、Stack、内部文件路径和网络地址只进入脱敏后的服务端错误日志，不放入该响应。
 
 示例中的查询值必须进行 URL 编码：
 
@@ -156,12 +173,11 @@ GET /assets/app.css
 2. **存在 DNS Rebinding/TOCTOU 风险。** 校验与 Axios 实际建立连接没有绑定到同一个已验证 IP。
 3. **重定向未逐跳校验。** Axios 自动跟随跳转，新的 `Location` 目标不会再次执行 SSRF 检查。
 4. **代理认证可能泄漏。** 代理自身使用标准 `Authorization: Basic ...`，转发头清理又没有移除 `authorization`，因此该凭据可能发送给上游。
-5. **敏感头位于 URL。** `headers` 查询参数会进入访问日志、浏览器历史、剪贴板和分享链接；当前日志还会记录完整请求 URL。
+5. **敏感头仍位于 URL。** 服务端请求日志会脱敏 `headers` 和常见凭据字段，但查询参数仍会进入浏览器历史、剪贴板和分享链接；前端迁移到安全 Header 通道前不要使用真实生产凭据。
 6. **CORS 过宽。** `cors.allowedOrigins: ["*"]` 仍会反射客户端 Origin 并同时允许 Credentials，不应直接用于公网。
 7. **`trust proxy` 需要按部署拓扑设置。** 兼容默认值仍为 `1`；部署拓扑不匹配时，客户端 IP 与限流键可能不可信，新模板已默认关闭。
 8. **黑名单不是域名精确匹配。** 列表内容作为正则拼接，错误或过宽表达式可能误拦截，恶意表达式也可能带来性能问题。
 9. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
-10. **错误响应泄露细节。** 部分 502 响应会把底层错误消息返回客户端。
 
 配置 `user`/`pwd` 不能消除上述问题。完成 P0 安全测试前，不建议提供公网生产部署步骤。
 
@@ -180,7 +196,9 @@ GET /assets/app.css
 
 - `run.log`：info/warn。
 - `error.log`：error。
-- 控制台：彩色运行日志。
+- 控制台：与文件一致的结构化文本日志。
+
+应用不再覆写全局 `console`；`core/logger.js` 统一创建 Winston Logger。每条请求日志包含 request ID，并在写入任何 transport 前递归脱敏 Authorization、Cookie、Token、密码、Secret、API Key 和 `headers` 查询参数。该基础能力已经启用，但 2.1 仍需完成代理认证隔离和前端凭据迁移，届时才会把端到端日志用例转为 P0 强制门禁。
 
 常见检查：
 
@@ -188,7 +206,7 @@ GET /assets/app.css
 - 限流异常频繁：确认 `limiter.windowMs` 使用毫秒，不要写成 `60` 表示一分钟。
 - 修改端口或 Session 配置没有生效：这两类配置需要重启。
 - 前端 `/web/` 返回错误：确认已部署 `webPro/index.html` 以及其静态资源。
-- 403 `Invalid Target URL or Local IP`：目标是非法 URL、localhost、字面私网 IP 或命中了黑名单。
+- 403 `PROXY_INVALID_URL`：目标是非法 URL、localhost、字面私网 IP 或命中了黑名单。
 
 ## 开发与测试
 
@@ -201,6 +219,6 @@ GET /assets/app.css
 | `npm run test:integration` | 运行当前代理行为契约测试 |
 | `npm run lint` | 检查生产入口与测试辅助脚本语法 |
 
-测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
+测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
 
-DNS SSRF、重定向逐跳验证、代理认证头隔离、CORS 收紧和日志脱敏已登记为 P0 TODO 测试；在对应安全阶段实现前不会被误标为通过。2026-08-28 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+DNS SSRF、重定向逐跳验证、代理认证头隔离、CORS 收紧和端到端凭据日志门禁已登记为 P0 TODO 测试；在对应安全阶段实现前不会被误标为通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

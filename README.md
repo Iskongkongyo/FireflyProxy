@@ -30,6 +30,9 @@ proxyWeb/
 │   └── nodejs/
 │       ├── main.js              # 进程启动与关闭入口
 │       ├── app.js               # Express App Factory 与当前代理逻辑
+│       ├── config/              # 默认值、Schema 与配置加载
+│       ├── core/                # 日志脱敏、Header 与错误基础模块
+│       ├── middleware/          # 请求日志等 Express 中间件
 │       ├── main.json            # 当前本地配置
 │       └── README.md            # 后端说明
 ├── vue-request-app/             # Vue 3 前端
@@ -116,7 +119,7 @@ npm run build
 - 只会拦截 URL 中直接出现的 localhost 和非公网 IP；域名解析结果尚未校验，存在 DNS SSRF / DNS Rebinding 风险。
 - Axios 自动跟随重定向，跳转后的每一跳尚未重新执行目标校验。
 - 代理自身 Basic Auth 和上游 `Authorization` 仍共用请求头路径，代理凭据可能被转发到目标站点。
-- `headers` 查询参数、分享链接、请求日志和浏览器历史可能包含 Token。不要在当前版本中使用真实生产凭据。
+- `headers` 查询参数、分享链接和浏览器历史仍可能包含 Token；服务端日志已进行基础脱敏，但前端安全 Header 通道要到 2.1 完成。不要在当前版本中使用真实生产凭据。
 - `cors.allowedOrigins: ["*"]` 会反射请求 Origin 并允许 Credentials，不应作为公网配置。
 - `trustProxy` 已可配置，但旧配置与内置默认值仍为 `1` 以保持兼容；新模板默认 `false`。部署拓扑不匹配仍会影响客户端 IP 与限流判断。
 - Session 使用进程内存存储，不适合多实例或长期生产运行。

@@ -55,7 +55,11 @@ function closeServer(server) {
 
 test("createApp loads an injected config without opening a port", async () => {
     const { tempDir, configPath } = await createConfigFile(19001);
-    const runtime = createApp({ configPath, watchConfig: false });
+    const runtime = createApp({
+        configPath,
+        watchConfig: false,
+        requestIdFactory: () => "factory-request-id"
+    });
 
     try {
         assert.equal(runtime.getConfig().port, 19001);
@@ -75,6 +79,7 @@ test("createApp loads an injected config without opening a port", async () => {
                 headers: { origin: "http://factory.test" }
             });
             assert.equal(response.status, 204);
+            assert.equal(response.headers.get("x-request-id"), "factory-request-id");
         } finally {
             await closeServer(server);
         }

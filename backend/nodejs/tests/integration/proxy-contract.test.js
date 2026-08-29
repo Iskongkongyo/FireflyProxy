@@ -201,6 +201,35 @@ test("schema-invalid configuration reload is rejected atomically", async () => {
     }
 });
 
+test("invalid targets use the stable public error envelope", async () => {
+    const response = await fetch(`${proxy.origin}/?url=${encodeURIComponent("not-a-url")}`);
+    const payload = await response.json();
+
+    assert.equal(response.status, 403);
+    assert.match(response.headers.get("x-request-id"), /^[0-9a-f-]{36}$/);
+    assert.deepEqual(payload, {
+        error: {
+            code: "PROXY_INVALID_URL",
+            message: "Target URL is invalid or blocked"
+        }
+    });
+});
+
+test("upstream connection failures do not expose internal network details", async () => {
+    const target = "http://fixture.test:1/unavailable";
+    const response = await fetch(`${proxy.origin}/?url=${encodeURIComponent(target)}`);
+    const text = await response.text();
+
+    assert.equal(response.status, 502);
+    assert.deepEqual(JSON.parse(text), {
+        error: {
+            code: "PROXY_UPSTREAM_ERROR",
+            message: "Upstream request failed"
+        }
+    });
+    assert.doesNotMatch(text, /ECONNREFUSED|127\.0\.0\.1|node_modules|app\.js/);
+});
+
 test.todo("proxy Basic Auth credentials are removed before forwarding upstream");
 test.todo("domain targets resolving to private addresses are rejected");
 test.todo("every redirect target is revalidated before connecting");

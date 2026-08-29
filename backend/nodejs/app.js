@@ -14,88 +14,12 @@ const session = require("express-session");
 const basicAuth = require("basic-auth");
 const net = require("net");
 const ipaddr = require("ipaddr.js"); // 必须安装
-const winston = require("winston");
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
-
-// ---------------------------
-// 日志配置 (Winston Logger)
-// ---------------------------
-const LOG_DIR = __dirname; // 日志文件存放在当前目录
-const runLogPath = path.join(LOG_DIR, "run.log");
-const errorLogPath = path.join(LOG_DIR, "error.log");
-
-// 自定义日志格式
-const logFormat = winston.format.combine(
-    winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-    winston.format.printf(({ timestamp, level, message }) => {
-        return `[${timestamp}] [${level.toUpperCase()}] ${message}`;
-    })
-);
-
-// 创建 logger 实例
-const logger = winston.createLogger({
-    level: "info",
-    format: logFormat,
-    transports: [
-        // run.log: 记录 info 和 warn 级别
-        new winston.transports.File({
-            filename: runLogPath,
-            level: "info", // 最高记录到 warn（包含 info、warn）
-            // 使用 filter 只记录 info 和 warn，排除 error
-            format: winston.format.combine(
-                winston.format((info) => {
-                    return info.level === "error" ? false : info;
-                })(),
-                logFormat
-            )
-        }),
-        // error.log: 只记录 error 级别
-        new winston.transports.File({
-            filename: errorLogPath,
-            level: "error"
-        }),
-        // 控制台输出（带颜色）
-        new winston.transports.Console({
-            format: winston.format.combine(
-                winston.format.colorize(),
-                winston.format.timestamp({ format: "HH:mm:ss" }),
-                winston.format.printf(({ timestamp, level, message }) => {
-                    return `[${timestamp}] ${level}: ${message}`;
-                })
-            )
-        })
-    ]
-});
-
-// 重写 console 方法，使用 winston 记录
-const originalConsoleLog = console.log;
-const originalConsoleWarn = console.warn;
-const originalConsoleError = console.error;
-
-console.log = (...args) => {
-    const message = args.map(arg =>
-        typeof arg === "object" ? JSON.stringify(arg, null, 2) : String(arg)
-    ).join(" ");
-    logger.info(message);
-};
-
-console.warn = (...args) => {
-    const message = args.map(arg =>
-        typeof arg === "object" ? JSON.stringify(arg, null, 2) : String(arg)
-    ).join(" ");
-    logger.warn(message);
-};
-
-console.error = (...args) => {
-    const message = args.map(arg => {
-        if (arg instanceof Error) {
-            return arg.stack || arg.message;
-        }
-        return typeof arg === "object" ? JSON.stringify(arg, null, 2) : String(arg);
-    }).join(" ");
-    logger.error(message);
-};
+const { ERROR_CODES, ProxyError, createErrorMiddleware } = require("./core/errors");
+const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
+const { createLogger } = require("./core/logger");
+const { createRequestLogger } = require("./middleware/requestLogger");
 
 /**
  * Create an isolated Express application runtime.
@@ -104,9 +28,15 @@ console.error = (...args) => {
  * @param {string} [options.configPath] configuration path, resolved from cwd by default
  * @param {boolean} [options.watchConfig=true] watch configuration changes
  * @param {NodeJS.ProcessEnv|Object} [options.env] environment source for interpolation
- * @returns {{app: import('express').Express, getConfig: Function, reloadConfig: Function, close: Function}}
+ * @param {import('winston').Logger} [options.logger] injected logger
+ * @param {Object} [options.loggerOptions] logger factory options
+ * @param {Function} [options.requestIdFactory] injected request ID factory
+ * @returns {{app: import('express').Express, logger: import('winston').Logger, getConfig: Function, reloadConfig: Function, close: Function}}
  */
 function createApp(options = {}) {
+
+const ownsLogger = !options.logger;
+const logger = options.logger || createLogger(options.loggerOptions);
 
 // ---------------------------
 // 1. 全局配置与热更新状态
@@ -140,17 +70,20 @@ function loadConfig() {
         currentRateLimiter = nextRateLimiter;
 
         for (const warning of loaded.warnings) {
-            console.warn(`[Config] ⚠️ ${warning.message}`);
+            logger.warn(`[Config] ${warning.message}`);
         }
         if (loaded.source === "defaults") {
-            console.warn("[Config] ⚠️ Config file not found, using defaults.");
+            logger.warn("[Config] Config file not found, using defaults.");
         } else {
-            console.log(`[Config] ✅ Configuration loaded. Timeout: ${config.timeoutMs}ms`);
+            logger.info(`[Config] Configuration loaded. Timeout: ${config.timeoutMs}ms`);
         }
-        console.log("[System] 🔄 RateLimiter reloaded dynamically.");
+        logger.info("[System] RateLimiter reloaded dynamically.");
         return { ok: true, config, warnings: loaded.warnings };
     } catch (err) {
-        console.error(`[Config] ❌ Error loading config (${err.code || "CONFIG_UNKNOWN"}):`, err.message);
+        logger.error("[Config] Error loading config", {
+            code: err.code || "CONFIG_UNKNOWN",
+            error: err
+        });
         return { ok: false, config, error: err };
     }
 }
@@ -164,7 +97,7 @@ function buildRateLimiter(nextConfig) {
         legacyHeaders: false,
         // 移除自定义 keyGenerator，利用 app.set('trust proxy') 正确识别 IP
         handler: (req, res) => {
-            console.warn(`[RateLimit] ⛔ Blocked request from ${req.ip}`);
+            logger.warn("[RateLimit] Blocked request", { requestId: req.id, ip: req.ip });
             res.status(nextConfig.limiter.statusCode).send(nextConfig.limiter.message);
         }
     });
@@ -179,7 +112,7 @@ const app = express();
 const initialLoad = loadConfig();
 if (!initialLoad.ok) {
     currentRateLimiter = buildRateLimiter(config);
-    console.warn("[Config] ⚠️ Invalid startup configuration; continuing with validated defaults.");
+    logger.warn("[Config] Invalid startup configuration; continuing with validated defaults.");
 }
 
 // 信任反向代理 (Nginx/Cloudflare 等前置时必须开启)
@@ -190,7 +123,7 @@ app.set('trust proxy', config.trustProxy);
 const configWatcher = options.watchConfig === false
     ? null
     : chokidar.watch(CONFIG_PATH).on("change", () => {
-        console.log("[Config] 📝 File changed, reloading...");
+        logger.info("[Config] File changed, reloading...");
         loadConfig();
     });
 
@@ -198,12 +131,7 @@ const configWatcher = options.watchConfig === false
 // 3. 基础中间件
 // ---------------------------
 
-// 全局日志
-app.use((req, res, next) => {
-    if (req.url.includes("favicon.ico")) return next();
-    console.log(`\n[Request] ➡️ ${req.method} ${req.url} | IP: ${req.ip}`);
-    next();
-});
+app.use(createRequestLogger({ logger, requestIdFactory: options.requestIdFactory }));
 
 // Session 配置
 // ⚠️ 生产环境建议替换为 RedisStore，避免内存泄漏
@@ -261,7 +189,7 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
     // 默认拒绝策略：如果未配置账号密码，建议打印警告或直接拒绝（此处逻辑保持原样，若未配置则放行，但加了日志）
     if (!config.user || !config.pwd) {
-        console.warn("[Auth] ⚠️ No Basic Auth configured. Service is open!");
+        logger.warn("[Auth] No Basic Auth configured. Service is open!", { requestId: req.id });
         return next();
     }
 
@@ -288,7 +216,7 @@ function isSafeTarget(urlStr) {
         if (config.blacklist && config.blacklist.length > 0) {
             const pattern = new RegExp(config.blacklist.join("|"), "i");
             if (pattern.test(urlStr)) {
-                console.warn(`[Security] 🛡️ Blocked by blacklist: ${urlStr}`);
+                logger.warn("[Security] Blocked by blacklist", { targetUrl: urlStr });
                 return false;
             }
         }
@@ -305,14 +233,14 @@ function isSafeTarget(urlStr) {
             const range = ipaddr.parse(hostname).range();
             // 拒绝 private (内网), loopback (环回), uniqueLocal (IPv6内网) 等
             if (range !== 'unicast') {
-                console.warn(`[Security] 🛡️ Blocked Private/Local IP: ${hostname} (${range})`);
+                logger.warn("[Security] Blocked Private/Local IP", { hostname, range });
                 return false;
             }
         }
 
         return true;
     } catch (e) {
-        console.error(`[Security] Invalid URL: ${urlStr}`);
+        logger.warn("[Security] Invalid URL", { targetUrl: urlStr, error: e });
         return false;
     }
 }
@@ -327,12 +255,14 @@ app.use(async (req, res, next) => {
     if (req.query.url) {
         const newUrl = req.query.url;
         if (isSafeTarget(newUrl)) {
-            console.log(`[Session] 🎯 Target updated: ${newUrl}`);
+            logger.info("[Session] Target updated", { requestId: req.id, targetUrl: newUrl });
             req.session.targetUrl = newUrl;
             // 设置完 URL 后重定向移除 query 参数，直接代理req.session.targetUrl
             //return res.redirect("/");
         } else {
-            return res.status(403).send("Forbidden: Invalid Target URL or Local IP Access Denied.");
+            return next(new ProxyError(ERROR_CODES.INVALID_URL, "Target URL is invalid or blocked", {
+                statusCode: 403
+            }));
         }
     }
 
@@ -386,35 +316,26 @@ app.use("/", async (req, res, next) => {
     // 计算最终代理 URL
     const fullUrl = req.query.url ? reqUrl : getTargetUrl(req.session.targetUrl, req.originalUrl);
 
-    console.log('[Debug] Proxy request - fullUrl:', fullUrl);
+    logger.info("[Proxy] Dispatching request", { requestId: req.id, targetUrl: fullUrl });
 
     try {
         // 1. 准备请求头
-        const headers = { ...req.headers };
-        // 移除 hop-by-hop headers
-        const hopByHopHeaders = [
-            'host', 'origin', 'referer', 'connection', 'keep-alive',
-            'proxy-authenticate', 'proxy-authorization', 'te', 'trailers',
-            'transfer-encoding', 'upgrade', 'cookie' // axios 自动处理 cookie? 通常我们希望透传，但需要注意 host 变化
-        ];
-        hopByHopHeaders.forEach(h => delete headers[h]);
-
-        // 注入自定义 headers
+        let customHeaders = {};
         if (req.query.headers) {
             try {
-                const custom = JSON.parse(req.query.headers);
-                Object.assign(headers, custom);
+                customHeaders = JSON.parse(req.query.headers);
             } catch (e) {
-                console.warn("[Proxy] Failed to parse custom headers JSON");
+                logger.warn("[Proxy] Failed to parse custom headers JSON", { requestId: req.id });
             }
         }
+        const headers = buildUpstreamRequestHeaders(req.headers, customHeaders);
 
         // 解析请求方法：优先使用查询字符串 ?method=XXX，否则使用前端实际请求方法
         const VALID_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
         const methodParam = (req.query.method || "").toUpperCase();
         const proxyMethod = VALID_METHODS.includes(methodParam) ? methodParam : req.method;
 
-        console.log(`[Debug] Using method: ${proxyMethod}`);
+        logger.info("[Proxy] Method selected", { requestId: req.id, method: proxyMethod });
 
         // 2. 发起 Axios 请求
         const response = await axios({
@@ -432,24 +353,23 @@ app.use("/", async (req, res, next) => {
         // 3. [Redirect Sync] 检测 URL 变化
         const finalUrl = response.request.res.responseUrl;
         if (finalUrl && finalUrl !== fullUrl) {
-            console.log(`[Session] 🔀 Redirect detected. Updating target: ${req.session.targetUrl} -> ${finalUrl}`);
+            logger.info("[Session] Redirect detected; updating target", {
+                requestId: req.id,
+                previousTargetUrl: req.session.targetUrl,
+                targetUrl: finalUrl
+            });
             req.session.targetUrl = finalUrl;
         }
 
         // 4. 设置响应头
-        const unsafeResponseHeaders = [
-            'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
-            'te', 'trailers', 'transfer-encoding', 'upgrade', 'content-length'
-        ];
         // 注意：Content-Length 通常由 Node.js 重新计算（如果流式传输）或者我们透传数据且 decompress:false 时可能可以保留，
         // 但如果 Transfer-Encoding 是 chunked，则不应有 Content-Length。
         // 为了安全起见，对于流式管道转发，最好移除 upstream 的 Content-Length 和 Transfer-Encoding，
         // 让 Node.js 自动管理（Node.js 会自动添加 Transfer-Encoding: chunked）。
 
-        Object.entries(response.headers).forEach(([key, value]) => {
-            if (!unsafeResponseHeaders.includes(key.toLowerCase())) {
-                res.setHeader(key, value);
-            }
+        const responseHeaders = filterUpstreamResponseHeaders(response.headers);
+        Object.entries(responseHeaders).forEach(([key, value]) => {
+            res.setHeader(key, value);
         });
 
         // CORS & Security Headers (Ensure these are set)
@@ -458,7 +378,7 @@ app.use("/", async (req, res, next) => {
             res.setHeader("Access-Control-Allow-Credentials", "true");
         }
         // 动态设置 Exposed Headers，因为 Credentials=true 时不能用 *
-        const exposedHeaders = Object.keys(response.headers).join(", ");
+        const exposedHeaders = Object.keys(responseHeaders).join(", ");
         res.setHeader("Access-Control-Expose-Headers", exposedHeaders);
         res.removeHeader('x-frame-options');
         res.removeHeader('content-security-policy');
@@ -468,19 +388,20 @@ app.use("/", async (req, res, next) => {
         response.data.pipe(res);
 
     } catch (error) {
-        console.error("[Proxy Error] 💥", error.message);
-        if (!res.headersSent) {
-            res.status(502).send({ error: "Bad Gateway", message: error.message });
-        }
+        next(error);
     }
 });
 
+app.use(createErrorMiddleware({ logger }));
+
     return {
         app,
+        logger,
         getConfig: () => config,
         reloadConfig: loadConfig,
         async close() {
             if (configWatcher) await configWatcher.close();
+            if (ownsLogger) logger.close();
         }
     };
 }

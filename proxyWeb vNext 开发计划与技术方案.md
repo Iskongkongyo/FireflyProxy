@@ -585,6 +585,8 @@ app.set("trust proxy", 1)
 
 # 12. P0-9. 日志脱敏
 
+> 状态：🟨 路线图 1.3 已于 2026-08-29 完成 Logger、redact 工具、request ID 和脱敏单元测试；代理认证隔离、前端凭据迁移与端到端门禁仍在 2.1 完成。
+
 目前 URL / query 中可能出现：
 
 ```text
@@ -2252,6 +2254,8 @@ Passthrough Response 保留缓存 Header。
 ---
 
 # 61. Error API
+
+> 状态：✅ 基础模块已于 2026-08-29 完成。当前代理自身错误使用稳定 JSON envelope 和错误代码；后续网络安全阶段继续补充 DNS、Redirect 等细分映射。
 
 统一错误格式。
 
