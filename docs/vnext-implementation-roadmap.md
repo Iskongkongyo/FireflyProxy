@@ -35,7 +35,7 @@
 | 2.3 | URL/IP Validator | 统一目标基础校验 | 1.3 | ✅ |
 | 2.4 | DNS SSRF 校验 | 域名全部解析结果受控 | 2.3 | ✅ |
 | 2.5 | DNS Pinning | 校验 IP 与连接 IP 一致 | 2.4 | ✅ |
-| 2.6 | 安全 Redirect Loop | 每一跳重新校验 | 2.5 | ⬜ |
+| 2.6 | 安全 Redirect Loop | 每一跳重新校验 | 2.5 | ✅ |
 | 2.7 | 进程策略与资源限制 | 错误可控、资源有界 | 2.1–2.6 | ⬜ |
 | 2.8 | P0 集成门禁 | P0 Definition of Done | 2.1–2.7 | ⬜ |
 | 3.1 | API/Browser 路由分离 | 两种模式边界固定 | 2.8 | ⬜ |
@@ -513,3 +513,16 @@
 - 后端 87 项通过、1 项后续 P0 门禁 TODO（Redirect）、0 项失败；覆盖多地址/family、hostname 变化、远端地址不一致、TLS SNI/严格证书选项与自签名证书拒绝。
 
 下一阶段为 2.6 安全 Redirect Loop。
+
+### 第十轮执行记录
+
+2026-08-29 已完成 2.6：
+
+- 新增 `core/safeRedirect.js`；Axios 每一跳固定 `maxRedirects: 0`，由 proxyWeb 显式处理 301/302/303/307/308。
+- 相对与绝对 `Location` 每一跳都重新执行 URL、DNS 和 Pinning，并创建新的请求级 Agent；公网跳私网会在连接前拒绝。
+- 实现循环检测与 `api.maxRedirects` 上限，统一返回 508 `PROXY_REDIRECT_LIMIT`；关闭 `api.followRedirects` 时原样返回首个 3xx。
+- 明确方法/Body 规则：301/302 POST 与 303 转 GET，307/308 保留方法和 Body；首跳继续流式发送，同时有限捕获最多 5 MiB，仅在需要重放且超限时返回 413。
+- 跨 Origin 删除认证、Cookie、Token、Password、Secret 与 API Key 类 Header；Redirect Chain 日志通过统一脱敏器处理，并修复多层编码目标 URL 的日志泄漏。
+- 后端 97 项通过、0 项 TODO、0 项失败；覆盖相对/绝对、循环、超限、私网目标、跨域凭据、方法/Body、逐跳连接和日志脱敏。
+
+下一阶段为 2.7 进程策略与资源限制。

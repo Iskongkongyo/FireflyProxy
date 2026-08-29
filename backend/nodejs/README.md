@@ -3,7 +3,7 @@
 这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。代理支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
 
 > [!WARNING]
-> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是重定向逐跳校验等后续 P0 阶段仍未完成。请先阅读“当前安全限制”。
+> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。进程策略、完整资源限制与 P0 集成门禁仍未完成。请先阅读“当前安全限制”。
 
 ## 运行结构
 
@@ -100,8 +100,8 @@ npm start
 | `limiter.windowMs` | Number，毫秒 | 限流窗口；保存配置后重建限流器 |
 | `limiter.max` | Number | 每个窗口允许的请求数 |
 | `security.blockedHostnames` | String[] | 精确 hostname 或 `*.example.com` 子域规则；不接受正则，可热加载 |
-| `api.followRedirects` | Boolean | 是否允许 Axios 自动跟随跳转；可热加载 |
-| `api.maxRedirects` | Number | 自动跟随重定向的最大次数；可热加载 |
+| `api.followRedirects` | Boolean | 是否启用 proxyWeb 安全逐跳循环；Axios 自身始终禁止自动跳转；可热加载 |
+| `api.maxRedirects` | Number | 安全逐跳循环的最大次数；可热加载 |
 
 ### 旧配置迁移
 
@@ -177,11 +177,13 @@ GET /assets/app.css
 
 路线图 2.2 已完成严格 CORS 与客户端地址边界：带凭据请求必须命中显式 Origin allowlist，预检方法和请求头会校验；无 Origin 请求不会获得 CORS 响应头。`trustProxy` 默认关闭，限流使用 Express 按显式信任策略计算的 `req.ip`。如部署在 Nginx/Caddy 等反向代理后，必须按实际可信跳数或地址配置，错误配置仍会使日志与限流采用错误的客户端地址。
 
-路线图 2.3–2.5 已完成 URL、字面 IP、DNS 结果校验与连接绑定：域名通过可注入 Resolver 执行 `lookup({ all: true, verbatim: true })`，保留全部规范化 A/AAAA；空结果、失败、超时、非法结果，以及任一非公网或混合公网/私网结果都会安全失败。每个请求创建独立 HTTP/HTTPS Agent，其 `lookup` 只能返回冻结后的验证地址集合；Axios 的环境代理发现被关闭，HTTPS 保持原 hostname、Host、SNI 和 `rejectUnauthorized: true`。平台提供远端 socket 地址时还会再次核对其是否属于验证集合。
+路线图 2.3–2.6 已完成 URL、字面 IP、DNS 结果校验、连接绑定与安全 Redirect Loop：域名通过可注入 Resolver 执行 `lookup({ all: true, verbatim: true })`，保留全部规范化 A/AAAA；空结果、失败、超时、非法结果，以及任一非公网或混合公网/私网结果都会安全失败。每个请求创建独立 HTTP/HTTPS Agent，其 `lookup` 只能返回冻结后的验证地址集合；Axios 的环境代理发现被关闭，HTTPS 保持原 hostname、Host、SNI 和 `rejectUnauthorized: true`。平台提供远端 socket 地址时还会再次核对其是否属于验证集合。
+
+Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时，proxyWeb 处理 301/302/303/307/308：每一跳解析相对或绝对 `Location`、重新执行 URL/DNS/Pinning、创建新的请求级 Agent，并按 `api.maxRedirects` 检测循环和超限。跨 Origin 会删除认证、Cookie、Token、Password、Secret 与 API Key 类 Header；301/302 的 POST 和 303 按规则转换为 GET，307/308 保留方法与 Body。为重放 307/308，首跳 Body 会在流式发送的同时最多缓存 5 MiB；仅当确实需要重放且超出上限时返回 413 `PROXY_REQUEST_BODY_LIMIT`。
 
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
-1. **重定向未逐跳校验。** Axios 仍会自动跟随跳转，新的 `Location` 尚未重新执行完整 URL/DNS/Pinning 校验；初始请求的 pinned Agent 不能替代 proxyWeb 自己管理的安全跳转循环。
+1. **进程策略与资源限制尚未整体收口。** 请求超时和 Redirect/重放 Body 上限已经存在，但客户端断开、上游中断、畸形流、并发资源边界和未捕获异常 shutdown 仍由路线图 2.7 跟踪。
 2. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
 3. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
 
@@ -204,7 +206,7 @@ GET /assets/app.css
 - `error.log`：error。
 - 控制台：与文件一致的结构化文本日志。
 
-应用不再覆写全局 `console`；`core/logger.js` 统一创建 Winston Logger。每条请求日志包含 request ID，并在写入任何 transport 前递归脱敏 Authorization、`X-ProxyWeb-Upstream-Authorization`、Cookie、Token、密码、Secret、API Key 和 `headers` 查询参数。代理认证隔离、前端凭据迁移以及真实子进程日志快照均已进入强制测试。
+应用不再覆写全局 `console`；`core/logger.js` 统一创建 Winston Logger。每条请求日志包含 request ID，并在写入任何 transport 前递归脱敏 Authorization、`X-ProxyWeb-Upstream-Authorization`、Cookie、Token、密码、Secret、API Key、`headers` 查询参数及多层编码目标 URL 中的敏感查询值。代理认证隔离、前端凭据迁移、Redirect Chain 以及真实子进程日志快照均已进入强制测试。
 
 常见检查：
 
@@ -216,6 +218,9 @@ GET /assets/app.css
 - 403 `PROXY_PROTOCOL_BLOCKED`：目标不是 HTTP(S) URL。
 - 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP、域名的任一 DNS 结果为非公网地址，或命中 `security.blockedHostnames`。
 - 502 `PROXY_DNS_FAILED`：域名解析失败、超时、返回空列表或非法地址记录。
+- 502 `PROXY_REDIRECT_BLOCKED`：上游返回无法解析的 Redirect `Location`。
+- 508 `PROXY_REDIRECT_LIMIT`：Redirect 超出配置上限或形成循环。
+- 413 `PROXY_REQUEST_BODY_LIMIT`：307/308 等需要重放 Body，但首跳捕获内容超过 5 MiB。
 
 ## 开发与测试
 
@@ -230,4 +235,4 @@ GET /assets/app.css
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
 
-后端当前 87 项测试通过、1 项 P0 TODO（重定向逐跳验证）、0 项失败；DNS public/private/mixed/空结果/失败/超时、多 A/AAAA、IPv4-mapped IPv6、DNS Pinning、远端地址一致性、TLS SNI/严格证书选项、自签名证书拒绝、URL/IP、CORS、代理跳数、认证隔离和凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 97 项测试通过、0 项 TODO、0 项失败；相对/绝对 Redirect、关闭跟随、循环/超限、公网跳私网、跨域敏感 Header 清理、301/302/303/307/308 方法与 Body、Redirect 日志脱敏，以及 DNS、Pinning、TLS、URL/IP、CORS、代理跳数、认证隔离和凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

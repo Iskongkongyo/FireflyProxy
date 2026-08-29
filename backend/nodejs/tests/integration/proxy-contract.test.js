@@ -15,6 +15,13 @@ function proxyUrl(target, headers = {}) {
     return `${proxy.origin}/?${query}`;
 }
 
+function fixtureRedirect(location, status = 302) {
+    const target = new URL(`${fixture.origin}/redirect-to`);
+    target.searchParams.set("status", String(status));
+    target.searchParams.set("location", location);
+    return target.href;
+}
+
 before(async () => {
     fixture = await createUpstreamFixture();
     proxy = await startProxy();
@@ -68,12 +75,87 @@ test("upstream error status and body pass through", async () => {
     assert.deepEqual(payload, { status: 418 });
 });
 
-test("current redirect behavior follows relative Location", async () => {
+test("validated redirect loop follows relative and absolute Location values", async () => {
     const response = await fetch(proxyUrl(`${fixture.origin}/redirect`));
     const payload = await response.json();
 
     assert.equal(response.status, 200);
     assert.equal(payload.query.via, "redirect");
+
+    const absoluteTarget = `${fixture.origin}/json?via=absolute`;
+    const absolute = await fetch(proxyUrl(fixtureRedirect(absoluteTarget)));
+    assert.equal(absolute.status, 200);
+    assert.equal((await absolute.json()).query.via, "absolute");
+});
+
+test("disabled redirect following returns the original 3xx response", async () => {
+    const noFollowProxy = await startProxy({
+        api: { followRedirects: false, maxRedirects: 5 }
+    });
+    try {
+        const response = await fetch(
+            `${noFollowProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/redirect`)}`,
+            { redirect: "manual" }
+        );
+        assert.equal(response.status, 302);
+        assert.equal(response.headers.get("location"), "/json?via=redirect");
+    } finally {
+        await noFollowProxy.close();
+    }
+});
+
+test("redirect loops and configured redirect limits fail with a stable 508 error", async () => {
+    const loopResponse = await fetch(proxyUrl(`${fixture.origin}/redirect-loop-a`));
+    assert.equal(loopResponse.status, 508);
+    assert.equal((await loopResponse.json()).error.code, "PROXY_REDIRECT_LIMIT");
+
+    const limitedProxy = await startProxy({ max_redirects: 1 });
+    try {
+        const response = await fetch(
+            `${limitedProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/redirect-chain/2`)}`
+        );
+        assert.equal(response.status, 508);
+        assert.equal((await response.json()).error.code, "PROXY_REDIRECT_LIMIT");
+    } finally {
+        await limitedProxy.close();
+    }
+});
+
+test("redirect status codes apply explicit method and request body rules", async () => {
+    const cases = [
+        { status: 301, method: "POST", expectedMethod: "GET", expectedBody: "" },
+        { status: 302, method: "POST", expectedMethod: "GET", expectedBody: "" },
+        { status: 303, method: "PUT", expectedMethod: "GET", expectedBody: "" },
+        { status: 307, method: "POST", expectedMethod: "POST", expectedBody: "body-307" },
+        { status: 308, method: "PUT", expectedMethod: "PUT", expectedBody: "body-308" }
+    ];
+
+    for (const item of cases) {
+        const body = `body-${item.status}`;
+        const response = await fetch(proxyUrl(fixtureRedirect("/echo", item.status)), {
+            method: item.method,
+            headers: { "content-type": "text/plain" },
+            body
+        });
+        const payload = await response.json();
+        assert.equal(response.status, 200, String(item.status));
+        assert.equal(payload.method, item.expectedMethod, String(item.status));
+        assert.equal(payload.body, item.expectedBody, String(item.status));
+        if (item.expectedMethod === "GET") {
+            assert.equal(payload.headers["content-type"], undefined, String(item.status));
+            assert.equal(payload.headers["content-length"], undefined, String(item.status));
+        }
+    }
+
+    const early = await fetch(proxyUrl(`${fixture.origin}/redirect-early`), {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+        body: "body-from-early-redirect"
+    });
+    const earlyPayload = await early.json();
+    assert.equal(early.status, 200);
+    assert.equal(earlyPayload.method, "POST");
+    assert.equal(earlyPayload.body, "body-from-early-redirect");
 });
 
 test("streamed response reaches the client intact", async () => {
@@ -512,7 +594,70 @@ test("domain targets with private, mixed, empty or failed DNS results are reject
         await dnsProxy.close();
     }
 });
-test.todo("every redirect target is revalidated before connecting");
+test("every redirect target is revalidated before connecting", async () => {
+    const privateTarget = `http://127.0.0.1:${new URL(fixture.origin).port}/echo`;
+    const response = await fetch(proxyUrl(fixtureRedirect(privateTarget)));
+
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error.code, "PROXY_SSRF_BLOCKED");
+});
+
+test("cross-origin redirects remove authentication, cookies and token-like headers", async () => {
+    const crossOriginProxy = await startProxy({}, {
+        dnsRecords: {
+            "other.test": [{ address: "93.184.216.35", family: 4 }]
+        }
+    });
+    try {
+        const fixturePort = new URL(fixture.origin).port;
+        const crossOriginTarget = `http://other.test:${fixturePort}/echo`;
+        const query = new URLSearchParams({
+            url: fixtureRedirect(crossOriginTarget),
+            headers: JSON.stringify({
+                "x-api-key": "cross-origin-api-key",
+                "x-upstream-token": "cross-origin-token",
+                "x-safe": "keep"
+            })
+        });
+        const response = await fetch(`${crossOriginProxy.origin}/?${query}`, {
+            headers: {
+                cookie: "proxy-client-cookie=secret",
+                "x-proxyweb-upstream-authorization": "Bearer cross-origin-authorization"
+            }
+        });
+        const payload = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.equal(payload.headers.host, `other.test:${fixturePort}`);
+        assert.equal(payload.headers.authorization, undefined);
+        assert.equal(payload.headers.cookie, undefined);
+        assert.equal(payload.headers["x-api-key"], undefined);
+        assert.equal(payload.headers["x-upstream-token"], undefined);
+        assert.equal(payload.headers["x-safe"], "keep");
+    } finally {
+        await crossOriginProxy.close();
+    }
+});
+
+test("redirect chain logs redact sensitive URL query values", async () => {
+    const redirectLogProxy = await startProxy();
+    const secret = "redirect-log-secret-789";
+    try {
+        const outputIndex = redirectLogProxy.getOutput().length;
+        const location = `/json?token=${secret}`;
+        const response = await fetch(
+            `${redirectLogProxy.origin}/?url=${encodeURIComponent(fixtureRedirect(location))}`
+        );
+        assert.equal(response.status, 200);
+        await redirectLogProxy.waitForOutput(/Following validated redirect/, outputIndex);
+
+        const output = redirectLogProxy.getOutput().slice(outputIndex);
+        assert.doesNotMatch(output, new RegExp(secret));
+        assert.match(output, /\[REDACTED\]/);
+    } finally {
+        await redirectLogProxy.close();
+    }
+});
 
 test("validated DNS addresses are pinned without a second system lookup", async () => {
     const pinnedProxy = await startProxy({}, {

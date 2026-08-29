@@ -27,7 +27,7 @@ function isSensitiveKey(key) {
     return SENSITIVE_KEYS.has(normalizeKey(key));
 }
 
-function redactString(value) {
+function redactPatterns(value) {
     return String(value)
         .replace(/\b((?:https?|wss?):\/\/)[^\s/?#]*@/gi, `$1${REDACTED}@`)
         .replace(/\b((?:https?|wss?)%3A%2F%2F)[^&\s]*?%40/gi, `$1%5BREDACTED%5D%40`)
@@ -36,6 +36,34 @@ function redactString(value) {
             /((?:x[-_]?proxyweb[-_]?upstream[-_]?authorization|proxy[-_]?authorization|authorization|set[-_]?cookie|cookie|access[-_]?token|refresh[-_]?token|token|password|passwd|pwd|secret|x[-_]?api[-_]?key|api[-_]?key|apikey|key|headers)(?:%22|["']?)\s*(?:%3A|%3D|[:=])\s*)(?:%22[^&\s]*|"[^"]*"|'[^']*'|[^&\s,}]+)/gi,
             `$1${REDACTED}`
         );
+}
+
+function redactNestedUrlParameters(value) {
+    return value.replace(/([?&]url=)([^&\s]+)/gi, (match, prefix, encodedValue) => {
+        let decoded = encodedValue;
+        let depth = 0;
+        while (depth < 4) {
+            try {
+                const next = decodeURIComponent(decoded);
+                if (next === decoded) break;
+                decoded = next;
+                depth += 1;
+            } catch {
+                break;
+            }
+        }
+
+        let redacted = redactPatterns(decoded);
+        for (let index = 0; index < depth; index += 1) {
+            redacted = encodeURIComponent(redacted);
+        }
+        return `${prefix}${redacted}`;
+    });
+}
+
+function redactString(value) {
+    const redacted = redactPatterns(value);
+    return redactPatterns(redactNestedUrlParameters(redacted));
 }
 
 function redact(value, seen = new WeakSet()) {

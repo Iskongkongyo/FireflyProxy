@@ -131,7 +131,7 @@ backend/nodejs/main.js
 backend/nodejs/app.js
 ```
 
-其中 `main.js` 负责进程生命周期，`app.js` 导出可注入配置、可关闭的 `createApp()` runtime；代理行为尚未在本阶段进一步模块化。
+其中 `main.js` 负责进程生命周期，`app.js` 导出可注入配置、可关闭的 `createApp()` runtime；配置、日志/Header、DNS/Validator、Pinning 与安全 Redirect 已拆为独立模块。
 
 当前已经具备：
 
@@ -145,8 +145,8 @@ backend/nodejs/app.js
 - Rate Limit；
 - 配置热加载；
 - Winston 日志；
-- 简单 SSRF IP 检查；
-- 自动 Follow Redirect；
+- URL/IP、DNS SSRF 与请求级 Pinning；
+- proxyWeb 安全逐跳 Redirect Loop；
 - Response Header 转发；
 - CSP/X-Frame-Options 删除。
 
@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 与 P1 尚未达到 Definition of Done，不能将规划中的 Redirect 安全、Cookie Jar、HTML/CSS Rewrite、WebSocket 等能力写成当前已实现功能。
+- P0 与 P1 尚未达到 Definition of Done，不能将规划中的完整进程/资源策略、Cookie Jar、HTML/CSS Rewrite、WebSocket 等能力写成当前已实现功能。
 
 当前前端主要结构：
 
@@ -426,6 +426,8 @@ SNI: example.com
 ---
 
 # 8. P0-5. 禁止 Axios 不受控制地自动 Redirect
+
+> 状态：✅ 已于 2026-08-29 完成路线图 2.6。Axios 每一跳固定 `maxRedirects: 0`；proxyWeb 对 301/302/303/307/308 逐跳重新执行 URL、DNS 与 Pinning，限制循环/次数并清理跨 Origin 敏感 Header。方法/Body 语义、公网跳私网、相对/绝对 Location 与多层编码日志脱敏均有强制测试。
 
 Browser Mode：
 
@@ -2268,7 +2270,7 @@ Passthrough Response 保留缓存 Header。
 
 # 61. Error API
 
-> 状态：✅ 基础模块已于 2026-08-29 完成。当前代理自身错误使用稳定 JSON envelope 和错误代码；后续网络安全阶段继续补充 DNS、Redirect 等细分映射。
+> 状态：✅ 基础模块及路线图 2.3–2.6 网络安全映射已于 2026-08-29 完成。当前代理自身错误使用稳定 JSON envelope，并覆盖 URL、DNS、SSRF、Redirect 与重放 Body 上限等错误代码。
 
 统一错误格式。
 
@@ -2292,6 +2294,7 @@ PROXY_SSRF_BLOCKED
 PROXY_DNS_FAILED
 PROXY_CONNECT_TIMEOUT
 PROXY_REQUEST_TIMEOUT
+PROXY_REQUEST_BODY_LIMIT
 PROXY_REDIRECT_BLOCKED
 PROXY_REDIRECT_LIMIT
 PROXY_UPSTREAM_ERROR

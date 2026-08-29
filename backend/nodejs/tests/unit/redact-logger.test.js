@@ -30,6 +30,10 @@ test("redact removes secrets from nested objects, URLs and errors without mutati
         redactString("/?url=https%3A%2F%2Fuser%3Acredential%40example.test%2Fpath"),
         /user|credential/
     );
+    assert.doesNotMatch(
+        redactString(`/?url=${encodeURIComponent(`https://example.test/redirect?location=${encodeURIComponent(`/next?token=${secret}`)}`)}`),
+        new RegExp(secret)
+    );
 });
 
 test("logger applies redaction before writing to a transport", async () => {

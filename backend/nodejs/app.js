@@ -18,6 +18,7 @@ const { createErrorMiddleware } = require("./core/errors");
 const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
 const { createLogger } = require("./core/logger");
 const { createPinnedConnection } = require("./core/pinnedConnection");
+const { requestWithRedirects } = require("./core/safeRedirect");
 const { validateTarget } = require("./core/targetValidator");
 const { createProxyAuth } = require("./middleware/auth");
 const { createCorsMiddleware, exposeCorsHeaders } = require("./middleware/cors");
@@ -238,14 +239,6 @@ function getTargetUrl(baseUrl, path) {
     return p ? new URL(baseUrl).origin + "/" + p : baseUrl;
 }
 
-function getResponseRemoteAddress(response) {
-    return response?.data?.socket?.remoteAddress
-        || response?.request?.socket?.remoteAddress
-        || response?.request?._currentRequest?.socket?.remoteAddress
-        || response?.request?.res?.socket?.remoteAddress
-        || null;
-}
-
 // 动态代理 (Axios Manual Proxy)
 app.use("/", async (req, res, next) => {
     const reqUrl = req.validatedTarget?.url || req.session.targetUrl;
@@ -282,59 +275,56 @@ app.use("/", async (req, res, next) => {
 
         logger.info("[Proxy] Method selected", { requestId: req.id, method: proxyMethod });
 
-        // 2. 发起绑定到已验证地址的 Axios 请求
-        const connection = connectionFactory(target);
-        if (
-            !connection
-            || !connection.httpAgent
-            || !connection.httpsAgent
-            || typeof connection.assertRemoteAddress !== "function"
-            || typeof connection.destroy !== "function"
-        ) {
-            throw new TypeError("connectionFactory returned an invalid pinned connection");
-        }
-
-        let response;
-        try {
-            response = await axios({
-                method: proxyMethod,
-                url: fullUrl,
-                headers: headers,
-                data: (proxyMethod === 'GET' || proxyMethod === 'HEAD') ? undefined : req, // 流式透传请求体
-                responseType: 'stream', // 关键：流式响应
-                decompress: false, // 禁止 axios 自动解压，透传原始压缩数据（防止 Content-Length 不匹配导致截断）
-                maxRedirects: config.api.followRedirects ? config.api.maxRedirects : 0,
-                validateStatus: null, // 允许所有状态码
+        // 2. 每一跳都重新校验并绑定到该跳已验证地址；Axios 自身禁止自动 Redirect。
+        const redirectResult = await requestWithRedirects({
+            initialTarget: target,
+            method: proxyMethod,
+            headers,
+            body: (proxyMethod === "GET" || proxyMethod === "HEAD") ? undefined : req,
+            followRedirects: config.api.followRedirects,
+            maxRedirects: config.api.maxRedirects,
+            validateTarget: redirectUrl => validateTarget(redirectUrl, {
+                blockedHostnames: config.security.blockedHostnames,
+                resolveHostname: hostname => dnsResolver.resolve(hostname)
+            }),
+            connectionFactory,
+            dispatch: ({ target: hopTarget, method, headers: hopHeaders, body, connection }) => axios({
+                method,
+                url: hopTarget.url,
+                headers: hopHeaders,
+                data: body,
+                responseType: "stream",
+                decompress: false,
+                maxRedirects: 0,
+                validateStatus: null,
                 timeout: config.timeoutMs,
                 proxy: false,
                 httpAgent: connection.httpAgent,
                 httpsAgent: connection.httpsAgent
-            });
-            connection.assertRemoteAddress(getResponseRemoteAddress(response));
-        } catch (error) {
-            connection.destroy();
-            throw error;
-        }
+            }),
+            logger,
+            requestId: req.id
+        });
+        const { response, target: finalTarget, release: releaseConnection } = redirectResult;
 
         let connectionReleased = false;
-        const releaseConnection = () => {
+        const releaseOnce = () => {
             if (connectionReleased) return;
             connectionReleased = true;
-            connection.destroy();
+            releaseConnection();
         };
-        response.data.once("end", releaseConnection);
-        response.data.once("error", releaseConnection);
-        res.once("close", releaseConnection);
+        response.data.once("end", releaseOnce);
+        response.data.once("error", releaseOnce);
+        res.once("close", releaseOnce);
 
-        // 3. [Redirect Sync] 检测 URL 变化
-        const finalUrl = response.request.res.responseUrl;
-        if (finalUrl && finalUrl !== fullUrl) {
+        // 3. [Redirect Sync] 同步已逐跳验证的最终 URL
+        if (finalTarget.url !== fullUrl) {
             logger.info("[Session] Redirect detected; updating target", {
                 requestId: req.id,
                 previousTargetUrl: req.session.targetUrl,
-                targetUrl: finalUrl
+                targetUrl: finalTarget.url
             });
-            req.session.targetUrl = finalUrl;
+            req.session.targetUrl = finalTarget.url;
         }
 
         // 4. 设置响应头

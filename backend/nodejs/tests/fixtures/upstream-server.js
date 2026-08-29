@@ -65,6 +65,38 @@ async function handleRequest(req, res) {
         return res.end();
     }
 
+    if (url.pathname === "/redirect-to") {
+        await readBody(req);
+        const status = Number(url.searchParams.get("status") || 302);
+        const location = url.searchParams.get("location") || "/json?via=redirect-to";
+        res.writeHead(status, { location });
+        return res.end();
+    }
+
+    if (url.pathname === "/redirect-early") {
+        res.writeHead(307, { location: "/echo" });
+        return res.end();
+    }
+
+    if (url.pathname === "/redirect-loop-a") {
+        res.writeHead(302, { location: "/redirect-loop-b" });
+        return res.end();
+    }
+
+    if (url.pathname === "/redirect-loop-b") {
+        res.writeHead(302, { location: "/redirect-loop-a" });
+        return res.end();
+    }
+
+    if (url.pathname.startsWith("/redirect-chain/")) {
+        const remaining = Number(url.pathname.slice("/redirect-chain/".length));
+        if (Number.isInteger(remaining) && remaining > 0) {
+            res.writeHead(302, { location: `/redirect-chain/${remaining - 1}` });
+            return res.end();
+        }
+        return sendJson(res, 200, { redirected: true, remaining: 0 });
+    }
+
     if (url.pathname === "/stream") {
         res.writeHead(200, {
             "content-type": "text/plain; charset=utf-8",
