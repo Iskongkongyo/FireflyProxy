@@ -230,8 +230,75 @@ test("upstream connection failures do not expose internal network details", asyn
     assert.doesNotMatch(text, /ECONNREFUSED|127\.0\.0\.1|node_modules|app\.js/);
 });
 
-test.todo("proxy Basic Auth credentials are removed before forwarding upstream");
+test("proxy Basic Auth credentials are removed while dedicated upstream auth is preserved", async () => {
+    const authProxy = await startProxy({ user: "proxy-user", pwd: "proxy-password" });
+    const proxyAuthorization = `Basic ${Buffer.from("proxy-user:proxy-password").toString("base64")}`;
+    const upstreamAuthorization = "Bearer dedicated-upstream-token";
+    try {
+        const target = `${fixture.origin}/echo`;
+        const response = await fetch(`${authProxy.origin}/?url=${encodeURIComponent(target)}`, {
+            headers: {
+                authorization: proxyAuthorization,
+                "x-proxyweb-upstream-authorization": upstreamAuthorization
+            }
+        });
+        const payload = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.equal(payload.headers.authorization, upstreamAuthorization);
+        assert.equal(payload.headers["x-proxyweb-upstream-authorization"], undefined);
+        assert.doesNotMatch(JSON.stringify(payload.headers), /proxy-password|cHJveHktdXNlcjpwcm94eS1wYXNzd29yZA==/);
+
+        const proxyOnly = await fetch(`${authProxy.origin}/?url=${encodeURIComponent(target)}`, {
+            headers: { authorization: proxyAuthorization }
+        });
+        const proxyOnlyPayload = await proxyOnly.json();
+        assert.equal(proxyOnlyPayload.headers.authorization, undefined);
+    } finally {
+        await authProxy.close();
+    }
+});
+
+test("legacy headers query remains compatible and advertises deprecation", async () => {
+    const response = await fetch(proxyUrl(`${fixture.origin}/echo`, {
+        authorization: "Bearer legacy-upstream-token"
+    }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.headers.authorization, "Bearer legacy-upstream-token");
+    assert.equal(response.headers.get("deprecation"), "true");
+    assert.match(response.headers.get("warning"), /headers query parameter is deprecated/);
+});
+
 test.todo("domain targets resolving to private addresses are rejected");
 test.todo("every redirect target is revalidated before connecting");
 test.todo("credentialed CORS never reflects an arbitrary Origin");
-test.todo("request logs redact headers query values and Authorization");
+
+test("request and error logs redact legacy and dedicated upstream credentials", async () => {
+    const logProxy = await startProxy();
+    const legacySecret = "legacy-log-secret-123";
+    const dedicatedSecret = "dedicated-log-secret-456";
+    try {
+        const outputIndex = logProxy.getOutput().length;
+        const legacyResponse = await fetch(`${logProxy.origin}/?${new URLSearchParams({
+            url: `${fixture.origin}/echo`,
+            headers: JSON.stringify({ authorization: `Bearer ${legacySecret}` })
+        })}`);
+        assert.equal(legacyResponse.status, 200);
+
+        const errorResponse = await fetch(`${logProxy.origin}/?url=${encodeURIComponent("http://fixture.test:1/unavailable")}`, {
+            headers: {
+                "x-proxyweb-upstream-authorization": `Bearer ${dedicatedSecret}`
+            }
+        });
+        assert.equal(errorResponse.status, 502);
+        await logProxy.waitForOutput(/Request failed/, outputIndex);
+
+        const output = logProxy.getOutput().slice(outputIndex);
+        assert.doesNotMatch(output, new RegExp(`${legacySecret}|${dedicatedSecret}`));
+        assert.match(output, /\[REDACTED\]/);
+    } finally {
+        await logProxy.close();
+    }
+});

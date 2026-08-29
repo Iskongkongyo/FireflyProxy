@@ -4,7 +4,8 @@ const {
     buildUpstreamRequestHeaders,
     filterUpstreamResponseHeaders,
     isHopByHopHeader,
-    isProxyAuthenticationHeader
+    isProxyAuthenticationHeader,
+    UPSTREAM_AUTHORIZATION_HEADER
 } = require("../../core/headers");
 
 test("header classifications keep Cookie separate from hop-by-hop fields", () => {
@@ -21,7 +22,8 @@ test("request header builder removes transport fields after merging custom heade
         Connection: "x-connection-secret",
         "X-Connection-Secret": "remove-me",
         Cookie: "legacy=session",
-        Authorization: "Bearer upstream-token",
+        Authorization: "Basic proxy-credentials",
+        [UPSTREAM_AUTHORIZATION_HEADER]: "Bearer upstream-token",
         "X-Keep": "inbound"
     }, {
         Connection: "keep-alive",
@@ -34,8 +36,19 @@ test("request header builder removes transport fields after merging custom heade
     assert.equal(headers["X-Connection-Secret"], undefined);
     assert.equal(headers.Cookie, undefined);
     assert.equal(headers["Proxy-Authorization"], undefined);
-    assert.equal(headers.Authorization, "Bearer upstream-token");
+    assert.equal(headers.Authorization, undefined);
+    assert.equal(headers[UPSTREAM_AUTHORIZATION_HEADER], undefined);
+    assert.equal(headers.authorization, "Bearer upstream-token");
     assert.equal(headers["X-Keep"], "custom");
+});
+
+test("legacy query Authorization remains available when the safe header is absent", () => {
+    const headers = buildUpstreamRequestHeaders(
+        { authorization: "Basic proxy-credentials" },
+        { Authorization: "Bearer legacy-upstream-token" }
+    );
+
+    assert.deepEqual(headers, { authorization: "Bearer legacy-upstream-token" });
 });
 
 test("response header filter removes transport metadata and preserves end-to-end headers", () => {

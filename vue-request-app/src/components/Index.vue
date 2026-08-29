@@ -142,6 +142,7 @@
 	import axios from 'axios';
 	import { PROXY_CONFIG, URL_PATTERN } from '../config.js';
 	import { parseError } from '../utils/errorHandler.js';
+	import { buildProxyTransport, omitSensitiveHeaderRows } from '../utils/headerSecurity.mjs';
 
 	import UserAuth from './UserAuth.vue';
 	import RequestBody from './RequestBody.vue';
@@ -239,7 +240,6 @@
 
 			router.isReady().then(() => {
 				this.queryParams = route.query;
-				console.log(JSON.stringify(this.queryParams));
 				this.url = decodeURIComponent(this.queryParams.url || '');
 				this.method = (this.queryParams.method || 'GET').toUpperCase();
 				this.tableData.headers = JSON.parse(this.queryParams.headers || "[{}]");
@@ -297,7 +297,6 @@
 			handleSearch(originArr) {
 				let resultArr = [];
 				originArr.forEach((value) => {
-					console.log(value);
 					value.key ? resultArr.push({
 						"key": value.key,
 						"value": value.value
@@ -323,7 +322,6 @@
 					const urlParams = nowUrl.searchParams;
 					const queryString = that.tableData.params;
 					for (let obj of queryString) {
-						console.log(obj);
 						if (Object.keys(obj).toString() === 'key,value' && Object.values(obj)[0] != '') {
 							urlParams.append(obj.key, obj.value);
 						}
@@ -331,50 +329,23 @@
 					apiUrl.searchParams.append('url', `${nowUrl.origin}${nowUrl.pathname}?${urlParams.toString()}`);
 					apiUrl.searchParams.append('method', that.method);
 
-					let finHeaders = {};
-
-					// 处理子组件Auth请求头内容（注意：手动在设置请求头中Auth优先级最高）
-					this.auth ? finHeaders['authorization'] = this.auth : true;
-
-					that.tableData.headers.forEach((value) => {
-						value.key ? finHeaders[value.key] = value.value : true
-					});
-					apiUrl.searchParams.append('headers', JSON.stringify(finHeaders));
-
-					return that.copyLinkToClipboard(apiUrl.href, '当前配置API接口已复制到剪切板！');
+					return that.copyLinkToClipboard(
+						apiUrl.href,
+						'API 链接已复制；请求头因安全原因未写入链接。'
+					);
 				}
 
 				// 下面为复制页面链接
 				const url = new URL(location.origin + location.pathname);
 				url.searchParams.append('url', this.url);
 
-				// 处理子组件Auth请求头内容（注意：手动在设置请求头中Auth优先级最高）
-				let array = [];
-				let result = false;
-
-				this.tableData.headers.forEach((value) => {
-					if (value.key?.toLowerCase() === 'authorization' && value.value) {
-						result = true;
-						array.push(value);
-					} else if (value.value) {
-						array.push(value);
-					}
-				});
-
-				this.$refs.userAuth?.handle();
-
-				if (!result && this.auth) {
-					array.push({
-						key: "authorization",
-						value: this.auth
-					})
-				}
+				const array = omitSensitiveHeaderRows(this.tableData.headers)
+					.filter(value => value.value);
 
 				url.searchParams.append('headers', this.handleSearch(array));
 				url.searchParams.append('method', this.method);
 				url.searchParams.append('params', this.handleSearch(this.tableData.params));
 				url.searchParams.append('display', 0);
-				console.log(`完整URL：${url.href}`);
 				if (patt) {
 					return url.href;
 				}
@@ -469,7 +440,6 @@
 				this.latest = payload;
 			},
 			async sendRequest() {
-				console.log(`查询字符串内容：${JSON.stringify(this.tableData.params)}`);
 				const display = this.display; //数据展示方式，0为响应内容部分展示，1为跳转新页面展示
 
 				if (!this.patt.test(this.url)) {
@@ -480,14 +450,12 @@
 				const urlParams = nowUrl.searchParams;
 				const queryString = this.tableData.params;
 				let headers = [];
+				let upstreamAuthorization = '';
 
 				// 处理子组件Auth请求头内容
 				if (!display && this.$refs.userAuth) {
 					this.$refs.userAuth.handle();
-					this.auth ? headers.push({
-						"key": "authorization",
-						"value": this.auth
-					}) : true;
+					upstreamAuthorization = this.auth || '';
 				}
 
 
@@ -495,7 +463,9 @@
 				for (let obj of this.tableData.headers) {
 					// 末尾添加“;domain=;path=/;”使得Cookie在当前域名和根目录下生效
 					if (obj && obj.key) { // 确保 obj 和 obj.key 存在
-						if (obj.key.toUpperCase() === 'COOKIE' || obj.key.toUpperCase() === 'COOKIES') {
+						if (obj.key.toLowerCase() === 'authorization') {
+							upstreamAuthorization = obj.value || '';
+						} else if (obj.key.toUpperCase() === 'COOKIE' || obj.key.toUpperCase() === 'COOKIES') {
 							document.cookie = obj.value + ';domain=;path=/;';
 						} else {
 							headers.push({
@@ -507,7 +477,6 @@
 				}
 
 				for (let obj of queryString) {
-					console.log(obj);
 					if (Object.keys(obj).toString() === 'key,value' && Object.values(obj)[0] != '') {
 						urlParams.append(obj.key, obj.value);
 					}
@@ -528,9 +497,13 @@
 					value.key ? finHeaders[value.key] = value.value : true
 				});
 
-				const finReqUrl = `${PROXY_CONFIG.BASE_URL}/?url=${encodeURIComponent(requestUrl)}&headers=${encodeURIComponent(JSON.stringify(finHeaders))}`;
-
-				console.log(`最终请求URL：${finReqUrl}`);
+				const proxyTransport = buildProxyTransport(
+					PROXY_CONFIG.BASE_URL,
+					requestUrl,
+					finHeaders,
+					upstreamAuthorization
+				);
+				const finReqUrl = proxyTransport.url;
 
 				const records = JSON.parse(localStorage.getItem('history') || "[]");
 				const date = new Date();
@@ -546,7 +519,8 @@
 				const config = {
 					method: this.method.toUpperCase(),
 					url: finReqUrl,
-					withCredentials: true
+					withCredentials: true,
+					headers: proxyTransport.headers
 				};
 
 				// 根据请求方法设置请求体信息
@@ -564,7 +538,7 @@
 				}
 
 				// 🎬 流媒体模式：对于视频/音频，直接设置src让浏览器流式加载
-				if (this.method.toUpperCase() === 'GET' && this.isMediaUrl(this.url)) {
+				if (this.method.toUpperCase() === 'GET' && this.isMediaUrl(this.url) && Object.keys(config.headers).length === 0) {
 					console.log('[Streaming] 检测到流媒体URL，启用流媒体模式');
 					this.streamRequest(finReqUrl);
 					return;
@@ -585,8 +559,6 @@
 				this.responseTime = 0;
 				this.responseSize = 0;
 				const startTime = Date.now();
-
-				console.log(JSON.stringify(config));
 
 				try {
 					const res = await axios(config);
@@ -628,8 +600,6 @@
 						this.downloadUrl = URL.createObjectURL(blob);
 					}
 				} catch (err) {
-					console.log(`错误信息：${JSON.stringify(err.response)}`);
-					
 					// 使用错误处理工具解析错误
 					const errorInfo = parseError(err);
 					

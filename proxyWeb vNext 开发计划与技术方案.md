@@ -472,6 +472,8 @@ Browser Mode 默认 10
 
 # 9. P0-6. 修复 Proxy Basic Auth 泄露风险
 
+> 状态：✅ 已于 2026-08-29 完成路线图 2.1。代理认证头在鉴权后立即删除，上游认证改用专用控制头；Fixture 强制验证代理密码不可达 upstream。
+
 Proxy 自己的认证与 Upstream Authorization 必须彻底区分。
 
 不要出现：
@@ -585,7 +587,7 @@ app.set("trust proxy", 1)
 
 # 12. P0-9. 日志脱敏
 
-> 状态：🟨 路线图 1.3 已于 2026-08-29 完成 Logger、redact 工具、request ID 和脱敏单元测试；代理认证隔离、前端凭据迁移与端到端门禁仍在 2.1 完成。
+> 状态：✅ 已于 2026-08-29 完成路线图 2.1。Logger/redact、request ID、代理认证隔离、前端凭据迁移和真实进程日志快照均已进入强制测试；旧 `headers` query 仅保留带弃用提示的兼容读取。
 
 目前 URL / query 中可能出现：
 

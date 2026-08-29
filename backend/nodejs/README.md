@@ -3,7 +3,7 @@
 这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。代理支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
 
 > [!WARNING]
-> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是 DNS SSRF、重定向校验和代理认证头隔离仍未完成。请先阅读“当前安全限制”。
+> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是 DNS SSRF、DNS Pinning、重定向逐跳校验和 CORS 收紧仍未完成。请先阅读“当前安全限制”。
 
 ## 运行结构
 
@@ -121,14 +121,16 @@ npm start
 ### 单次目标请求
 
 ```text
-ANY /?url=<percent-encoded-target>&headers=<percent-encoded-json>&method=<optional-method>
+ANY /?url=<percent-encoded-target>&method=<optional-method>
 ```
 
 - `url` 必填，且应为完整的 `http://` 或 `https://` URL。
 - 未提供 `method` 时使用客户端实际 HTTP 方法；提供时只接受 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS。
 - 非 GET/HEAD 请求体以流的方式转发。
-- `headers` 是兼容旧前端的 JSON 对象；解析失败时只记录警告并继续请求。
-- 入站和自定义 Header 合并后会统一移除 hop-by-hop、`Proxy-Authorization` 及其 `Connection` 扩展字段。普通 `Authorization` 仍会作为上游认证头保留；代理自身认证隔离将在 2.1 完成。
+- 自定义上游 Header 直接作为该 HTTP 请求的 Header 发送；上游 Bearer/Basic 使用 `X-ProxyWeb-Upstream-Authorization`，后端会将其转换为上游 `Authorization`，且不会把控制头本身转发出去。
+- 普通 `Authorization` 专用于 proxyWeb 自身 Basic Auth，鉴权后立即从请求中删除。即使代理未启用认证，它也不会被隐式转发；需要上游认证时必须使用上述专用头。
+- 旧 `headers=<percent-encoded-json>` 查询参数仍兼容，响应会携带 `Deprecation: true` 与 HTTP `Warning: 299`；新调用方不得继续生成该参数。
+- 入站和兼容 Header 合并后会统一移除 hop-by-hop、`Proxy-Authorization` 及其 `Connection` 扩展字段。
 - 上游状态码和大多数响应头会透传，响应体以流方式管道输出。
 
 每个请求都会获得服务端生成的 request ID，并通过 `X-Request-ID` 响应头返回。代理自身产生的 JSON 错误使用稳定格式：
@@ -172,12 +174,11 @@ GET /assets/app.css
 1. **SSRF 校验不完整。** 代码只检查 URL 字面值中的 localhost 和 IP 地址，不解析域名后校验全部 A/AAAA 结果。指向私网的域名仍可能绕过检查。
 2. **存在 DNS Rebinding/TOCTOU 风险。** 校验与 Axios 实际建立连接没有绑定到同一个已验证 IP。
 3. **重定向未逐跳校验。** Axios 自动跟随跳转，新的 `Location` 目标不会再次执行 SSRF 检查。
-4. **代理认证可能泄漏。** 代理自身使用标准 `Authorization: Basic ...`，转发头清理又没有移除 `authorization`，因此该凭据可能发送给上游。
-5. **敏感头仍位于 URL。** 服务端请求日志会脱敏 `headers` 和常见凭据字段，但查询参数仍会进入浏览器历史、剪贴板和分享链接；前端迁移到安全 Header 通道前不要使用真实生产凭据。
-6. **CORS 过宽。** `cors.allowedOrigins: ["*"]` 仍会反射客户端 Origin 并同时允许 Credentials，不应直接用于公网。
-7. **`trust proxy` 需要按部署拓扑设置。** 兼容默认值仍为 `1`；部署拓扑不匹配时，客户端 IP 与限流键可能不可信，新模板已默认关闭。
-8. **黑名单不是域名精确匹配。** 列表内容作为正则拼接，错误或过宽表达式可能误拦截，恶意表达式也可能带来性能问题。
-9. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
+4. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
+5. **CORS 过宽。** `cors.allowedOrigins: ["*"]` 仍会反射客户端 Origin 并同时允许 Credentials，不应直接用于公网。
+6. **`trust proxy` 需要按部署拓扑设置。** 兼容默认值仍为 `1`；部署拓扑不匹配时，客户端 IP 与限流键可能不可信，新模板已默认关闭。
+7. **黑名单不是域名精确匹配。** 列表内容作为正则拼接，错误或过宽表达式可能误拦截，恶意表达式也可能带来性能问题。
+8. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
 
 配置 `user`/`pwd` 不能消除上述问题。完成 P0 安全测试前，不建议提供公网生产部署步骤。
 
@@ -198,7 +199,7 @@ GET /assets/app.css
 - `error.log`：error。
 - 控制台：与文件一致的结构化文本日志。
 
-应用不再覆写全局 `console`；`core/logger.js` 统一创建 Winston Logger。每条请求日志包含 request ID，并在写入任何 transport 前递归脱敏 Authorization、Cookie、Token、密码、Secret、API Key 和 `headers` 查询参数。该基础能力已经启用，但 2.1 仍需完成代理认证隔离和前端凭据迁移，届时才会把端到端日志用例转为 P0 强制门禁。
+应用不再覆写全局 `console`；`core/logger.js` 统一创建 Winston Logger。每条请求日志包含 request ID，并在写入任何 transport 前递归脱敏 Authorization、`X-ProxyWeb-Upstream-Authorization`、Cookie、Token、密码、Secret、API Key 和 `headers` 查询参数。代理认证隔离、前端凭据迁移以及真实子进程日志快照均已进入强制测试。
 
 常见检查：
 
@@ -221,4 +222,4 @@ GET /assets/app.css
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
 
-DNS SSRF、重定向逐跳验证、代理认证头隔离、CORS 收紧和端到端凭据日志门禁已登记为 P0 TODO 测试；在对应安全阶段实现前不会被误标为通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+DNS SSRF、重定向逐跳验证和 CORS 收紧仍登记为 P0 TODO 测试；代理认证隔离、上游认证保留和端到端凭据日志快照已经强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

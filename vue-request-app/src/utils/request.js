@@ -4,23 +4,15 @@
  */
 
 import { PROXY_CONFIG, MEDIA_CONFIG } from '../config.js';
+import { buildProxyTransport } from './headerSecurity.mjs';
 
 /**
  * 构建代理请求 URL
  * @param {string} targetUrl - 目标 URL
- * @param {Object} headers - 请求头对象
  * @returns {string} 代理请求 URL
  */
-export function buildProxyUrl(targetUrl, headers = {}) {
-    const baseUrl = PROXY_CONFIG.BASE_URL;
-    const encodedUrl = encodeURIComponent(targetUrl);
-    let url = `${baseUrl}/?url=${encodedUrl}`;
-
-    if (Object.keys(headers).length > 0) {
-        const encodedHeaders = encodeURIComponent(JSON.stringify(headers));
-        url += `&headers=${encodedHeaders}`;
-    }
-    return url;
+export function buildProxyUrl(targetUrl) {
+    return buildProxyTransport(PROXY_CONFIG.BASE_URL, targetUrl).url;
 }
 
 /**
@@ -103,7 +95,7 @@ export function buildTargetUrl(baseUrl, params = []) {
         });
         return url.toString();
     } catch (e) {
-        console.error('Invalid URL:', baseUrl);
+        console.error('Invalid URL');
         return baseUrl;
     }
 }

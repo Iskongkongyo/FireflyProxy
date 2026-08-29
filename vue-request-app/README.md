@@ -34,14 +34,14 @@ npm run serve
 | `npm run serve` | 启动开发服务器 |
 | `npm run build` | 构建到 `dist/` |
 | `npm run lint` | 运行 ESLint |
+| `npm test` | 运行零依赖安全工具测试 |
 
 ### 已验证状态
 
-2026-08-28 使用 Node.js 22.19.0 / npm 11.6.2 验证：`npm ci`、`npm run lint` 和 `npm run build` 均成功。当前构建仍会报告以下非阻塞警告：
+2026-08-29 使用 Node.js 22.19.0 / npm 11.6.2 验证：`npm test`、`npm run lint` 和 `npm run build` 均成功。生产依赖已更新到兼容版本，`npm audit --omit=dev` 为 0 个已知漏洞。当前构建仍有以下状态需要跟踪：
 
-- `caniuse-lite` / Browserslist 数据约 19 个月未更新。
-- 生产入口约 1.62 MiB，vendor JS 约 1.26 MiB，超过 Webpack 的性能建议阈值。
-- 安装过程会提示 ESLint 7、Glob 7、Rimraf 3 等间接依赖已弃用；后续应评估 Vue CLI 5 工具链升级。
+- 生产入口约 1.74 MiB，vendor JS 约 1.33 MiB，超过 Webpack 的性能建议阈值。
+- 不带 `--omit=dev` 的完整审计仍报告 Vue CLI 5/Webpack 开发工具链中的 17 个间接公告（11 moderate、6 high）；npm 的 `--force` 建议会破坏性降级到 Vue CLI 3，因此未采用。后续应迁移到仍受维护的构建工具链，而不是强制改锁文件。
 
 ## 后端地址配置
 
@@ -67,19 +67,19 @@ npm run build
 3. 在“请求参数”“请求头”“请求验证”中补充配置；非 GET/HEAD 请求可在“请求体”中选择发送格式。
 4. 点击“发送请求”，在下方查看内容、响应头、耗时和大小。
 
-手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值。媒体 URL 仅按扩展名识别；播放能力取决于浏览器原生编解码、目标服务的 Range 行为和响应类型。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
+手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值。发送时该值会放入 `X-ProxyWeb-Upstream-Authorization`，不会进入代理 URL；其他自定义 Header 直接作为到 proxyWeb 的 HTTP Header 发送。带自定义 Header 或上游认证的媒体请求会回退到 Axios Blob，只有无额外 Header 时才使用原生媒体 URL 流式加载。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
 
 ## 分享与本地数据安全
 
 > [!CAUTION]
-> 当前实现会把请求头写进 URL 查询参数；页面分享链接、复制的 API 链接和历史记录都可能包含 `Authorization` 等秘密。
+> 新版前端不会把敏感请求头写入页面分享链接、复制的 API 链接或历史记录，但目标 URL 自身的查询参数仍可能包含 Token。分享前仍需检查目标 URL。
 
-- “复制页面链接”会把方法、参数和请求头编码进页面 URL。
-- “复制 API 接口”会把自定义请求头编码进代理 URL 的 `headers` 参数。
-- 历史记录保存在当前站点的 `localStorage.history` 中，其中保存的是上述页面链接。
-- 浏览器历史、剪贴板、代理访问日志和任何收到分享链接的人都可能看到其中的 Token。
+- “复制页面链接”只保留方法、参数和非敏感请求头；Authorization、Cookie、Token、Secret、Password 和 API Key 类 Header 会被过滤。
+- “复制 API 接口”不再包含任何请求头，调用者需要通过实际 HTTP Header 单独设置。
+- 历史记录保存在当前站点的 `localStorage.history` 中，其中使用同一套敏感 Header 过滤规则。
+- 旧页面链接中的 `headers` 字段仍可被读取以便迁移；重新发送时会自动走安全 Header 通道，但不应再次分享旧链接。
 
-因此，当前版本只应使用临时或低权限凭据。清理时可在“历史”页面点击“清空所有”，也可清除该站点的浏览器存储。vNext 计划改为通过实际请求头传递上游认证，并弃用敏感的 `headers` 查询参数。
+后端仍兼容旧代理 URL 的 `headers` 查询参数，但会返回弃用提示；新版前端不再生成它。清理旧数据时可在“历史”页面点击“清空所有”，也可清除该站点的浏览器存储。
 
 Cookie 输入目前尝试写入 proxyWeb 当前域名的 `document.cookie`，并不等价于独立的上游 Cookie Jar；复杂登录站点不能依赖该功能。
 
@@ -122,7 +122,8 @@ vue-request-app/
 
 ## 当前限制
 
-- 没有自动化前端测试。
+- 已有零依赖 Node Test 覆盖敏感 Header 分类、分享过滤和安全代理传输；完整组件/E2E 测试仍待补充。
+- Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
 - HTML 响应只作为文本或新页面内容处理，不会重写其中的相对 URL、CSS、脚本或表单。
 - 分享链接解析缺少面向恶意/损坏 JSON 参数的错误隔离。

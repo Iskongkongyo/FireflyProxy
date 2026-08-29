@@ -15,6 +15,8 @@ const PROXY_AUTHENTICATION_HEADERS = new Set([
     "proxy-authorization"
 ]);
 
+const UPSTREAM_AUTHORIZATION_HEADER = "x-proxyweb-upstream-authorization";
+
 const LEGACY_REQUEST_EXCLUDED_HEADERS = new Set([
     "host",
     "origin",
@@ -54,15 +56,30 @@ function omitHeaders(headers, excludedNames) {
     return result;
 }
 
+function getHeader(headers, targetName) {
+    const normalizedTarget = normalizeHeaderName(targetName);
+    const entry = Object.entries(headers || {}).find(
+        ([name]) => normalizeHeaderName(name) === normalizedTarget
+    );
+    return entry ? entry[1] : undefined;
+}
+
 function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}) {
     const merged = { ...(inboundHeaders || {}), ...(customHeaders || {}) };
+    const upstreamAuthorization = getHeader(inboundHeaders, UPSTREAM_AUTHORIZATION_HEADER);
+    const legacyAuthorization = getHeader(customHeaders, "authorization");
     const excluded = new Set([
         ...HOP_BY_HOP_HEADERS,
         ...LEGACY_REQUEST_EXCLUDED_HEADERS,
+        "authorization",
+        UPSTREAM_AUTHORIZATION_HEADER,
         ...connectionHeaderNames(inboundHeaders),
         ...connectionHeaderNames(customHeaders)
     ]);
-    return omitHeaders(merged, excluded);
+    const result = omitHeaders(merged, excluded);
+    const authorization = upstreamAuthorization || legacyAuthorization;
+    if (authorization) result.authorization = authorization;
+    return result;
 }
 
 function filterUpstreamResponseHeaders(headers) {
@@ -77,6 +94,7 @@ function filterUpstreamResponseHeaders(headers) {
 module.exports = {
     HOP_BY_HOP_HEADERS,
     PROXY_AUTHENTICATION_HEADERS,
+    UPSTREAM_AUTHORIZATION_HEADER,
     buildUpstreamRequestHeaders,
     filterUpstreamResponseHeaders,
     isHopByHopHeader,

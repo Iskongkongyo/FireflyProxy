@@ -5,7 +5,7 @@
 ![界面预览](./vue-request-app/review.png)
 
 > [!WARNING]
-> 当前后端尚未完成 DNS 级 SSRF 校验、重定向逐跳校验和代理认证头隔离，**不要直接暴露到公网，也不要把它当作生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
+> 当前后端尚未完成 DNS 级 SSRF 校验、重定向逐跳校验和 CORS 收紧，**不要直接暴露到公网，也不要把它当作生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
 
 ## 当前能力
 
@@ -118,8 +118,8 @@ npm run build
 
 - 只会拦截 URL 中直接出现的 localhost 和非公网 IP；域名解析结果尚未校验，存在 DNS SSRF / DNS Rebinding 风险。
 - Axios 自动跟随重定向，跳转后的每一跳尚未重新执行目标校验。
-- 代理自身 Basic Auth 和上游 `Authorization` 仍共用请求头路径，代理凭据可能被转发到目标站点。
-- `headers` 查询参数、分享链接和浏览器历史仍可能包含 Token；服务端日志已进行基础脱敏，但前端安全 Header 通道要到 2.1 完成。不要在当前版本中使用真实生产凭据。
+- 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
+- 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
 - `cors.allowedOrigins: ["*"]` 会反射请求 Origin 并允许 Credentials，不应作为公网配置。
 - `trustProxy` 已可配置，但旧配置与内置默认值仍为 `1` 以保持兼容；新模板默认 `false`。部署拓扑不匹配仍会影响客户端 IP 与限流判断。
 - Session 使用进程内存存储，不适合多实例或长期生产运行。

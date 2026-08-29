@@ -11,7 +11,6 @@ const axios = require("axios"); // [Changed] Use axios for manual proxying
 const rateLimit = require("express-rate-limit");
 const chokidar = require("chokidar");
 const session = require("express-session");
-const basicAuth = require("basic-auth");
 const net = require("net");
 const ipaddr = require("ipaddr.js"); // 必须安装
 const { createDefaultConfig } = require("./config/defaults");
@@ -19,6 +18,7 @@ const { loadConfigFile, parseConfigObject } = require("./config/loader");
 const { ERROR_CODES, ProxyError, createErrorMiddleware } = require("./core/errors");
 const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
 const { createLogger } = require("./core/logger");
+const { createProxyAuth } = require("./middleware/auth");
 const { createRequestLogger } = require("./middleware/requestLogger");
 
 /**
@@ -177,7 +177,7 @@ app.use((req, res, next) => {
     }
     res.setHeader("Access-Control-Expose-Headers", "*"); // 允许前端获取所有响应头
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", req.headers["access-control-request-headers"] || "content-type, authorization");
+    res.setHeader("Access-Control-Allow-Headers", req.headers["access-control-request-headers"] || "content-type, authorization, x-proxyweb-upstream-authorization");
 
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
@@ -186,21 +186,7 @@ app.use((req, res, next) => {
 // ---------------------------
 // 4. 安全鉴权模块
 // ---------------------------
-app.use((req, res, next) => {
-    // 默认拒绝策略：如果未配置账号密码，建议打印警告或直接拒绝（此处逻辑保持原样，若未配置则放行，但加了日志）
-    if (!config.user || !config.pwd) {
-        logger.warn("[Auth] No Basic Auth configured. Service is open!", { requestId: req.id });
-        return next();
-    }
-
-    const user = basicAuth(req);
-    // 使用安全比较防止时序攻击 (Timing Attack) 虽JS单线程影响小，但习惯要好
-    if (!user || user.name !== config.user || user.pass !== config.pwd) {
-        res.setHeader("WWW-Authenticate", 'Basic realm="Proxy Auth Required"');
-        return res.status(401).send("Unauthorized");
-    }
-    next();
-});
+app.use(createProxyAuth({ getConfig: () => config, logger }));
 
 // ---------------------------
 // 5. 核心工具：SSRF 防御 (isPrivateIP)
@@ -251,6 +237,12 @@ function isSafeTarget(urlStr) {
 app.use(async (req, res, next) => {
     if (req.path.startsWith("/web")) return next();
 
+    if (req.query.headers) {
+        res.setHeader("Deprecation", "true");
+        res.setHeader("Warning", '299 proxyWeb "headers query parameter is deprecated; send upstream Authorization with X-ProxyWeb-Upstream-Authorization"');
+        logger.warn("[Proxy] Deprecated headers query parameter used", { requestId: req.id });
+    }
+
     // 处理 ?url= 参数
     if (req.query.url) {
         const newUrl = req.query.url;
@@ -271,8 +263,9 @@ app.use(async (req, res, next) => {
         if (config.defaultSkip) return res.redirect(config.defaultSkip);
         return res.status(400).send(`
             <h3>Proxy Service Ready</h3>
-            <p>支持的参数： <code>url:请求地址</code> <code>headers:可选，自定义请求头</code> <code>method:可选，默认为发送请求时的请求方法</code></p>
-            <p>参数请求示例： <code>/?url=https://example.com&headers={"Authorization":"Bearer xxx"}&method=</code></p>
+            <p>支持的参数： <code>url:请求地址</code> <code>method:可选，默认为发送请求时的请求方法</code></p>
+            <p>上游认证请使用请求头 <code>X-ProxyWeb-Upstream-Authorization</code>；普通 <code>Authorization</code> 只用于代理自身鉴权。</p>
+            <p><code>headers</code> 查询参数仅为旧客户端保留，已弃用。</p>
         `);
     }
 
@@ -371,6 +364,10 @@ app.use("/", async (req, res, next) => {
         Object.entries(responseHeaders).forEach(([key, value]) => {
             res.setHeader(key, value);
         });
+        if (req.query.headers) {
+            res.setHeader("Deprecation", "true");
+            res.setHeader("Warning", '299 proxyWeb "headers query parameter is deprecated; send upstream Authorization with X-ProxyWeb-Upstream-Authorization"');
+        }
 
         // CORS & Security Headers (Ensure these are set)
         res.setHeader("Access-Control-Allow-Origin", resolveCorsOrigin(req));
@@ -378,7 +375,13 @@ app.use("/", async (req, res, next) => {
             res.setHeader("Access-Control-Allow-Credentials", "true");
         }
         // 动态设置 Exposed Headers，因为 Credentials=true 时不能用 *
-        const exposedHeaders = Object.keys(responseHeaders).join(", ");
+        const exposedHeaders = [
+            ...new Set([
+                ...Object.keys(responseHeaders),
+                "x-request-id",
+                ...(req.query.headers ? ["deprecation", "warning"] : [])
+            ])
+        ].join(", ");
         res.setHeader("Access-Control-Expose-Headers", exposedHeaders);
         res.removeHeader('x-frame-options');
         res.removeHeader('content-security-policy');
