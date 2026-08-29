@@ -1,6 +1,6 @@
 # proxyWeb Node.js 后端
 
-这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。代理支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
+这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。API、Browser 与 Legacy Adapter 已分路由，并复用同一套 URL/DNS/Pinning/Redirect 安全执行器；各模式拥有独立 Header、响应与 CORS 策略。
 
 > [!WARNING]
 > P0 网络安全与基础架构门禁已通过，但当前实现仍以本地开发和受信网络测试为定位，**尚不适合作为生产级开放代理**。请先阅读“当前安全限制”和 [P0 验收矩阵](../../docs/p0-verification-matrix.md)。
@@ -12,8 +12,10 @@ main.js
   └── createApp()
         ├── app.js               # Express middleware 与代理路由
         ├── config/              # 默认值、Schema、迁移和加载
-        ├── core/                # DNS/Pinning、Validator、日志、Header 与统一错误
-        ├── middleware/          # request ID 与请求日志
+        ├── api-proxy/           # API Router 与忠实响应策略
+        ├── browser-proxy/       # Browser Router 骨架与兼容策略
+        ├── core/                # 共享代理执行器、DNS/Pinning、Validator、日志与错误
+        ├── middleware/          # request ID、请求日志与 Legacy Adapter
         ├── config watcher       # 可由 runtime.close() 关闭
         └── runtime.getConfig()  # 启动端口及当前配置
 ```
@@ -85,7 +87,7 @@ npm start
 }
 ```
 
-完整模板还包含 `browser` 预留段。`security.blockedHostnames` 已用于目标主机校验；`security` 的其余字段与 `browser` 字段供后续 P0/P1 使用，当前不能用它们绕过现有安全检查或开启未实现功能。
+完整模板还包含 `browser` 段。`browser.enabled`、`browser.maxRedirects` 与 `browser.headerPolicy` 已用于 Browser Route 骨架；HTML/CSS Rewrite、Cookie Jar 和 Runtime Bridge 字段仍是后续阶段预留，不能据此认为对应功能已经实现。`security.blockedHostnames` 已用于目标主机校验；任何模式都不能绕过现有安全检查。
 
 | 字段 | 类型/单位 | 当前行为 |
 | --- | --- | --- |
@@ -108,6 +110,9 @@ npm start
 | `api.connectTimeoutMs` | Number，毫秒 | 每一跳 TCP/TLS 连接阶段的上限；可热加载 |
 | `api.maxRequestBodyBytes` | Number，字节 | 非 GET/HEAD Body 与 Redirect 重放缓存上限；可热加载 |
 | `api.maxConcurrentRequests` | Number | 同时执行的代理请求上限；超出返回 503；可热加载 |
+| `browser.enabled` | Boolean | 是否开放 Browser Route 骨架；默认 `false`；可热加载 |
+| `browser.maxRedirects` | Number | Browser Mode 独立安全逐跳上限；可热加载 |
+| `browser.headerPolicy` | `compat` / `strict` | `compat` 移除 X-Frame-Options/CSP，`strict` 保留；可热加载 |
 
 ### 旧配置迁移
 
@@ -126,14 +131,14 @@ npm start
 
 字符串支持 `${PROXYWEB_SESSION_SECRET}` 形式的环境变量插值；缺少被引用的变量会拒绝配置。Schema 会拒绝未知字段、错误类型、非法端口、非正数时间、越界 Redirect 数，以及包含正则语法或非前导通配符的 hostname 规则。
 
-配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。请求/连接超时、请求体/并发上限、认证、CORS、hostname 规则、API Redirect 和限流可以热加载；已有 Session 目标会在下一次请求时重新校验。端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
+配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。请求/连接超时、请求体/并发上限、认证、CORS、hostname 规则、API/Browser 模式策略和限流可以热加载；已有 Legacy Session 目标会在下一次请求时重新校验。端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
 
 ## 请求接口
 
-### 单次目标请求
+### API Route（推荐）
 
 ```text
-ANY /?url=<percent-encoded-target>&method=<optional-method>
+ANY /__proxyweb/api?url=<percent-encoded-target>&method=<optional-method>
 ```
 
 - `url` 必填，且应为完整的 `http://` 或 `https://` URL。
@@ -144,6 +149,7 @@ ANY /?url=<percent-encoded-target>&method=<optional-method>
 - 旧 `headers=<percent-encoded-json>` 查询参数仍兼容，响应会携带 `Deprecation: true` 与 HTTP `Warning: 299`；新调用方不得继续生成该参数。
 - 入站和兼容 Header 合并后会统一移除 hop-by-hop、`Proxy-Authorization` 及其 `Connection` 扩展字段。
 - 上游状态码和大多数响应头会透传，响应体以流方式管道输出。
+- API Route 不写入 Legacy Session，保留上游的 `X-Frame-Options` 与 `Content-Security-Policy`，并使用显式 API CORS 策略。
 
 每个请求都会获得服务端生成的 request ID，并通过 `X-Request-ID` 响应头返回。代理自身产生的 JSON 错误使用稳定格式：
 
@@ -161,12 +167,20 @@ ANY /?url=<percent-encoded-target>&method=<optional-method>
 示例中的查询值必须进行 URL 编码：
 
 ```text
-http://localhost:8082/?url=https%3A%2F%2Fexample.com%2Fapi
+http://localhost:8082/__proxyweb/api?url=https%3A%2F%2Fexample.com%2Fapi
 ```
 
-### Session 路径请求
+### Browser Route 骨架
 
-首次带 `url` 请求会把目标写入 Session。后续不带 `url` 的路径会代理到该目标的 origin：
+```text
+ANY /__proxyweb/browser?url=<percent-encoded-target>
+```
+
+该入口默认关闭，访问时返回 404 `PROXY_BROWSER_DISABLED`。开启 `browser.enabled` 后，它会复用与 API Route 相同的 URL、SSRF、DNS Pinning、资源限制和逐跳 Redirect 内核，但不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除上游 `X-Frame-Options` 与 `Content-Security-Policy`，`strict` 则保留。当前只提供原始转发与模式隔离，尚无 Canonical URL、HTML/CSS Rewrite、Cookie Jar 或 WebSocket，不能作为完整网页代理使用。`/__proxyweb/browser/...` 子路径将在后续 UrlMapper 阶段实现。
+
+### Legacy Adapter（已弃用）
+
+旧入口仍兼容：首次带 `url` 请求会把目标写入 Session，后续不带 `url` 的路径会代理到该目标的 origin：
 
 ```text
 GET /?url=https%3A%2F%2Fexample.com
@@ -174,6 +188,8 @@ GET /assets/app.css
 ```
 
 第二次请求会尝试访问 `https://example.com/assets/app.css`。这只是简单路径拼接，不会重写 HTML/CSS 中的链接，也不是完整 Browser Proxy。
+
+Legacy 响应会携带 `Deprecation: true`、HTTP `Warning: 299` 和指向 `/__proxyweb/api` 的 `Link: rel="successor-version"`。新调用方必须使用 API Route；所有未定义的 `/__proxyweb/*` 保留路径会返回 404 `PROXY_ROUTE_NOT_FOUND`，不会误落入 Legacy Session。
 
 ### 静态前端
 
@@ -200,8 +216,8 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 - 后端对所有响应使用 Axios `responseType: "stream"`，并关闭自动解压。
 - 会移除部分 hop-by-hop 响应头以及 `content-length`，由 Node.js 重新处理传输。
-- 当前会移除上游的 `X-Frame-Options` 和 `Content-Security-Policy`，这扩大了内容嵌入面；vNext 将按 API/Browser 模式分别处理。
-- Range 请求头通常会随普通请求头转发，但仓库目前没有自动化测试证明所有媒体与断点续传场景均正确。
+- API Mode 保留上游 `X-Frame-Options` 和 `Content-Security-Policy`；Browser Mode 只在显式 `compat` 策略下移除，Legacy Adapter 为保持旧行为也会移除。
+- Range 请求头随普通请求头转发；自动化契约覆盖了 206、`Content-Range` 与响应片段。
 - 没有 Cookie Jar；客户端 Cookie 也被从上游请求头中删除。
 - 没有 HTML/CSS 重写、WebSocket 代理或 SSE 专项测试。
 
@@ -230,6 +246,8 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 - 503 `PROXY_CONCURRENCY_LIMIT`：正在执行的代理请求达到 `api.maxConcurrentRequests`。
 - 508 `PROXY_REDIRECT_LIMIT`：Redirect 超出配置上限或形成循环。
 - 413 `PROXY_REQUEST_BODY_LIMIT`：请求体或 Redirect 重放内容超过 `api.maxRequestBodyBytes`。
+- 404 `PROXY_BROWSER_DISABLED`：Browser Route 尚未在配置中开启。
+- 404 `PROXY_ROUTE_NOT_FOUND`：请求命中了未定义的 `/__proxyweb/*` 保留路径。
 
 ## 开发与测试
 
@@ -246,6 +264,6 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。
 
-后端当前 111 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、Streaming/Rewrite 分界和 graceful/fatal shutdown 均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 120 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、Streaming/Rewrite 分界、模式路由隔离和 graceful/fatal shutdown 均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装门禁已于 2026-08-29 通过 7/7：前后端 `npm ci`、后端测试与语法检查、前端测试、lint 和生产构建全部成功。逐项 DoD 与测试位置见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

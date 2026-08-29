@@ -43,7 +43,22 @@ test("proxy transport keeps credentials out of the URL and ordinary Authorizatio
 
     assert.doesNotMatch(transport.url, new RegExp(secret));
     assert.doesNotMatch(transport.url, /headers=/);
+    assert.equal(
+        transport.url,
+        "http://proxy.test/__proxyweb/api?url=https%3A%2F%2Fupstream.test%2Fprivate"
+    );
     assert.equal(transport.headers.Authorization, undefined);
     assert.equal(transport.headers[UPSTREAM_AUTHORIZATION_HEADER], `Bearer ${secret}`);
     assert.equal(transport.headers.Accept, "application/json");
+});
+
+test("proxy transport normalizes a trailing slash before the API route", async () => {
+    const { buildProxyTransport } = await loadSecurityHelpers();
+    const transport = buildProxyTransport(
+        "http://proxy.test/",
+        "https://upstream.test/resource"
+    );
+
+    assert.match(transport.url, /^http:\/\/proxy\.test\/__proxyweb\/api\?/);
+    assert.doesNotMatch(transport.url, /proxy\.test\/\/__proxyweb/);
 });

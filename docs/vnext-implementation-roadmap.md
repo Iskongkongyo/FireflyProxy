@@ -38,7 +38,7 @@
 | 2.6 | 安全 Redirect Loop | 每一跳重新校验 | 2.5 | ✅ |
 | 2.7 | 进程策略与资源限制 | 错误可控、资源有界 | 2.1–2.6 | ✅ |
 | 2.8 | P0 集成门禁 | P0 Definition of Done | 2.1–2.7 | ✅ |
-| 3.1 | API/Browser 路由分离 | 两种模式边界固定 | 2.8 | ⬜ |
+| 3.1 | API/Browser 路由分离 | 两种模式边界固定 | 2.8 | ✅ |
 | 3.2 | UrlMapper | Browser Canonical URL | 3.1 | ⬜ |
 | 3.3 | Transform Pipeline | 流式与 Rewrite 正确分流 | 3.2 | ⬜ |
 | 3.4 | HTML Rewrite | 页面资源和导航留在代理内 | 3.3 | ⬜ |
@@ -552,3 +552,15 @@
 - 干净安装门禁 7/7 通过：后端 111 项、前端 3 项测试均为 0 TODO/0 失败，后端语法检查、前端 lint 和 production build 成功；仅保留已记录的 Vue CLI 旧依赖提示与 bundle 体积 warning。
 
 Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser Mode 分路由。
+
+### 第十三轮执行记录
+
+2026-08-30 已完成 3.1：
+
+- 抽取 `core/proxyExecutor.js`，API、Browser 与 Legacy Adapter 复用 URL Validator、DNS/Pinning、受控 Redirect、请求资源限制和流式响应边界，不复制安全内核。
+- 新增 `ANY /__proxyweb/api?url=...`；前端已迁移到该入口，不再隐式创建 Legacy Session。API Policy 保留上游 CSP/X-Frame-Options，并继续使用显式 CORS allowlist。
+- 新增默认关闭的 `/__proxyweb/browser?url=...` 骨架；它不使用 API CORS，拥有独立 Redirect/Header Policy。`compat` 仅在 Browser Mode 移除嵌入限制头，`strict` 保留。
+- 旧 `/?url=...` 与 Session 路径行为由独立 Adapter 保留，并返回 `Deprecation`、`Warning`、后继路由 `Link`；未知 `/__proxyweb/*` 返回稳定 404，不会落入旧 Session 路径。
+- 后端 120 项、前端 4 项测试通过，覆盖新 API、Legacy 兼容与弃用、Browser 开关、CORS 隔离、Header Policy、Redirect 上限和前端 URL 构造；语法检查、前端 lint/build 均纳入统一门禁。
+
+下一阶段为 3.2 UrlMapper 与 Canonical URL。

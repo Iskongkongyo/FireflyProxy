@@ -655,7 +655,7 @@ Bearer [REDACTED]
 
 # 13. P0-10. 配置系统统一
 
-> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7。已实现 Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚；P0 的 hostname、Redirect、连接/请求超时、Body/并发与 Session 生命周期字段均已生效，Browser 专用字段仍按 P1 实施。
+> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7，并于 2026-08-30 在 3.1 激活 `browser.enabled`、`browser.maxRedirects` 与 `browser.headerPolicy`。已实现 Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚；其余 Browser Rewrite/Cookie Jar/Runtime Bridge 字段仍按后续 P1 阶段实施。
 
 增加配置 Schema 校验。
 
@@ -838,13 +838,13 @@ fonts.example.net
 Browser Mode：
 
 ```text
-/__proxyweb/browse/
+/__proxyweb/browser/
 ```
 
 用户进入：
 
 ```text
-GET /__proxyweb/browse?url=https://example.com/docs/index.html
+GET /__proxyweb/browser?url=https://example.com/docs/index.html
 ```
 
 服务器：
@@ -860,7 +860,7 @@ validateTarget
 例如：
 
 ```text
-/__proxyweb/browse/<originToken>/docs/index.html
+/__proxyweb/browser/<originToken>/docs/index.html
 ```
 
 其中：
@@ -904,7 +904,7 @@ https://example.com/a/b.png
 转换：
 
 ```text
-/__proxyweb/browse/<exampleToken>/a/b.png
+/__proxyweb/browser/<exampleToken>/a/b.png
 ```
 
 跨域：
@@ -916,7 +916,7 @@ https://cdn.example.net/app.js
 转换：
 
 ```text
-/__proxyweb/browse/<cdnToken>/app.js
+/__proxyweb/browser/<cdnToken>/app.js
 ```
 
 这样并发跨域资源不会互相修改 Session target。
@@ -1194,7 +1194,7 @@ rewrite Location
 
 ```http
 Location:
-/__proxyweb/browse/<accountsToken>/login
+/__proxyweb/browser/<accountsToken>/login
 ```
 
 让浏览器自己处理 301/302/303/307/308。
@@ -1384,7 +1384,7 @@ upstream 需要看到对应原站信息。
 
 ```text
 proxy URL
-/__proxyweb/browse/<token>/page
+/__proxyweb/browser/<token>/page
 ```
 
 映射回：
@@ -1489,11 +1489,13 @@ fallback 到原 BASE_URL
 
 # 36. P1-6. API Mode 与 Browser Mode 分路由
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1。当前已提供独立 API Route、默认关闭的 Browser Route 原始转发骨架，以及带标准弃用响应头的 Legacy Adapter；Canonical URL 与内容 Rewrite 从 3.2 起继续实现。
+
 推荐：
 
 ```text
 /__proxyweb/api
-/__proxyweb/browse
+/__proxyweb/browser
 ```
 
 Legacy：
@@ -1642,7 +1644,7 @@ wss://example.com/chat
 映射：
 
 ```text
-wss://browse.proxy.com/__proxyweb/browse/<token>/chat
+wss://browse.proxy.com/__proxyweb/browser/<token>/chat
 ```
 
 Server：

@@ -45,6 +45,13 @@ async function handleRequest(req, res) {
         }, { "x-fixture": "json" });
     }
 
+    if (url.pathname === "/security-headers") {
+        return sendJson(res, 200, { secured: true }, {
+            "x-frame-options": "DENY",
+            "content-security-policy": "default-src 'none'"
+        });
+    }
+
     if (url.pathname === "/echo") {
         const body = await readBody(req);
         return sendJson(res, 200, {

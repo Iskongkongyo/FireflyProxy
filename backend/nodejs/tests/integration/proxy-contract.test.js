@@ -16,6 +16,10 @@ function proxyUrl(target, headers = {}) {
     return `${proxy.origin}/?${query}`;
 }
 
+function modeUrl(proxyOrigin, mode, target) {
+    return `${proxyOrigin}/__proxyweb/${mode}?url=${encodeURIComponent(target)}`;
+}
+
 function fixtureRedirect(location, status = 302) {
     const target = new URL(`${fixture.origin}/redirect-to`);
     target.searchParams.set("status", String(status));
@@ -40,6 +44,110 @@ test("GET forwards target query and exposes upstream headers", async () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("x-fixture"), "json");
     assert.deepEqual(payload, { ok: true, method: "GET", query: { hello: "world" } });
+});
+
+test("new API route forwards requests without creating legacy session state", async () => {
+    const response = await fetch(modeUrl(proxy.origin, "api", `${fixture.origin}/echo?route=api`), {
+        method: "POST",
+        headers: {
+            "content-type": "text/plain",
+            "x-api-route": "true"
+        },
+        body: "api-route-body"
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("deprecation"), null);
+    assert.equal(response.headers.get("set-cookie"), null);
+    assert.equal(payload.method, "POST");
+    assert.equal(payload.headers["x-api-route"], "true");
+    assert.equal(payload.body, "api-route-body");
+});
+
+test("legacy route remains compatible and advertises its successor", async () => {
+    const target = `${fixture.origin}/json?route=legacy`;
+    const response = await fetch(`${proxy.origin}/?url=${encodeURIComponent(target)}`, {
+        headers: { origin: "http://frontend.test" }
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).query.route, "legacy");
+    assert.equal(response.headers.get("deprecation"), "true");
+    assert.match(response.headers.get("warning"), /legacy \/\?url route is deprecated/);
+    assert.match(response.headers.get("link"), /<\/__proxyweb\/api>/);
+    assert.match(response.headers.get("access-control-expose-headers"), /deprecation/i);
+    assert.match(response.headers.get("access-control-expose-headers"), /warning/i);
+    assert.match(response.headers.get("access-control-expose-headers"), /link/i);
+});
+
+test("Browser route is explicit, disabled by default and isolated from API CORS", async () => {
+    const disabled = await fetch(modeUrl(proxy.origin, "browser", `${fixture.origin}/json`), {
+        headers: { origin: "http://frontend.test" }
+    });
+    assert.equal(disabled.status, 404);
+    assert.equal((await disabled.json()).error.code, "PROXY_BROWSER_DISABLED");
+    assert.equal(disabled.headers.get("access-control-allow-origin"), null);
+
+    const unknown = await fetch(`${proxy.origin}/__proxyweb/unknown`);
+    assert.equal(unknown.status, 404);
+    assert.equal((await unknown.json()).error.code, "PROXY_ROUTE_NOT_FOUND");
+
+    const reservedRoot = await fetch(`${proxy.origin}/__proxyweb`);
+    assert.equal(reservedRoot.status, 404);
+    assert.equal((await reservedRoot.json()).error.code, "PROXY_ROUTE_NOT_FOUND");
+});
+
+test("API and Browser modes use independent response, CORS and redirect policies", async () => {
+    const modeProxy = await startProxy({
+        api: { maxRedirects: 0 },
+        browser: { enabled: true, maxRedirects: 1, headerPolicy: "compat" }
+    });
+    try {
+        const securedTarget = `${fixture.origin}/security-headers`;
+        const apiResponse = await fetch(modeUrl(modeProxy.origin, "api", securedTarget), {
+            headers: { origin: "http://frontend.test" }
+        });
+        assert.equal(apiResponse.status, 200);
+        assert.equal(apiResponse.headers.get("x-frame-options"), "DENY");
+        assert.equal(apiResponse.headers.get("content-security-policy"), "default-src 'none'");
+        assert.equal(apiResponse.headers.get("access-control-allow-origin"), "http://frontend.test");
+
+        const browserResponse = await fetch(modeUrl(modeProxy.origin, "browser", securedTarget), {
+            headers: { origin: "http://frontend.test" }
+        });
+        assert.equal(browserResponse.status, 200);
+        assert.equal(browserResponse.headers.get("x-frame-options"), null);
+        assert.equal(browserResponse.headers.get("content-security-policy"), null);
+        assert.equal(browserResponse.headers.get("access-control-allow-origin"), null);
+        assert.equal(browserResponse.headers.get("set-cookie"), null);
+
+        const apiRedirect = await fetch(modeUrl(modeProxy.origin, "api", `${fixture.origin}/redirect`));
+        assert.equal(apiRedirect.status, 508);
+        const browserRedirect = await fetch(modeUrl(modeProxy.origin, "browser", `${fixture.origin}/redirect`));
+        assert.equal(browserRedirect.status, 200);
+        assert.equal((await browserRedirect.json()).query.via, "redirect");
+    } finally {
+        await modeProxy.close();
+    }
+});
+
+test("strict Browser header policy preserves upstream embedding protections", async () => {
+    const strictProxy = await startProxy({
+        browser: { enabled: true, headerPolicy: "strict" }
+    });
+    try {
+        const response = await fetch(modeUrl(
+            strictProxy.origin,
+            "browser",
+            `${fixture.origin}/security-headers`
+        ));
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("x-frame-options"), "DENY");
+        assert.equal(response.headers.get("content-security-policy"), "default-src 'none'");
+    } finally {
+        await strictProxy.close();
+    }
 });
 
 for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {

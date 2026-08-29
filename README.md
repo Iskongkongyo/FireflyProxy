@@ -16,9 +16,9 @@
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
 | 本地功能 | 响应式界面、分享链接、浏览器本地历史记录 |
-| 后端 | 流式转发、Session 目标地址、限流、日志、部分配置热加载 |
+| 后端 | API/Browser 分路由、共享安全网络内核、流式转发、限流、日志、部分配置热加载 |
 
-当前并没有完整的网页反向代理模式；HTML/CSS URL 重写、Cookie Jar、WebSocket 和 SPA 兼容属于 vNext 规划，而不是已完成功能。
+当前已建立 Browser Route 骨架，但还没有完整的网页反向代理能力；HTML/CSS URL 重写、Cookie Jar、WebSocket 和 SPA 兼容仍属于 vNext 规划，而不是已完成功能。
 
 ## 目录结构
 
@@ -29,7 +29,9 @@ proxyWeb/
 │   ├── echo.js                  # 独立回显服务（开发辅助）
 │   └── nodejs/
 │       ├── main.js              # 进程启动与关闭入口
-│       ├── app.js               # Express App Factory 与当前代理逻辑
+│       ├── app.js               # Express App Factory 与模式路由装配
+│       ├── api-proxy/           # API Route 与响应策略
+│       ├── browser-proxy/       # Browser Route 骨架与响应策略
 │       ├── config/              # 默认值、Schema 与配置加载
 │       ├── core/                # 日志脱敏、Header 与错误基础模块
 │       ├── middleware/          # 请求日志等 Express 中间件
@@ -61,6 +63,14 @@ npm start
 后端从**当前工作目录**读取 `./main.json`，因此应在 `backend/nodejs/` 内启动。若该文件不存在，可先把 `../main.json.example` 复制为 `./main.json`，并至少修改 `session.secret`。
 
 默认监听 `http://localhost:8082`。
+
+当前推荐的 API 入口是：
+
+```text
+ANY /__proxyweb/api?url=<percent-encoded-target>
+```
+
+旧 `/?url=...` 仅作为兼容 Adapter 保留，并返回 `Deprecation`、`Warning` 与后继路由 `Link`。`/__proxyweb/browser?url=...` 是 Browser Mode 的独立入口，默认由 `browser.enabled: false` 关闭；即使开启，目前也只是共享安全网络内核的原始转发骨架，不代表网页重写已经实现。
 
 ### 2. 启动前端
 
@@ -116,6 +126,9 @@ npm run build
 | `api.connectTimeoutMs` | 每一跳 TCP/TLS 连接超时，毫秒 | 是 |
 | `api.maxRequestBodyBytes` | 非 GET/HEAD 请求体与 Redirect 重放缓存上限，字节 | 是 |
 | `api.maxConcurrentRequests` | 同时执行的代理请求上限，超出返回 503 | 是 |
+| `browser.enabled` | 是否开放 Browser Route 骨架；默认关闭 | 是 |
+| `browser.maxRedirects` | Browser Mode 独立 Redirect 上限 | 是 |
+| `browser.headerPolicy` | `compat` 移除嵌入限制头，`strict` 保留 | 是 |
 
 旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin`、`blacklist` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins`、`security.blockedHostnames` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；旧黑名单值按精确主机或前导通配子域规则校验，不再作为正则执行。迁移会记录弃用警告，建议按模板尽快更新。
 
@@ -141,7 +154,7 @@ P0 的逐项证据见 [自动化验收矩阵](./docs/p0-verification-matrix.md)�
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。门禁会执行后端 111 项测试与语法检查、前端 3 项凭据回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示 P0 验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 120 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 ## 文档索引
 

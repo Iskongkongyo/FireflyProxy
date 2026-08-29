@@ -6,28 +6,22 @@
  */
 
 const path = require("path");
-const { pipeline } = require("node:stream");
 const express = require("express");
-const axios = require("axios"); // [Changed] Use axios for manual proxying
 const rateLimit = require("express-rate-limit");
 const chokidar = require("chokidar");
 const session = require("express-session");
+const { createApiRouter } = require("./api-proxy/router");
+const { createBrowserRouter } = require("./browser-proxy/router");
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
 const { createDnsResolver } = require("./core/dnsResolver");
-const { createErrorMiddleware } = require("./core/errors");
-const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
+const { ERROR_CODES, ProxyError, createErrorMiddleware } = require("./core/errors");
 const { createLogger } = require("./core/logger");
 const { createPinnedConnection } = require("./core/pinnedConnection");
-const {
-    assertRequestBodyLength,
-    createConcurrencyGate,
-    createLimitedRequestBody
-} = require("./core/requestResources");
-const { requestWithRedirects } = require("./core/safeRedirect");
-const { validateTarget } = require("./core/targetValidator");
+const { createProxyExecutor } = require("./core/proxyExecutor");
 const { createProxyAuth } = require("./middleware/auth");
-const { createCorsMiddleware, exposeCorsHeaders } = require("./middleware/cors");
+const { createCorsMiddleware } = require("./middleware/cors");
+const { createLegacyAdapter, createLegacyReadiness } = require("./middleware/legacyAdapter");
 const { createRequestLogger } = require("./middleware/requestLogger");
 
 /**
@@ -56,8 +50,6 @@ const connectionFactory = options.connectionFactory || createPinnedConnection;
 if (typeof connectionFactory !== "function") {
     throw new TypeError("connectionFactory must be a function");
 }
-const concurrencyGate = createConcurrencyGate();
-const activeRequests = new Set();
 
 // ---------------------------
 // 1. 全局配置与热更新状态
@@ -169,55 +161,20 @@ app.use(session({
     // store: new RedisStore({ client: redisClient }), // Example for Prod
 }));
 
-app.use(createCorsMiddleware({ getConfig: () => config }));
+const corsMiddleware = createCorsMiddleware({ getConfig: () => config });
+app.use((req, res, next) => {
+    const browserRoute = req.path === "/__proxyweb/browser"
+        || req.path.startsWith("/__proxyweb/browser/");
+    if (browserRoute) return next();
+    return corsMiddleware(req, res, next);
+});
 
 // ---------------------------
 // 4. 安全鉴权模块
 // ---------------------------
 app.use(createProxyAuth({ getConfig: () => config, logger }));
 
-// ---------------------------
-// 5. 业务逻辑：URL 设置与检查
-// ---------------------------
-app.use(async (req, res, next) => {
-    if (req.path.startsWith("/web")) return next();
-
-    if (req.query.headers) {
-        res.setHeader("Deprecation", "true");
-        res.setHeader("Warning", '299 proxyWeb "headers query parameter is deprecated; send upstream Authorization with X-ProxyWeb-Upstream-Authorization"');
-        logger.warn("[Proxy] Deprecated headers query parameter used", { requestId: req.id });
-    }
-
-    // 处理 ?url= 参数
-    if (Object.prototype.hasOwnProperty.call(req.query, "url")) {
-        try {
-            const target = await validateTarget(req.query.url, {
-                blockedHostnames: config.security.blockedHostnames,
-                resolveHostname: hostname => dnsResolver.resolve(hostname)
-            });
-            req.validatedTarget = target;
-            logger.info("[Session] Target updated", { requestId: req.id, targetUrl: target.url });
-            req.session.targetUrl = target.url;
-            // 设置完 URL 后重定向移除 query 参数，直接代理req.session.targetUrl
-            //return res.redirect("/");
-        } catch (error) {
-            return next(error);
-        }
-    }
-
-    // 检查 Session 状态
-    if (!req.session.targetUrl && !req.path.startsWith("/web")) {
-        if (config.defaultSkip) return res.redirect(config.defaultSkip);
-        return res.status(400).send(`
-            <h3>Proxy Service Ready</h3>
-            <p>支持的参数： <code>url:请求地址</code> <code>method:可选，默认为发送请求时的请求方法</code></p>
-            <p>上游认证请使用请求头 <code>X-ProxyWeb-Upstream-Authorization</code>；普通 <code>Authorization</code> 只用于代理自身鉴权。</p>
-            <p><code>headers</code> 查询参数仅为旧客户端保留，已弃用。</p>
-        `);
-    }
-
-    next();
-});
+app.use(createLegacyReadiness({ getConfig: () => config }));
 
 // 静态资源 (SPA 支持)
 app.use("/web", express.static("webPro"));
@@ -239,179 +196,28 @@ app.use((req, res, next) => {
     next();
 });
 
-// ---------------------------
-// URL 拼接工具函数
-// ---------------------------
-function getTargetUrl(baseUrl, path) {
-    const p = path.replace(/^\//, ""); // 移除开头的斜杠
-    return p ? new URL(baseUrl).origin + "/" + p : baseUrl;
-}
-
-// 动态代理 (Axios Manual Proxy)
-app.use("/", async (req, res, next) => {
-    const reqUrl = req.validatedTarget?.url || req.session.targetUrl;
-
-    if (!reqUrl) return next();
-
-    let requestState;
-    try {
-        const requestConfig = config;
-        const proxyMethodParam = (req.query.method || "").toUpperCase();
-        const validMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
-        const proxyMethod = validMethods.includes(proxyMethodParam) ? proxyMethodParam : req.method;
-        const hasRequestBody = !["GET", "HEAD"].includes(proxyMethod);
-        if (hasRequestBody) {
-            assertRequestBodyLength(req.headers, requestConfig.api.maxRequestBodyBytes);
-        }
-
-        const releaseConcurrency = concurrencyGate.acquire(requestConfig.api.maxConcurrentRequests);
-        const controller = new AbortController();
-        let finalized = false;
-        requestState = {
-            controller,
-            finalize() {
-                if (finalized) return;
-                finalized = true;
-                activeRequests.delete(requestState);
-                releaseConcurrency();
-            }
-        };
-        activeRequests.add(requestState);
-        req.once("aborted", () => controller.abort(new Error("Client request aborted")));
-        res.once("close", () => {
-            if (!res.writableFinished) controller.abort(new Error("Client connection closed"));
-            requestState.finalize();
-        });
-        res.once("finish", requestState.finalize);
-
-        const candidateUrl = req.validatedTarget
-            ? req.validatedTarget.url
-            : getTargetUrl(req.session.targetUrl, req.originalUrl);
-        const target = req.validatedTarget || await validateTarget(candidateUrl, {
-            blockedHostnames: config.security.blockedHostnames,
-            resolveHostname: hostname => dnsResolver.resolve(hostname)
-        });
-        const fullUrl = target.url;
-
-        logger.info("[Proxy] Dispatching request", { requestId: req.id, targetUrl: fullUrl });
-
-        // 1. 准备请求头
-        let customHeaders = {};
-        if (req.query.headers) {
-            try {
-                customHeaders = JSON.parse(req.query.headers);
-            } catch (e) {
-                logger.warn("[Proxy] Failed to parse custom headers JSON", { requestId: req.id });
-            }
-        }
-        const headers = buildUpstreamRequestHeaders(req.headers, customHeaders);
-
-        // 解析请求方法：优先使用查询字符串 ?method=XXX，否则使用前端实际请求方法
-        logger.info("[Proxy] Method selected", { requestId: req.id, method: proxyMethod });
-
-        const requestBody = hasRequestBody
-            ? createLimitedRequestBody(req, requestConfig.api.maxRequestBodyBytes)
-            : undefined;
-
-        // 2. 每一跳都重新校验并绑定到该跳已验证地址；Axios 自身禁止自动 Redirect。
-        const redirectResult = await requestWithRedirects({
-            initialTarget: target,
-            method: proxyMethod,
-            headers,
-            body: requestBody,
-            followRedirects: requestConfig.api.followRedirects,
-            maxRedirects: requestConfig.api.maxRedirects,
-            maxReplayBodyBytes: requestConfig.api.maxRequestBodyBytes,
-            validateTarget: redirectUrl => validateTarget(redirectUrl, {
-                blockedHostnames: config.security.blockedHostnames,
-                resolveHostname: hostname => dnsResolver.resolve(hostname)
-            }),
-            connectionFactory: hopTarget => connectionFactory(hopTarget, {
-                connectTimeoutMs: requestConfig.api.connectTimeoutMs
-            }),
-            dispatch: ({ target: hopTarget, method, headers: hopHeaders, body, connection }) => axios({
-                method,
-                url: hopTarget.url,
-                headers: hopHeaders,
-                data: body,
-                responseType: "stream",
-                decompress: false,
-                maxRedirects: 0,
-                validateStatus: null,
-                timeout: requestConfig.timeoutMs,
-                signal: controller.signal,
-                proxy: false,
-                httpAgent: connection.httpAgent,
-                httpsAgent: connection.httpsAgent
-            }),
-            logger,
-            requestId: req.id
-        });
-        const { response, target: finalTarget, release: releaseConnection } = redirectResult;
-
-        let connectionReleased = false;
-        const releaseOnce = () => {
-            if (connectionReleased) return;
-            connectionReleased = true;
-            releaseConnection();
-        };
-        response.data.once("end", releaseOnce);
-        response.data.once("error", releaseOnce);
-        res.once("close", releaseOnce);
-
-        // 3. [Redirect Sync] 同步已逐跳验证的最终 URL
-        if (finalTarget.url !== fullUrl) {
-            logger.info("[Session] Redirect detected; updating target", {
-                requestId: req.id,
-                previousTargetUrl: req.session.targetUrl,
-                targetUrl: finalTarget.url
-            });
-            req.session.targetUrl = finalTarget.url;
-        }
-
-        // 4. 设置响应头
-        // 注意：Content-Length 通常由 Node.js 重新计算（如果流式传输）或者我们透传数据且 decompress:false 时可能可以保留，
-        // 但如果 Transfer-Encoding 是 chunked，则不应有 Content-Length。
-        // 为了安全起见，对于流式管道转发，最好移除 upstream 的 Content-Length 和 Transfer-Encoding，
-        // 让 Node.js 自动管理（Node.js 会自动添加 Transfer-Encoding: chunked）。
-
-        const responseHeaders = filterUpstreamResponseHeaders(response.headers);
-        Object.entries(responseHeaders).forEach(([key, value]) => {
-            res.setHeader(key, value);
-        });
-        if (req.query.headers) {
-            res.setHeader("Deprecation", "true");
-            res.setHeader("Warning", '299 proxyWeb "headers query parameter is deprecated; send upstream Authorization with X-ProxyWeb-Upstream-Authorization"');
-        }
-
-        exposeCorsHeaders(req, res, [
-            ...new Set([
-                ...Object.keys(responseHeaders),
-                "x-request-id",
-                ...(req.query.headers ? ["deprecation", "warning"] : [])
-            ])
-        ]);
-        res.removeHeader('x-frame-options');
-        res.removeHeader('content-security-policy');
-
-        // 5. 管道转发
-        res.status(response.status);
-        pipeline(response.data, res, error => {
-            releaseOnce();
-            requestState.finalize();
-            if (error && !controller.signal.aborted) {
-                logger.warn("[Proxy] Upstream response stream interrupted", {
-                    requestId: req.id,
-                    error
-                });
-            }
-        });
-
-    } catch (error) {
-        requestState?.finalize();
-        next(error);
-    }
+const proxyExecutor = createProxyExecutor({
+    getConfig: () => config,
+    dnsResolver,
+    connectionFactory,
+    logger
 });
+
+app.use("/__proxyweb/api", createApiRouter({ proxyExecutor }));
+app.use("/__proxyweb/browser", createBrowserRouter({
+    proxyExecutor,
+    getConfig: () => config
+}));
+app.use("/__proxyweb", (req, res, next) => next(new ProxyError(
+    ERROR_CODES.ROUTE_NOT_FOUND,
+    "Reserved proxy route was not found",
+    { statusCode: 404 }
+)));
+app.use(createLegacyAdapter({
+    proxyExecutor,
+    getConfig: () => config,
+    logger
+}));
 
 app.use(createErrorMiddleware({ logger }));
 
@@ -421,10 +227,7 @@ app.use(createErrorMiddleware({ logger }));
         getConfig: () => config,
         reloadConfig: loadConfig,
         async close() {
-            for (const requestState of activeRequests) {
-                requestState.controller.abort(new Error("Proxy runtime is shutting down"));
-                requestState.finalize();
-            }
+            proxyExecutor.close();
             if (configWatcher) await configWatcher.close();
             if (ownsLogger) logger.close();
         }

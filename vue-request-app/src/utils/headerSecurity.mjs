@@ -45,8 +45,9 @@ export function buildProxyTransport(baseUrl, targetUrl, headers = {}, upstreamAu
     }
     if (authorization) transportHeaders[UPSTREAM_AUTHORIZATION_HEADER] = authorization;
 
+    const proxyBaseUrl = String(baseUrl).replace(/\/+$/, "");
     return {
-        url: `${baseUrl}/?url=${encodeURIComponent(String(targetUrl))}`,
+        url: `${proxyBaseUrl}/__proxyweb/api?url=${encodeURIComponent(String(targetUrl))}`,
         headers: transportHeaders
     };
 }
