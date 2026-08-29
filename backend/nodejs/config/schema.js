@@ -61,7 +61,10 @@ const securitySchema = z.object({
 
 const apiSchema = z.object({
     followRedirects: z.boolean(),
-    maxRedirects: z.number().int().nonnegative().max(20)
+    maxRedirects: z.number().int().nonnegative().max(20),
+    connectTimeoutMs: z.number().int().positive(),
+    maxRequestBodyBytes: z.number().int().positive(),
+    maxConcurrentRequests: z.number().int().positive().max(10000)
 }).strict();
 
 const browserSchema = z.object({

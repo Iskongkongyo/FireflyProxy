@@ -718,7 +718,10 @@ cookie_max_age=86400
 
   "api": {
     "followRedirects": true,
-    "maxRedirects": 5
+    "maxRedirects": 5,
+    "connectTimeoutMs": 5000,
+    "maxRequestBodyBytes": 5242880,
+    "maxConcurrentRequests": 64
   },
 
   "browser": {
@@ -2270,7 +2273,7 @@ Passthrough Response 保留缓存 Header。
 
 # 61. Error API
 
-> 状态：✅ 基础模块及路线图 2.3–2.6 网络安全映射已于 2026-08-29 完成。当前代理自身错误使用稳定 JSON envelope，并覆盖 URL、DNS、SSRF、Redirect 与重放 Body 上限等错误代码。
+> 状态：✅ 基础模块及路线图 2.3–2.7 已于 2026-08-29 完成。当前代理自身错误使用稳定 JSON envelope，并覆盖 URL、DNS、SSRF、Redirect、连接/请求超时、请求体与并发上限等错误代码；未捕获异常进入受控 shutdown。
 
 统一错误格式。
 
@@ -2295,6 +2298,7 @@ PROXY_DNS_FAILED
 PROXY_CONNECT_TIMEOUT
 PROXY_REQUEST_TIMEOUT
 PROXY_REQUEST_BODY_LIMIT
+PROXY_CONCURRENCY_LIMIT
 PROXY_REDIRECT_BLOCKED
 PROXY_REDIRECT_LIMIT
 PROXY_UPSTREAM_ERROR

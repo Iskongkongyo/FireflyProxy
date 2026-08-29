@@ -34,7 +34,10 @@ function createDefaultConfig(env = process.env) {
         },
         api: {
             followRedirects: true,
-            maxRedirects: 5
+            maxRedirects: 5,
+            connectTimeoutMs: 5000,
+            maxRequestBodyBytes: 5242880,
+            maxConcurrentRequests: 64
         },
         browser: {
             enabled: false,

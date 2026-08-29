@@ -95,17 +95,49 @@ function assertPinnedRemoteAddress(target, remoteAddress) {
     return normalized.address;
 }
 
-function createPinnedConnection(target) {
+function installConnectTimeout(agent, connectTimeoutMs) {
+    if (!Number.isInteger(connectTimeoutMs) || connectTimeoutMs <= 0) {
+        throw new TypeError("Connect timeout must be a positive integer");
+    }
+
+    const createConnection = agent.createConnection.bind(agent);
+    agent.createConnection = (options, callback) => {
+        let timer;
+        const clearTimer = () => {
+            if (!timer) return;
+            clearTimeout(timer);
+            timer = null;
+        };
+        const socket = createConnection(options, (...args) => {
+            clearTimer();
+            if (callback) callback(...args);
+        });
+        timer = setTimeout(() => {
+            socket.destroy(new ProxyError(ERROR_CODES.CONNECT_TIMEOUT, "Upstream connection timed out", {
+                statusCode: 504,
+                details: { connectTimeoutMs }
+            }));
+        }, connectTimeoutMs);
+        timer.unref?.();
+        socket.once("error", clearTimer);
+        socket.once("close", clearTimer);
+        return socket;
+    };
+    return agent;
+}
+
+function createPinnedConnection(target, options = {}) {
     const pinned = validatePinnedTarget(target);
     const lookup = createPinnedLookup(target);
-    const httpAgent = new http.Agent({ keepAlive: false, lookup });
+    const connectTimeoutMs = options.connectTimeoutMs || 5000;
+    const httpAgent = installConnectTimeout(new http.Agent({ keepAlive: false, lookup }), connectTimeoutMs);
     const httpsOptions = {
         keepAlive: false,
         lookup,
         rejectUnauthorized: true
     };
     if (!net.isIP(pinned.hostname)) httpsOptions.servername = pinned.hostname;
-    const httpsAgent = new https.Agent(httpsOptions);
+    const httpsAgent = installConnectTimeout(new https.Agent(httpsOptions), connectTimeoutMs);
 
     return Object.freeze({
         lookup,
@@ -128,5 +160,6 @@ module.exports = {
     assertPinnedRemoteAddress,
     createPinnedConnection,
     createPinnedLookup,
+    installConnectTimeout,
     normalizeLookupHostname
 };

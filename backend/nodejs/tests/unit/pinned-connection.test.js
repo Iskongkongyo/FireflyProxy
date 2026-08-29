@@ -3,11 +3,13 @@ const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
 const path = require("node:path");
+const { EventEmitter } = require("node:events");
 const { test } = require("node:test");
 const {
     assertPinnedRemoteAddress,
     createPinnedConnection,
-    createPinnedLookup
+    createPinnedLookup,
+    installConnectTimeout
 } = require("../../core/pinnedConnection");
 
 const target = Object.freeze({
@@ -130,4 +132,22 @@ test("pinned connection rejects malformed or empty validated targets", () => {
         }),
         /invalid address record/
     );
+});
+
+test("connect timeout destroys a socket with the stable connect timeout error", async () => {
+    const socket = new EventEmitter();
+    let destroyedWith;
+    socket.destroy = error => {
+        destroyedWith = error;
+        socket.emit("error", error);
+    };
+    const agent = {
+        createConnection() { return socket; }
+    };
+    installConnectTimeout(agent, 10);
+    agent.createConnection({}, () => {});
+    await new Promise(resolve => setTimeout(resolve, 25));
+
+    assert.equal(destroyedWith.code, "PROXY_CONNECT_TIMEOUT");
+    assert.equal(destroyedWith.statusCode, 504);
 });

@@ -36,7 +36,7 @@
 | 2.4 | DNS SSRF 校验 | 域名全部解析结果受控 | 2.3 | ✅ |
 | 2.5 | DNS Pinning | 校验 IP 与连接 IP 一致 | 2.4 | ✅ |
 | 2.6 | 安全 Redirect Loop | 每一跳重新校验 | 2.5 | ✅ |
-| 2.7 | 进程策略与资源限制 | 错误可控、资源有界 | 2.1–2.6 | ⬜ |
+| 2.7 | 进程策略与资源限制 | 错误可控、资源有界 | 2.1–2.6 | ✅ |
 | 2.8 | P0 集成门禁 | P0 Definition of Done | 2.1–2.7 | ⬜ |
 | 3.1 | API/Browser 路由分离 | 两种模式边界固定 | 2.8 | ⬜ |
 | 3.2 | UrlMapper | Browser Canonical URL | 3.1 | ⬜ |
@@ -526,3 +526,17 @@
 - 后端 97 项通过、0 项 TODO、0 项失败；覆盖相对/绝对、循环、超限、私网目标、跨域凭据、方法/Body、逐跳连接和日志脱敏。
 
 下一阶段为 2.7 进程策略与资源限制。
+
+### 第十一轮执行记录
+
+2026-08-29 已完成 2.7：
+
+- 新增 `core/requestResources.js`，以流式 Transform 统一限制非 GET/HEAD 请求体与 Redirect 重放缓存；`api.maxRequestBodyBytes` 默认 5 MiB，超限返回 413 `PROXY_REQUEST_BODY_LIMIT`。
+- 新增动态并发门闩，`api.maxConcurrentRequests` 默认 64，达到上限时 fail-fast 返回 503 `PROXY_CONCURRENCY_LIMIT`，不会建立无界等待队列。
+- 请求级 pinned HTTP/HTTPS Agent 应用 `api.connectTimeoutMs`，Axios 继续应用 `timeoutMs`；连接与请求阶段分别返回稳定 504 错误码。
+- 每个代理请求绑定 AbortController；客户端断开与 runtime 关闭会取消上游。响应使用 `pipeline` 转发，上游半截响应、错误 Content-Length 等异常流不会逃逸路由边界。
+- 新增 `core/processLifecycle.js`；SIGINT/SIGTERM 执行 graceful shutdown，未捕获异常与未处理 rejection 以非零状态走同一受控关闭路径，不再记录后继续运行。
+- API 大响应保持流式传输，与 `security.maxRewriteBytes` 解耦；Session `maxAgeMs` 的真实过期行为已纳入集成测试。
+- 后端 111 项通过、0 项 TODO、0 项失败；新增覆盖请求超时、连接定时器、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、Streaming/Rewrite 分界及 graceful/fatal shutdown。
+
+下一阶段为 2.8 P0 集成门禁。

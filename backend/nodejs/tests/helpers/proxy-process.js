@@ -78,7 +78,7 @@ async function waitUntilReady(child, port, getOutput) {
 }
 
 async function stopChild(child) {
-    if (child.exitCode !== null) return;
+    if (child.exitCode !== null || child.signalCode !== null) return;
 
     child.kill("SIGTERM");
     const exited = new Promise(resolve => child.once("exit", resolve));

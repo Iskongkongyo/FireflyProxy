@@ -110,6 +110,33 @@ async function handleRequest(req, res) {
         return;
     }
 
+    if (url.pathname === "/bytes") {
+        const size = Math.min(Math.max(Number(url.searchParams.get("size")) || 1024, 1), 1024 * 1024);
+        res.writeHead(200, { "content-type": "application/octet-stream" });
+        const chunk = Buffer.alloc(Math.min(size, 16384), "x");
+        let remaining = size;
+        while (remaining > 0) {
+            const length = Math.min(remaining, chunk.length);
+            res.write(chunk.subarray(0, length));
+            remaining -= length;
+        }
+        return res.end();
+    }
+
+    if (url.pathname === "/abrupt") {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.write("partial-response");
+        return setTimeout(() => res.socket.destroy(), 10);
+    }
+
+    if (url.pathname === "/malformed-length") {
+        res.writeHead(200, {
+            "content-type": "text/plain",
+            "content-length": 128
+        });
+        return res.end("short");
+    }
+
     if (url.pathname === "/range") {
         const range = parseRange(req.headers.range, RANGE_BODY.length);
         if (!range && req.headers.range) {

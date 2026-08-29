@@ -6,6 +6,7 @@ const ERROR_CODES = Object.freeze({
     CONNECT_TIMEOUT: "PROXY_CONNECT_TIMEOUT",
     REQUEST_TIMEOUT: "PROXY_REQUEST_TIMEOUT",
     REQUEST_BODY_LIMIT: "PROXY_REQUEST_BODY_LIMIT",
+    CONCURRENCY_LIMIT: "PROXY_CONCURRENCY_LIMIT",
     REDIRECT_BLOCKED: "PROXY_REDIRECT_BLOCKED",
     REDIRECT_LIMIT: "PROXY_REDIRECT_LIMIT",
     UPSTREAM_ERROR: "PROXY_UPSTREAM_ERROR",
@@ -29,6 +30,11 @@ class ProxyError extends Error {
 
 function normalizeProxyError(error) {
     if (error instanceof ProxyError) return error;
+    let cause = error && error.cause;
+    while (cause) {
+        if (cause instanceof ProxyError) return cause;
+        cause = cause.cause;
+    }
     if (error && ["ECONNABORTED", "ETIMEDOUT"].includes(error.code)) {
         return new ProxyError(ERROR_CODES.REQUEST_TIMEOUT, "Upstream request timed out", {
             statusCode: 504,
@@ -60,7 +66,11 @@ function createErrorMiddleware({ logger }) {
             error: normalized.cause || error
         });
 
-        if (res.headersSent) return next(error);
+        if (res.destroyed) return;
+        if (res.headersSent) {
+            if (!res.destroyed) res.destroy();
+            return;
+        }
         res.status(normalized.statusCode).json(errorPayload(normalized));
     };
 }

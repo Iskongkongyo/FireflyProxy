@@ -40,6 +40,15 @@ test("timeout failures receive a stable timeout code", () => {
     assert.equal(normalized.statusCode, 504);
 });
 
+test("wrapped resource errors preserve their public code", () => {
+    const resourceError = new ProxyError(ERROR_CODES.CONNECT_TIMEOUT, "Upstream connection timed out", {
+        statusCode: 504
+    });
+    const wrapped = new Error("transport failed", { cause: resourceError });
+
+    assert.equal(normalizeProxyError(wrapped), resourceError);
+});
+
 test("error middleware logs internal context but only sends the public envelope", () => {
     const entries = [];
     const logger = { error: (message, metadata) => entries.push({ message, metadata }) };

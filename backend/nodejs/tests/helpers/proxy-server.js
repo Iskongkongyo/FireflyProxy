@@ -2,6 +2,7 @@ const http = require("node:http");
 const https = require("node:https");
 const net = require("node:net");
 const { createApp } = require("../../app");
+const { createProcessLifecycle } = require("../../core/processLifecycle");
 const { createPinnedConnection } = require("../../core/pinnedConnection");
 const { normalizeIpAddress } = require("../../core/targetValidator");
 
@@ -62,16 +63,4 @@ const server = runtime.app.listen(config.port, () => {
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 
-let shuttingDown = false;
-async function shutdown() {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    await runtime.close();
-    await new Promise((resolve, reject) => {
-        server.close(error => error ? reject(error) : resolve());
-    });
-    process.exit(0);
-}
-
-process.once("SIGINT", () => void shutdown());
-process.once("SIGTERM", () => void shutdown());
+createProcessLifecycle({ server, runtime, logger: runtime.logger }).register();

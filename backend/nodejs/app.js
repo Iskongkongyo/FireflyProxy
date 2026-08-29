@@ -6,6 +6,7 @@
  */
 
 const path = require("path");
+const { pipeline } = require("node:stream");
 const express = require("express");
 const axios = require("axios"); // [Changed] Use axios for manual proxying
 const rateLimit = require("express-rate-limit");
@@ -18,6 +19,11 @@ const { createErrorMiddleware } = require("./core/errors");
 const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
 const { createLogger } = require("./core/logger");
 const { createPinnedConnection } = require("./core/pinnedConnection");
+const {
+    assertRequestBodyLength,
+    createConcurrencyGate,
+    createLimitedRequestBody
+} = require("./core/requestResources");
 const { requestWithRedirects } = require("./core/safeRedirect");
 const { validateTarget } = require("./core/targetValidator");
 const { createProxyAuth } = require("./middleware/auth");
@@ -50,6 +56,8 @@ const connectionFactory = options.connectionFactory || createPinnedConnection;
 if (typeof connectionFactory !== "function") {
     throw new TypeError("connectionFactory must be a function");
 }
+const concurrencyGate = createConcurrencyGate();
+const activeRequests = new Set();
 
 // ---------------------------
 // 1. 全局配置与热更新状态
@@ -245,7 +253,37 @@ app.use("/", async (req, res, next) => {
 
     if (!reqUrl) return next();
 
+    let requestState;
     try {
+        const requestConfig = config;
+        const proxyMethodParam = (req.query.method || "").toUpperCase();
+        const validMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+        const proxyMethod = validMethods.includes(proxyMethodParam) ? proxyMethodParam : req.method;
+        const hasRequestBody = !["GET", "HEAD"].includes(proxyMethod);
+        if (hasRequestBody) {
+            assertRequestBodyLength(req.headers, requestConfig.api.maxRequestBodyBytes);
+        }
+
+        const releaseConcurrency = concurrencyGate.acquire(requestConfig.api.maxConcurrentRequests);
+        const controller = new AbortController();
+        let finalized = false;
+        requestState = {
+            controller,
+            finalize() {
+                if (finalized) return;
+                finalized = true;
+                activeRequests.delete(requestState);
+                releaseConcurrency();
+            }
+        };
+        activeRequests.add(requestState);
+        req.once("aborted", () => controller.abort(new Error("Client request aborted")));
+        res.once("close", () => {
+            if (!res.writableFinished) controller.abort(new Error("Client connection closed"));
+            requestState.finalize();
+        });
+        res.once("finish", requestState.finalize);
+
         const candidateUrl = req.validatedTarget
             ? req.validatedTarget.url
             : getTargetUrl(req.session.targetUrl, req.originalUrl);
@@ -269,25 +307,28 @@ app.use("/", async (req, res, next) => {
         const headers = buildUpstreamRequestHeaders(req.headers, customHeaders);
 
         // 解析请求方法：优先使用查询字符串 ?method=XXX，否则使用前端实际请求方法
-        const VALID_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
-        const methodParam = (req.query.method || "").toUpperCase();
-        const proxyMethod = VALID_METHODS.includes(methodParam) ? methodParam : req.method;
-
         logger.info("[Proxy] Method selected", { requestId: req.id, method: proxyMethod });
+
+        const requestBody = hasRequestBody
+            ? createLimitedRequestBody(req, requestConfig.api.maxRequestBodyBytes)
+            : undefined;
 
         // 2. 每一跳都重新校验并绑定到该跳已验证地址；Axios 自身禁止自动 Redirect。
         const redirectResult = await requestWithRedirects({
             initialTarget: target,
             method: proxyMethod,
             headers,
-            body: (proxyMethod === "GET" || proxyMethod === "HEAD") ? undefined : req,
-            followRedirects: config.api.followRedirects,
-            maxRedirects: config.api.maxRedirects,
+            body: requestBody,
+            followRedirects: requestConfig.api.followRedirects,
+            maxRedirects: requestConfig.api.maxRedirects,
+            maxReplayBodyBytes: requestConfig.api.maxRequestBodyBytes,
             validateTarget: redirectUrl => validateTarget(redirectUrl, {
                 blockedHostnames: config.security.blockedHostnames,
                 resolveHostname: hostname => dnsResolver.resolve(hostname)
             }),
-            connectionFactory,
+            connectionFactory: hopTarget => connectionFactory(hopTarget, {
+                connectTimeoutMs: requestConfig.api.connectTimeoutMs
+            }),
             dispatch: ({ target: hopTarget, method, headers: hopHeaders, body, connection }) => axios({
                 method,
                 url: hopTarget.url,
@@ -297,7 +338,8 @@ app.use("/", async (req, res, next) => {
                 decompress: false,
                 maxRedirects: 0,
                 validateStatus: null,
-                timeout: config.timeoutMs,
+                timeout: requestConfig.timeoutMs,
+                signal: controller.signal,
                 proxy: false,
                 httpAgent: connection.httpAgent,
                 httpsAgent: connection.httpsAgent
@@ -354,9 +396,19 @@ app.use("/", async (req, res, next) => {
 
         // 5. 管道转发
         res.status(response.status);
-        response.data.pipe(res);
+        pipeline(response.data, res, error => {
+            releaseOnce();
+            requestState.finalize();
+            if (error && !controller.signal.aborted) {
+                logger.warn("[Proxy] Upstream response stream interrupted", {
+                    requestId: req.id,
+                    error
+                });
+            }
+        });
 
     } catch (error) {
+        requestState?.finalize();
         next(error);
     }
 });
@@ -369,6 +421,10 @@ app.use(createErrorMiddleware({ logger }));
         getConfig: () => config,
         reloadConfig: loadConfig,
         async close() {
+            for (const requestState of activeRequests) {
+                requestState.controller.abort(new Error("Proxy runtime is shutting down"));
+                requestState.finalize();
+            }
             if (configWatcher) await configWatcher.close();
             if (ownsLogger) logger.close();
         }

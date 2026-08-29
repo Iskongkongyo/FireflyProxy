@@ -17,6 +17,9 @@ test("default configuration uses explicit millisecond fields", () => {
     assert.equal(config.limiter.windowMs, 60000);
     assert.equal(config.session.secret, "default-test-secret");
     assert.equal(config.api.maxRedirects, 5);
+    assert.equal(config.api.connectTimeoutMs, 5000);
+    assert.equal(config.api.maxRequestBodyBytes, 5242880);
+    assert.equal(config.api.maxConcurrentRequests, 64);
     assert.equal(config.trustProxy, false);
     assert.deepEqual(config.cors, {
         allowedOrigins: ["http://localhost:8080"],
@@ -98,6 +101,7 @@ test("new configuration interpolates environment variables and is deeply frozen"
     assert.equal(result.config.session.secret, "environment-secret");
     assert.equal(result.config.timeoutMs, 4500);
     assert.equal(result.config.api.followRedirects, false);
+    assert.equal(result.config.api.connectTimeoutMs, 5000);
     assert.ok(Object.isFrozen(result.config));
     assert.ok(Object.isFrozen(result.config.session));
     assert.ok(Object.isFrozen(result.config.cors.allowedOrigins));
@@ -167,6 +171,7 @@ test("committed example configuration matches the current schema", () => {
     const result = loadConfigFile({ configPath, env: {} });
 
     assert.equal(result.config.timeoutMs, 30000);
+    assert.equal(result.config.api.maxRequestBodyBytes, 5242880);
     assert.equal(result.config.trustProxy, false);
     assert.deepEqual(result.config.cors.allowedOrigins, ["http://localhost:8080"]);
     assert.deepEqual(result.warnings, []);

@@ -3,7 +3,7 @@
 这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。代理支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
 
 > [!WARNING]
-> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。进程策略、完整资源限制与 P0 集成门禁仍未完成。请先阅读“当前安全限制”。
+> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。路线图 2.7 的进程策略与资源限制已经完成，P0 集成门禁仍待 2.8 收口。请先阅读“当前安全限制”。
 
 ## 运行结构
 
@@ -77,7 +77,10 @@ npm start
   },
   "api": {
     "followRedirects": true,
-    "maxRedirects": 5
+    "maxRedirects": 5,
+    "connectTimeoutMs": 5000,
+    "maxRequestBodyBytes": 5242880,
+    "maxConcurrentRequests": 64
   }
 }
 ```
@@ -102,6 +105,9 @@ npm start
 | `security.blockedHostnames` | String[] | 精确 hostname 或 `*.example.com` 子域规则；不接受正则，可热加载 |
 | `api.followRedirects` | Boolean | 是否启用 proxyWeb 安全逐跳循环；Axios 自身始终禁止自动跳转；可热加载 |
 | `api.maxRedirects` | Number | 安全逐跳循环的最大次数；可热加载 |
+| `api.connectTimeoutMs` | Number，毫秒 | 每一跳 TCP/TLS 连接阶段的上限；可热加载 |
+| `api.maxRequestBodyBytes` | Number，字节 | 非 GET/HEAD Body 与 Redirect 重放缓存上限；可热加载 |
+| `api.maxConcurrentRequests` | Number | 同时执行的代理请求上限；超出返回 503；可热加载 |
 
 ### 旧配置迁移
 
@@ -120,7 +126,7 @@ npm start
 
 字符串支持 `${PROXYWEB_SESSION_SECRET}` 形式的环境变量插值；缺少被引用的变量会拒绝配置。Schema 会拒绝未知字段、错误类型、非法端口、非正数时间、越界 Redirect 数，以及包含正则语法或非前导通配符的 hostname 规则。
 
-配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。超时、认证、CORS、hostname 规则、API Redirect 和限流可以热加载；已有 Session 目标会在下一次请求时重新校验。端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
+配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。请求/连接超时、请求体/并发上限、认证、CORS、hostname 规则、API Redirect 和限流可以热加载；已有 Session 目标会在下一次请求时重新校验。端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
 
 ## 请求接口
 
@@ -179,13 +185,14 @@ GET /assets/app.css
 
 路线图 2.3–2.6 已完成 URL、字面 IP、DNS 结果校验、连接绑定与安全 Redirect Loop：域名通过可注入 Resolver 执行 `lookup({ all: true, verbatim: true })`，保留全部规范化 A/AAAA；空结果、失败、超时、非法结果，以及任一非公网或混合公网/私网结果都会安全失败。每个请求创建独立 HTTP/HTTPS Agent，其 `lookup` 只能返回冻结后的验证地址集合；Axios 的环境代理发现被关闭，HTTPS 保持原 hostname、Host、SNI 和 `rejectUnauthorized: true`。平台提供远端 socket 地址时还会再次核对其是否属于验证集合。
 
-Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时，proxyWeb 处理 301/302/303/307/308：每一跳解析相对或绝对 `Location`、重新执行 URL/DNS/Pinning、创建新的请求级 Agent，并按 `api.maxRedirects` 检测循环和超限。跨 Origin 会删除认证、Cookie、Token、Password、Secret 与 API Key 类 Header；301/302 的 POST 和 303 按规则转换为 GET，307/308 保留方法与 Body。为重放 307/308，首跳 Body 会在流式发送的同时最多缓存 5 MiB；仅当确实需要重放且超出上限时返回 413 `PROXY_REQUEST_BODY_LIMIT`。
+Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时，proxyWeb 处理 301/302/303/307/308：每一跳解析相对或绝对 `Location`、重新执行 URL/DNS/Pinning、创建新的请求级 Agent，并按 `api.maxRedirects` 检测循环和超限。跨 Origin 会删除认证、Cookie、Token、Password、Secret 与 API Key 类 Header；301/302 的 POST 和 303 按规则转换为 GET，307/308 保留方法与 Body。请求体始终以流式 Transform 按 `api.maxRequestBodyBytes` 计数；需要重放 307/308 时使用同一上限进行有限捕获，超限返回 413 `PROXY_REQUEST_BODY_LIMIT`。
+
+路线图 2.7 已完成进程策略与资源限制：连接阶段使用请求级 Agent 定时器，请求阶段使用 `timeoutMs`；并发槽超限 fail-fast，客户端断开与 runtime shutdown 会 Abort 上游；上游半截响应和畸形 Content-Length 由 `pipeline` 在路由边界回收。未捕获异常与未处理 rejection 统一进入受控 shutdown，先停止接收连接并关闭 runtime，5 秒仍未完成才强制退出。API 响应继续流式传输，`security.maxRewriteBytes` 不会导致 API 大响应整体缓冲。
 
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
-1. **进程策略与资源限制尚未整体收口。** 请求超时和 Redirect/重放 Body 上限已经存在，但客户端断开、上游中断、畸形流、并发资源边界和未捕获异常 shutdown 仍由路线图 2.7 跟踪。
-2. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
-3. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
+1. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
+2. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
 
 配置 `user`/`pwd` 不能消除上述问题。完成 P0 安全测试前，不建议提供公网生产部署步骤。
 
@@ -219,8 +226,10 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 - 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP、域名的任一 DNS 结果为非公网地址，或命中 `security.blockedHostnames`。
 - 502 `PROXY_DNS_FAILED`：域名解析失败、超时、返回空列表或非法地址记录。
 - 502 `PROXY_REDIRECT_BLOCKED`：上游返回无法解析的 Redirect `Location`。
+- 504 `PROXY_CONNECT_TIMEOUT` / `PROXY_REQUEST_TIMEOUT`：连接阶段或上游请求超过配置上限。
+- 503 `PROXY_CONCURRENCY_LIMIT`：正在执行的代理请求达到 `api.maxConcurrentRequests`。
 - 508 `PROXY_REDIRECT_LIMIT`：Redirect 超出配置上限或形成循环。
-- 413 `PROXY_REQUEST_BODY_LIMIT`：307/308 等需要重放 Body，但首跳捕获内容超过 5 MiB。
+- 413 `PROXY_REQUEST_BODY_LIMIT`：请求体或 Redirect 重放内容超过 `api.maxRequestBodyBytes`。
 
 ## 开发与测试
 
@@ -233,6 +242,6 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 | `npm run test:integration` | 运行当前代理行为契约测试 |
 | `npm run lint` | 检查生产入口与测试辅助脚本语法 |
 
-测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
+测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。
 
-后端当前 97 项测试通过、0 项 TODO、0 项失败；相对/绝对 Redirect、关闭跟随、循环/超限、公网跳私网、跨域敏感 Header 清理、301/302/303/307/308 方法与 Body、Redirect 日志脱敏，以及 DNS、Pinning、TLS、URL/IP、CORS、代理跳数、认证隔离和凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 111 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、Streaming/Rewrite 分界和 graceful/fatal shutdown 均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

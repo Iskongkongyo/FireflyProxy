@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
+const http = require("node:http");
 const { after, before, test } = require("node:test");
 const { createUpstreamFixture, RANGE_BODY } = require("../fixtures/upstream-server");
 const { startProxy } = require("../helpers/proxy-process");
@@ -163,6 +164,106 @@ test("streamed response reaches the client intact", async () => {
 
     assert.equal(response.status, 200);
     assert.equal(await response.text(), "chunk-1|chunk-2|chunk-3");
+});
+
+test("request timeout returns a stable 504 response", async () => {
+    const timeoutProxy = await startProxy({ timeoutMs: 25 });
+    try {
+        const target = `${fixture.origin}/slow?ms=100`;
+        const response = await fetch(`${timeoutProxy.origin}/?url=${encodeURIComponent(target)}`);
+        assert.equal(response.status, 504);
+        assert.equal((await response.json()).error.code, "PROXY_REQUEST_TIMEOUT");
+    } finally {
+        await timeoutProxy.close();
+    }
+});
+
+test("request body and concurrent proxy work stay within configured bounds", async () => {
+    const boundedProxy = await startProxy({
+        api: {
+            maxRequestBodyBytes: 4,
+            maxConcurrentRequests: 1
+        }
+    });
+    try {
+        const oversized = await fetch(
+            `${boundedProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/echo`)}`,
+            { method: "POST", body: "12345" }
+        );
+        assert.equal(oversized.status, 413);
+        assert.equal((await oversized.json()).error.code, "PROXY_REQUEST_BODY_LIMIT");
+
+        const slowTarget = `${fixture.origin}/slow?ms=150`;
+        const first = fetch(`${boundedProxy.origin}/?url=${encodeURIComponent(slowTarget)}`);
+        await new Promise(resolve => setTimeout(resolve, 30));
+        const rejected = await fetch(
+            `${boundedProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`
+        );
+        assert.equal(rejected.status, 503);
+        assert.equal((await rejected.json()).error.code, "PROXY_CONCURRENCY_LIMIT");
+        assert.equal((await first).status, 200);
+    } finally {
+        await boundedProxy.close();
+    }
+});
+
+test("client disconnect cancels upstream work without destabilizing the process", async () => {
+    const target = `${fixture.origin}/slow?ms=200`;
+    const url = new URL(`${proxy.origin}/?url=${encodeURIComponent(target)}`);
+    await new Promise(resolve => {
+        const request = http.get(url);
+        request.once("error", resolve);
+        request.once("close", resolve);
+        setTimeout(() => request.destroy(), 20);
+    });
+
+    const healthy = await fetch(proxyUrl(`${fixture.origin}/json?after=disconnect`));
+    assert.equal(healthy.status, 200);
+    assert.equal((await healthy.json()).query.after, "disconnect");
+});
+
+for (const path of ["/abrupt", "/malformed-length"]) {
+    test(`interrupted upstream stream ${path} is contained at the route boundary`, async () => {
+        await assert.rejects(async () => {
+            const response = await fetch(proxyUrl(`${fixture.origin}${path}`));
+            await response.arrayBuffer();
+        });
+
+        const healthy = await fetch(proxyUrl(`${fixture.origin}/json?after=stream-error`));
+        assert.equal(healthy.status, 200);
+    });
+}
+
+test("API streaming is not buffered by the smaller rewrite limit", async () => {
+    const streamingProxy = await startProxy({ security: { maxRewriteBytes: 16 } });
+    try {
+        const response = await fetch(
+            `${streamingProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/bytes?size=65536`)}`
+        );
+        assert.equal(response.status, 200);
+        assert.equal((await response.arrayBuffer()).byteLength, 65536);
+    } finally {
+        await streamingProxy.close();
+    }
+});
+
+test("session maxAge expires stored targets", async () => {
+    const expiringProxy = await startProxy({ session: { maxAgeMs: 50 } });
+    try {
+        const initial = await fetch(
+            `${expiringProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`
+        );
+        const cookie = initial.headers.get("set-cookie");
+        assert.ok(cookie && cookie.includes("proxySession="));
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const expired = await fetch(`${expiringProxy.origin}/echo`, {
+            headers: { cookie: cookie.split(";", 1)[0] }
+        });
+        assert.equal(expired.status, 400);
+    } finally {
+        await expiringProxy.close();
+    }
 });
 
 test("Range request preserves 206 and Content-Range", async () => {
