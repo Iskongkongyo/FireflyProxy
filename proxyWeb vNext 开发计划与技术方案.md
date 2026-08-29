@@ -929,6 +929,8 @@ https://cdn.example.net/app.js
 
 # 19. P1-1. HTML Rewrite
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.4。当前使用 Cheerio 解析 HTML/XHTML，覆盖列出的 URL 属性、`srcset`、`<base>`、Meta Refresh 和内联 style `url()`；映射复用 Canonical UrlMapper，实际子请求仍经过完整安全校验。
+
 推荐使用：
 
 ```text
@@ -1080,7 +1082,7 @@ CSS 文件自身 upstream URL
 
 # 24. Response Transform Pipeline
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.3。当前按模式与 HTTP 语义区分 transform/stream，HTML/XHTML/CSS 接入可插拔文本转换器；SSE、Range、附件、no-transform、媒体和二进制保持直通。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.3–3.4。当前按模式与 HTTP 语义区分 transform/stream，HTML/XHTML 已接入 Parser Rewrite，CSS 转换器由 3.5 继续实现；SSE、Range、附件、no-transform、媒体和二进制保持直通。
 
 建立统一：
 
@@ -1497,7 +1499,7 @@ fallback 到原 BASE_URL
 
 # 36. P1-6. API Mode 与 Browser Mode 分路由
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.3。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、受限 Response Transform Pipeline 与带标准弃用响应头的 Legacy Adapter；具体内容 Rewrite 从 3.4 起继续实现。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.4。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML Rewrite、受限 Response Transform Pipeline 与带标准弃用响应头的 Legacy Adapter；CSS 与 Location Rewrite 从 3.5 继续实现。
 
 推荐：
 

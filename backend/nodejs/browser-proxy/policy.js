@@ -3,6 +3,7 @@ const {
     filterUpstreamResponseHeaders,
     omitHeaders
 } = require("../core/headers");
+const { rewriteHtml } = require("./htmlRewriter");
 
 function filterBrowserResponseHeaders(upstreamHeaders, config, context = {}) {
     const headers = filterUpstreamResponseHeaders(upstreamHeaders, {
@@ -26,7 +27,10 @@ const browserPolicy = Object.freeze({
         };
     },
     filterResponseHeaders: filterBrowserResponseHeaders,
-    transformResponseText({ text }) {
+    transformResponseText({ text, mediaType, targetUrl }) {
+        if (mediaType === "text/html" || mediaType === "application/xhtml+xml") {
+            return rewriteHtml({ html: text, documentUrl: targetUrl, mediaType });
+        }
         return text;
     },
     redirectOptions(config) {

@@ -64,6 +64,29 @@ async function handleRequest(req, res) {
         return res.end(body);
     }
 
+    if (url.pathname === "/html-relative") {
+        const port = String(req.headers.host || "").split(":").pop();
+        const body = Buffer.from(`<!doctype html><html><head>
+            <base href="/assets/">
+            <link id="stylesheet" href="site.css" rel="stylesheet">
+            <meta http-equiv="refresh" content="0; url=/landing">
+        </head><body>
+            <a id="navigation" href="/json?via=html#result">Next</a>
+            <script id="script" src="app.js"></script>
+            <img id="image" src="logo.png" srcset="small.png 1x, //cdn.test:${port}/large.png 2x">
+            <form id="form" action="/echo" method="post"></form>
+            <iframe id="frame" src="frame.html"></iframe>
+            <div id="styled" style="background-image: url('background.png')"></div>
+            <a id="email" href="mailto:test@example.com">Email</a>
+        </body></html>`, "utf8");
+        res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "content-length": body.length,
+            etag: '"fixture-html-rewrite-etag"'
+        });
+        return res.end(body);
+    }
+
     if (url.pathname === "/gzip-html") {
         const body = Buffer.from("<!doctype html><html><body>compressed</body></html>", "utf8");
         const compressed = gzipSync(body);

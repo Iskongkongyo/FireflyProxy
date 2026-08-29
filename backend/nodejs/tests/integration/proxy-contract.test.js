@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const { after, before, test } = require("node:test");
+const cheerio = require("cheerio");
 const { toProxyUrl } = require("../../core/urlMapper");
 const { createUpstreamFixture, RANGE_BODY } = require("../fixtures/upstream-server");
 const { startProxy } = require("../helpers/proxy-process");
@@ -249,6 +250,62 @@ test("Browser response pipeline transforms bounded text while streaming SSE and 
         assert.equal(sse.headers.get("etag"), '"fixture-sse-etag"');
     } finally {
         await pipelineProxy.close();
+    }
+});
+
+test("Browser HTML Rewrite keeps resources, navigation, forms and inline CSS on canonical routes", async () => {
+    const htmlProxy = await startProxy({ browser: { enabled: true } });
+    try {
+        const response = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/html-relative`),
+            htmlProxy.origin
+        ));
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("etag"), null);
+        const $ = cheerio.load(await response.text());
+
+        assert.equal($("base").attr("href"), toProxyUrl(`${fixture.origin}/assets/`));
+        assert.equal($("#stylesheet").attr("href"), toProxyUrl(`${fixture.origin}/assets/site.css`));
+        assert.equal($("#navigation").attr("href"), toProxyUrl(`${fixture.origin}/json?via=html#result`));
+        assert.equal($("#script").attr("src"), toProxyUrl(`${fixture.origin}/assets/app.js`));
+        assert.equal($("#image").attr("src"), toProxyUrl(`${fixture.origin}/assets/logo.png`));
+        assert.equal(
+            $("#image").attr("srcset"),
+            `${toProxyUrl(`${fixture.origin}/assets/small.png`)} 1x, ${toProxyUrl(`http://cdn.test:${fixture.port}/large.png`)} 2x`
+        );
+        assert.equal($("#form").attr("action"), toProxyUrl(`${fixture.origin}/echo`));
+        assert.equal($("#frame").attr("src"), toProxyUrl(`${fixture.origin}/assets/frame.html`));
+        assert.match($("#styled").attr("style"), new RegExp(
+            toProxyUrl(`${fixture.origin}/assets/background.png`).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        ));
+        assert.equal($("meta[http-equiv=refresh]").attr("content"), `0; url=${toProxyUrl(`${fixture.origin}/landing`)}`);
+        assert.equal($("#email").attr("href"), "mailto:test@example.com");
+
+        const navigation = await fetch(new URL($("#navigation").attr("href"), htmlProxy.origin));
+        assert.equal(navigation.status, 200);
+        assert.equal((await navigation.json()).query.via, "html");
+    } finally {
+        await htmlProxy.close();
+    }
+});
+
+test("Browser rewriteHtml=false preserves upstream HTML bytes and metadata", async () => {
+    const passthroughProxy = await startProxy({
+        browser: { enabled: true, rewriteHtml: false }
+    });
+    try {
+        const response = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/html-relative`),
+            passthroughProxy.origin
+        ));
+        const html = await response.text();
+
+        assert.match(html, /href="\/json\?via=html#result"/);
+        assert.match(html, /src="app\.js"/);
+        assert.equal(response.headers.get("etag"), '"fixture-html-rewrite-etag"');
+        assert.notEqual(response.headers.get("content-length"), null);
+    } finally {
+        await passthroughProxy.close();
     }
 });
 

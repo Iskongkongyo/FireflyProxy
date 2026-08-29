@@ -41,7 +41,7 @@
 | 3.1 | API/Browser 路由分离 | 两种模式边界固定 | 2.8 | ✅ |
 | 3.2 | UrlMapper | Browser Canonical URL | 3.1 | ✅ |
 | 3.3 | Transform Pipeline | 流式与 Rewrite 正确分流 | 3.2 | ✅ |
-| 3.4 | HTML Rewrite | 页面资源和导航留在代理内 | 3.3 | ⬜ |
+| 3.4 | HTML Rewrite | 页面资源和导航留在代理内 | 3.3 | ✅ |
 | 3.5 | CSS 与 Location Rewrite | 样式资源和跳转可用 | 3.4 | ⬜ |
 | 3.6 | Cookie Jar 与 Header Policy | 会话及上游语义映射 | 3.5 | ⬜ |
 | 3.7 | Browser UI | 独立入口与兼容设置 | 3.6 | ⬜ |
@@ -590,3 +590,16 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端 137 项、前端 4 项测试通过，语法检查、前端 lint/build 继续纳入统一门禁。
 
 下一阶段为 3.4 HTML Rewrite。
+
+### 第十六轮执行记录
+
+2026-08-30 已完成 3.4：
+
+- 新增 `browser-proxy/htmlRewriter.js`，使用 Cheerio 解析 HTML/XHTML，不使用正则整体替换文档；常见 `href`、`src`、`action`、`formaction`、`poster` 与 `data` 属性统一通过 `UrlMapper` 生成 Canonical Browser URL。
+- 第一个 `<base href>` 为有效 HTTP(S) 目标时形成 effective base，否则回退文档 URL；所有相对资源、导航与表单按该基准解析，随后 `<base>` 自身也被映射，跨 origin/CDN 资源使用独立 origin Token。
+- `img/source srcset` 按候选项解析，只改写 URL 并保留 `1x`、`2x`、`480w` 等 descriptor；Meta Refresh 只改 URL 段，内联 style 使用 CSS value parser 处理 `url()`。
+- `javascript:`、`data:`、`blob:`、`mailto:`、`tel:`、纯 Fragment、带 credentials 与畸形目标保持原值；新生成的 Canonical 子请求仍完整执行 SSRF、DNS 与 Pinning 校验。
+- `browser.rewriteHtml: false` 保持 HTML 字节与长度/缓存元数据直通；新增解析器单元测试、真实 fixture、跨域映射和可请求导航集成测试。生产依赖经 npm 官方安全公告库审计为 0 个已知漏洞。
+- 后端 143 项、前端 4 项测试通过，语法检查、前端 lint/build 继续纳入统一门禁。
+
+下一阶段为 3.5 CSS 与 Location Rewrite。
