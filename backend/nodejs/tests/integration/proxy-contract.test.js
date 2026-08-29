@@ -288,6 +288,30 @@ test("authentication configuration hot reload affects later requests", async () 
     }
 });
 
+test("stored session targets are revalidated against hot-loaded hostname rules", async () => {
+    const hotProxy = await startProxy();
+    try {
+        const initial = await fetch(`${hotProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`);
+        assert.equal(initial.status, 200);
+        const cookie = initial.headers.get("set-cookie");
+        assert.ok(cookie && cookie.includes("proxySession="));
+
+        const outputIndex = hotProxy.getOutput().length;
+        await hotProxy.updateConfig({
+            security: { blockedHostnames: ["fixture.test"] }
+        });
+        await hotProxy.waitForOutput(/Configuration loaded/, outputIndex);
+
+        const afterReload = await fetch(`${hotProxy.origin}/echo`, {
+            headers: { cookie: cookie.split(";", 1)[0] }
+        });
+        assert.equal(afterReload.status, 403);
+        assert.equal((await afterReload.json()).error.code, "PROXY_SSRF_BLOCKED");
+    } finally {
+        await hotProxy.close();
+    }
+});
+
 test("invalid configuration reload keeps the previous working configuration", async () => {
     const hotProxy = await startProxy();
     try {
@@ -320,14 +344,89 @@ test("invalid targets use the stable public error envelope", async () => {
     const response = await fetch(`${proxy.origin}/?url=${encodeURIComponent("not-a-url")}`);
     const payload = await response.json();
 
-    assert.equal(response.status, 403);
+    assert.equal(response.status, 400);
     assert.match(response.headers.get("x-request-id"), /^[0-9a-f-]{36}$/);
     assert.deepEqual(payload, {
         error: {
             code: "PROXY_INVALID_URL",
-            message: "Target URL is invalid or blocked"
+            message: "Target URL is invalid"
         }
     });
+});
+
+test("an explicitly empty target uses the same invalid URL envelope", async () => {
+    const response = await fetch(`${proxy.origin}/?url=`);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+        error: {
+            code: "PROXY_INVALID_URL",
+            message: "Target URL is invalid"
+        }
+    });
+});
+
+test("target validation distinguishes protocols and non-public literal addresses", async () => {
+    const cases = [
+        ["ftp://example.test/file", "PROXY_PROTOCOL_BLOCKED"],
+        ["http://localhost/", "PROXY_SSRF_BLOCKED"],
+        ["http://127.1/", "PROXY_SSRF_BLOCKED"],
+        ["http://[::1]/", "PROXY_SSRF_BLOCKED"],
+        ["http://[::ffff:127.0.0.1]/", "PROXY_SSRF_BLOCKED"]
+    ];
+
+    for (const [target, code] of cases) {
+        const response = await fetch(`${proxy.origin}/?url=${encodeURIComponent(target)}`);
+        assert.equal(response.status, 403);
+        assert.equal((await response.json()).error.code, code);
+    }
+});
+
+test("reserved security flags cannot disable literal address validation", async () => {
+    const hardenedProxy = await startProxy({
+        security: {
+            ssrf: false,
+            allowPrivateNetworks: true,
+            blockedHostnames: []
+        }
+    });
+    try {
+        const response = await fetch(`${hardenedProxy.origin}/?url=${encodeURIComponent("http://127.0.0.1/")}`);
+        assert.equal(response.status, 403);
+        assert.equal((await response.json()).error.code, "PROXY_SSRF_BLOCKED");
+    } finally {
+        await hardenedProxy.close();
+    }
+});
+
+test("URL credentials are rejected without reaching request or error logs", async () => {
+    const credentialProxy = await startProxy();
+    const secret = "url-password-must-not-appear";
+    try {
+        const outputIndex = credentialProxy.getOutput().length;
+        const target = `http://user:${secret}@fixture.test/echo`;
+        const response = await fetch(`${credentialProxy.origin}/?url=${encodeURIComponent(target)}`);
+        assert.equal(response.status, 400);
+        assert.equal((await response.json()).error.code, "PROXY_INVALID_URL");
+        await credentialProxy.waitForOutput(/PROXY_INVALID_URL/, outputIndex);
+        assert.doesNotMatch(credentialProxy.getOutput().slice(outputIndex), new RegExp(secret));
+    } finally {
+        await credentialProxy.close();
+    }
+});
+
+test("configured hostname rules block exact hosts and wildcard subdomains", async () => {
+    const blockedProxy = await startProxy({
+        security: { blockedHostnames: ["blocked.test", "*.internal.test"] }
+    });
+    try {
+        for (const target of ["http://blocked.test/", "https://api.internal.test/path"]) {
+            const response = await fetch(`${blockedProxy.origin}/?url=${encodeURIComponent(target)}`);
+            assert.equal(response.status, 403);
+            assert.equal((await response.json()).error.code, "PROXY_SSRF_BLOCKED");
+        }
+    } finally {
+        await blockedProxy.close();
+    }
 });
 
 test("upstream connection failures do not expose internal network details", async () => {

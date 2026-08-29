@@ -29,6 +29,8 @@ function isSensitiveKey(key) {
 
 function redactString(value) {
     return String(value)
+        .replace(/\b((?:https?|wss?):\/\/)[^\s/?#]*@/gi, `$1${REDACTED}@`)
+        .replace(/\b((?:https?|wss?)%3A%2F%2F)[^&\s]*?%40/gi, `$1%5BREDACTED%5D%40`)
         .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [REDACTED]")
         .replace(
             /((?:x[-_]?proxyweb[-_]?upstream[-_]?authorization|proxy[-_]?authorization|authorization|set[-_]?cookie|cookie|access[-_]?token|refresh[-_]?token|token|password|passwd|pwd|secret|x[-_]?api[-_]?key|api[-_]?key|apikey|key|headers)(?:%22|["']?)\s*(?:%3A|%3D|[:=])\s*)(?:%22[^&\s]*|"[^"]*"|'[^']*'|[^&\s,}]+)/gi,

@@ -1,4 +1,5 @@
 const { z } = require("zod");
+const { normalizeHostnameRule } = require("../core/targetValidator");
 
 const originSchema = z.string().refine(value => {
     if (value === "*") return true;
@@ -51,6 +52,10 @@ const limiterSchema = z.object({
 const securitySchema = z.object({
     ssrf: z.boolean(),
     allowPrivateNetworks: z.boolean(),
+    blockedHostnames: z.array(z.string().refine(
+        value => normalizeHostnameRule(value) !== null,
+        "Expected an exact hostname or a leading wildcard such as *.example.com"
+    )),
     maxRewriteBytes: z.number().int().positive()
 }).strict();
 
@@ -79,7 +84,6 @@ const configSchema = z.object({
     session: sessionSchema,
     cors: corsSchema,
     limiter: limiterSchema,
-    blacklist: z.array(z.string()),
     security: securitySchema,
     api: apiSchema,
     browser: browserSchema

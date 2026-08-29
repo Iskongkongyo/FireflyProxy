@@ -22,6 +22,7 @@ test("default configuration uses explicit millisecond fields", () => {
         allowedOrigins: ["http://localhost:8080"],
         allowCredentials: true
     });
+    assert.deepEqual(config.security.blockedHostnames, []);
 });
 
 test("legacy flat and snake_case fields migrate without mutating input", () => {
@@ -42,7 +43,8 @@ test("legacy flat and snake_case fields migrate without mutating input", () => {
             max: 5,
             message: "legacy limit",
             statusCode: 429
-        }
+        },
+        blacklist: ["legacy.example", "*.blocked.example"]
     };
     const snapshot = structuredClone(legacy);
     const result = parseConfigObject(legacy, { env: {} });
@@ -54,6 +56,7 @@ test("legacy flat and snake_case fields migrate without mutating input", () => {
     assert.equal(result.config.session.httpOnly, false);
     assert.equal(result.config.limiter.windowMs, 60000);
     assert.deepEqual(result.config.cors.allowedOrigins, ["http://legacy.test"]);
+    assert.deepEqual(result.config.security.blockedHostnames, ["legacy.example", "*.blocked.example"]);
     assert.equal(result.config.api.maxRedirects, 3);
     assert.ok(result.warnings.length >= 7);
 });
@@ -131,6 +134,21 @@ test("credentialed wildcard CORS configuration fails closed", () => {
             assert.equal(error.code, "CONFIG_SCHEMA_INVALID");
             assert.match(error.message, /cors\.allowedOrigins/);
             assert.match(error.message, /Wildcard origin is forbidden/);
+            return true;
+        }
+    );
+});
+
+test("hostname block rules reject legacy regular expressions", () => {
+    assert.throws(
+        () => parseConfigObject({
+            security: { blockedHostnames: ["internal\\.example"] }
+        }, { env: {} }),
+        error => {
+            assert.ok(error instanceof ConfigLoadError);
+            assert.equal(error.code, "CONFIG_SCHEMA_INVALID");
+            assert.match(error.message, /security\.blockedHostnames\.0/);
+            assert.match(error.message, /exact hostname or a leading wildcard/);
             return true;
         }
     );

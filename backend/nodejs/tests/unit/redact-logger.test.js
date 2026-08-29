@@ -3,7 +3,7 @@ const { Writable } = require("node:stream");
 const { test } = require("node:test");
 const winston = require("winston");
 const { createLogger } = require("../../core/logger");
-const { REDACTED, isSensitiveKey, redact } = require("../../core/redact");
+const { REDACTED, isSensitiveKey, redact, redactString } = require("../../core/redact");
 
 test("redact removes secrets from nested objects, URLs and errors without mutating input", () => {
     const secret = "sensitive-value-123";
@@ -25,6 +25,11 @@ test("redact removes secrets from nested objects, URLs and errors without mutati
     assert.equal(isSensitiveKey("Proxy-Authorization"), true);
     assert.equal(isSensitiveKey("X-ProxyWeb-Upstream-Authorization"), true);
     assert.equal(isSensitiveKey("x-request-id"), false);
+    assert.doesNotMatch(redactString("https://user:credential@example.test/path"), /user|credential/);
+    assert.doesNotMatch(
+        redactString("/?url=https%3A%2F%2Fuser%3Acredential%40example.test%2Fpath"),
+        /user|credential/
+    );
 });
 
 test("logger applies redaction before writing to a transport", async () => {

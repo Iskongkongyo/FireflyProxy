@@ -69,7 +69,12 @@ npm start
     "message": "Too many requests, please try again later.",
     "statusCode": 429
   },
-  "blacklist": [],
+  "security": {
+    "ssrf": true,
+    "allowPrivateNetworks": false,
+    "blockedHostnames": [],
+    "maxRewriteBytes": 5242880
+  },
   "api": {
     "followRedirects": true,
     "maxRedirects": 5
@@ -77,7 +82,7 @@ npm start
 }
 ```
 
-完整模板还包含 `security` 和 `browser` 预留段。它们已经进入 Schema，供后续 P0/P1 使用；当前版本尚未根据这些字段启停 SSRF 或 Browser Mode，不能用它们绕过现有安全检查或开启未实现功能。
+完整模板还包含 `browser` 预留段。`security.blockedHostnames` 已用于目标主机校验；`security` 的其余字段与 `browser` 字段供后续 P0/P1 使用，当前不能用它们绕过现有安全检查或开启未实现功能。
 
 | 字段 | 类型/单位 | 当前行为 |
 | --- | --- | --- |
@@ -94,7 +99,7 @@ npm start
 | `session.httpOnly` / `sameSite` | Boolean/String | Session Cookie 属性；需重启生效 |
 | `limiter.windowMs` | Number，毫秒 | 限流窗口；保存配置后重建限流器 |
 | `limiter.max` | Number | 每个窗口允许的请求数 |
-| `blacklist` | String[] | 拼接成正则表达式匹配完整目标 URL |
+| `security.blockedHostnames` | String[] | 精确 hostname 或 `*.example.com` 子域规则；不接受正则，可热加载 |
 | `api.followRedirects` | Boolean | 是否允许 Axios 自动跟随跳转；可热加载 |
 | `api.maxRedirects` | Number | 自动跟随重定向的最大次数；可热加载 |
 
@@ -109,12 +114,13 @@ npm start
 | `session.cookie_secure` | `session.secure` | 不变 |
 | `session.cookie_httponly` | `session.httpOnly` | 不变 |
 | `max_redirects` | `api.maxRedirects` | 不变 |
+| `blacklist` | `security.blockedHostnames` | 按精确 hostname / 前导通配子域规则重新校验，不再执行正则 |
 
 若配置包含旧字段且 `limiter.windowMs <= 1000`，迁移器会把它视为旧版秒值并乘以 1000。每次加载旧字段都会输出弃用警告，但现有服务不会因此中断。
 
-字符串支持 `${PROXYWEB_SESSION_SECRET}` 形式的环境变量插值；缺少被引用的变量会拒绝配置。Schema 会拒绝未知字段、错误类型、非法端口、非正数时间和越界 Redirect 数。
+字符串支持 `${PROXYWEB_SESSION_SECRET}` 形式的环境变量插值；缺少被引用的变量会拒绝配置。Schema 会拒绝未知字段、错误类型、非法端口、非正数时间、越界 Redirect 数，以及包含正则语法或非前导通配符的 hostname 规则。
 
-配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。超时、认证、CORS、黑名单、API Redirect 和限流可以热加载，端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
+配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。超时、认证、CORS、hostname 规则、API Redirect 和限流可以热加载；已有 Session 目标会在下一次请求时重新校验。端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
 
 ## 请求接口
 
@@ -173,12 +179,11 @@ GET /assets/app.css
 
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
-1. **SSRF 校验不完整。** 代码只检查 URL 字面值中的 localhost 和 IP 地址，不解析域名后校验全部 A/AAAA 结果。指向私网的域名仍可能绕过检查。
+1. **DNS SSRF 校验尚未完成。** URL 与字面 IP 校验已经拒绝 credentials、非法编码、localhost、IPv4/IPv6 非公网范围和配置的 hostname 规则，但尚未解析域名并校验全部 A/AAAA 结果。指向私网的域名仍可能绕过检查。
 2. **存在 DNS Rebinding/TOCTOU 风险。** 校验与 Axios 实际建立连接没有绑定到同一个已验证 IP。
 3. **重定向未逐跳校验。** Axios 自动跟随跳转，新的 `Location` 目标不会再次执行 SSRF 检查。
 4. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
-5. **黑名单不是域名精确匹配。** 列表内容作为正则拼接，错误或过宽表达式可能误拦截，恶意表达式也可能带来性能问题。
-6. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
+5. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
 
 配置 `user`/`pwd` 不能消除上述问题。完成 P0 安全测试前，不建议提供公网生产部署步骤。
 
@@ -207,7 +212,9 @@ GET /assets/app.css
 - 限流异常频繁：确认 `limiter.windowMs` 使用毫秒，不要写成 `60` 表示一分钟。
 - 修改端口或 Session 配置没有生效：这两类配置需要重启。
 - 前端 `/web/` 返回错误：确认已部署 `webPro/index.html` 以及其静态资源。
-- 403 `PROXY_INVALID_URL`：目标是非法 URL、localhost、字面私网 IP 或命中了黑名单。
+- 400 `PROXY_INVALID_URL`：目标 URL 格式、编码或 credentials 非法。
+- 403 `PROXY_PROTOCOL_BLOCKED`：目标不是 HTTP(S) URL。
+- 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP，或命中 `security.blockedHostnames`。
 
 ## 开发与测试
 
@@ -222,4 +229,4 @@ GET /assets/app.css
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
 
-后端当前 58 项测试通过、2 项 P0 TODO（DNS SSRF 与重定向逐跳验证）、0 项失败；CORS、代理跳数、伪造 `X-Forwarded-For`、代理认证隔离、上游认证保留和端到端凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 71 项测试通过、2 项 P0 TODO（DNS SSRF 与重定向逐跳验证）、0 项失败；空目标、URL credentials、非法编码、IPv4/IPv6 非公网网段、预留配置不可绕过、hostname 规则、Session 重校验、CORS、代理跳数、伪造 `X-Forwarded-For`、认证隔离和凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

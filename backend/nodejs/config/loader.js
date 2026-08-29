@@ -41,7 +41,7 @@ function migrateLegacyConfig(input) {
         });
     };
 
-    const legacyMarkers = ["timeout", "accessOrigin", "max_redirects"]
+    const legacyMarkers = ["timeout", "accessOrigin", "max_redirects", "blacklist"]
         .some(field => Object.prototype.hasOwnProperty.call(raw, field))
         || Boolean(raw.session && (
             raw.session.cookie
@@ -78,6 +78,22 @@ function migrateLegacyConfig(input) {
         warn("max_redirects", "api.maxRedirects");
     }
     delete raw.max_redirects;
+
+    if (raw.blacklist !== undefined) {
+        if (raw.security === undefined) raw.security = {};
+        if (isPlainObject(raw.security) && raw.security.blockedHostnames === undefined) {
+            raw.security = {
+                ...raw.security,
+                blockedHostnames: raw.blacklist
+            };
+        }
+        warn(
+            "blacklist",
+            "security.blockedHostnames",
+            "Rules now match exact hostnames or leading wildcard subdomains; regular expressions are not supported."
+        );
+    }
+    delete raw.blacklist;
 
     if (raw.session) {
         const session = { ...raw.session };

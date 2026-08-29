@@ -1,8 +1,8 @@
 /**
  * proxyWeb Express application factory.
  *
- * This module intentionally preserves the baseline proxy behavior while the
- * vNext refactor proceeds. Security hardening is tracked separately in P0.
+ * This module assembles the staged vNext components while route and proxy
+ * extraction continues.
  */
 
 const path = require("path");
@@ -11,13 +11,12 @@ const axios = require("axios"); // [Changed] Use axios for manual proxying
 const rateLimit = require("express-rate-limit");
 const chokidar = require("chokidar");
 const session = require("express-session");
-const net = require("net");
-const ipaddr = require("ipaddr.js"); // 必须安装
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
-const { ERROR_CODES, ProxyError, createErrorMiddleware } = require("./core/errors");
+const { createErrorMiddleware } = require("./core/errors");
 const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
 const { createLogger } = require("./core/logger");
+const { validateTarget } = require("./core/targetValidator");
 const { createProxyAuth } = require("./middleware/auth");
 const { createCorsMiddleware, exposeCorsHeaders } = require("./middleware/cors");
 const { createRequestLogger } = require("./middleware/requestLogger");
@@ -157,50 +156,7 @@ app.use(createCorsMiddleware({ getConfig: () => config }));
 app.use(createProxyAuth({ getConfig: () => config, logger }));
 
 // ---------------------------
-// 5. 核心工具：SSRF 防御 (isPrivateIP)
-// ---------------------------
-function isSafeTarget(urlStr) {
-    try {
-        const u = new URL(urlStr);
-        if (!['http:', 'https:'].includes(u.protocol)) return false;
-
-        const hostname = u.hostname;
-
-        // 1. 黑名单正则检查
-        if (config.blacklist && config.blacklist.length > 0) {
-            const pattern = new RegExp(config.blacklist.join("|"), "i");
-            if (pattern.test(urlStr)) {
-                logger.warn("[Security] Blocked by blacklist", { targetUrl: urlStr });
-                return false;
-            }
-        }
-
-        // 2. IP 检查 (防止 SSRF)
-        let checkIp = hostname;
-
-        // 如果是 localhost，直接拒绝
-        if (hostname === 'localhost') return false;
-
-        // 如果是域名，理论上应该解析 DNS 后检查解析出的 IP
-        // 这里简化处理：如果是 IP 格式，必须校验是否为内网 IP
-        if (net.isIP(hostname)) {
-            const range = ipaddr.parse(hostname).range();
-            // 拒绝 private (内网), loopback (环回), uniqueLocal (IPv6内网) 等
-            if (range !== 'unicast') {
-                logger.warn("[Security] Blocked Private/Local IP", { hostname, range });
-                return false;
-            }
-        }
-
-        return true;
-    } catch (e) {
-        logger.warn("[Security] Invalid URL", { targetUrl: urlStr, error: e });
-        return false;
-    }
-}
-
-// ---------------------------
-// 6. 业务逻辑：URL 设置与检查
+// 5. 业务逻辑：URL 设置与检查
 // ---------------------------
 app.use(async (req, res, next) => {
     if (req.path.startsWith("/web")) return next();
@@ -212,17 +168,18 @@ app.use(async (req, res, next) => {
     }
 
     // 处理 ?url= 参数
-    if (req.query.url) {
-        const newUrl = req.query.url;
-        if (isSafeTarget(newUrl)) {
-            logger.info("[Session] Target updated", { requestId: req.id, targetUrl: newUrl });
-            req.session.targetUrl = newUrl;
+    if (Object.prototype.hasOwnProperty.call(req.query, "url")) {
+        try {
+            const target = await validateTarget(req.query.url, {
+                blockedHostnames: config.security.blockedHostnames
+            });
+            req.validatedTarget = target;
+            logger.info("[Session] Target updated", { requestId: req.id, targetUrl: target.url });
+            req.session.targetUrl = target.url;
             // 设置完 URL 后重定向移除 query 参数，直接代理req.session.targetUrl
             //return res.redirect("/");
-        } else {
-            return next(new ProxyError(ERROR_CODES.INVALID_URL, "Target URL is invalid or blocked", {
-                statusCode: 403
-            }));
+        } catch (error) {
+            return next(error);
         }
     }
 
@@ -249,7 +206,7 @@ app.use("/web", (req, res, next) => {
 });
 
 // ---------------------------
-// 7. 动态中间件执行
+// 6. 动态中间件执行
 // ---------------------------
 
 // 动态限流器
@@ -270,16 +227,21 @@ function getTargetUrl(baseUrl, path) {
 
 // 动态代理 (Axios Manual Proxy)
 app.use("/", async (req, res, next) => {
-    const reqUrl = req.query.url || req.session.targetUrl;
+    const reqUrl = req.validatedTarget?.url || req.session.targetUrl;
 
     if (!reqUrl) return next();
 
-    // 计算最终代理 URL
-    const fullUrl = req.query.url ? reqUrl : getTargetUrl(req.session.targetUrl, req.originalUrl);
-
-    logger.info("[Proxy] Dispatching request", { requestId: req.id, targetUrl: fullUrl });
-
     try {
+        const candidateUrl = req.validatedTarget
+            ? req.validatedTarget.url
+            : getTargetUrl(req.session.targetUrl, req.originalUrl);
+        const target = req.validatedTarget || await validateTarget(candidateUrl, {
+            blockedHostnames: config.security.blockedHostnames
+        });
+        const fullUrl = target.url;
+
+        logger.info("[Proxy] Dispatching request", { requestId: req.id, targetUrl: fullUrl });
+
         // 1. 准备请求头
         let customHeaders = {};
         if (req.query.headers) {

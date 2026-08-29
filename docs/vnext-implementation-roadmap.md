@@ -32,7 +32,7 @@
 | 1.3 | 日志、Header 与错误基础模块 | 安全模块共用基础设施 | 1.2 | ✅ |
 | 2.1 | 认证头隔离与日志脱敏 | 先关闭凭据泄漏风险 | 1.3 | ✅ |
 | 2.2 | CORS 与 trust proxy | 明确浏览器和代理边界 | 1.3 | ✅ |
-| 2.3 | URL/IP Validator | 统一目标基础校验 | 1.3 | ⬜ |
+| 2.3 | URL/IP Validator | 统一目标基础校验 | 1.3 | ✅ |
 | 2.4 | DNS SSRF 校验 | 域名全部解析结果受控 | 2.3 | ⬜ |
 | 2.5 | DNS Pinning | 校验 IP 与连接 IP 一致 | 2.4 | ⬜ |
 | 2.6 | 安全 Redirect Loop | 每一跳重新校验 | 2.5 | ⬜ |
@@ -476,3 +476,15 @@
 - 新增允许/拒绝 Origin、Credentials、OPTIONS、非法请求头、伪造 XFF 和多层代理跳数测试；后端 58 项通过、2 项后续 P0 门禁 TODO、0 项失败。
 
 下一阶段为 2.3 URL 与字面 IP Validator。
+
+### 第七轮执行记录
+
+2026-08-29 已完成 2.3：
+
+- 新增 `core/targetValidator.js`，以稳定错误代码区分非法 URL、禁用协议和 SSRF 拦截，并返回后续 DNS/Pinning 阶段可扩展的规范目标结构。
+- 仅允许规范 HTTP(S) URL；拒绝 URL credentials、空/非法 hostname、异常百分号编码、反斜线和未编码控制字符。
+- 规范化 IPv4、IPv6 与 IPv4-mapped IPv6，拒绝 loopback、private、CGNAT、link-local、unspecified、multicast、broadcast、reserved 及特殊用途范围；兼容拦截十进制、八进制、十六进制和缩写 IPv4 表示。
+- `blacklist` 迁移为 `security.blockedHostnames`，只支持精确 hostname 与 `*.example.com` 前导通配子域，不再拼接或执行正则；已有 Session 目标会在后续请求重新应用热加载规则。
+- URL userinfo 在请求日志阶段即脱敏，空目标使用统一错误响应，预留配置不能关闭字面地址门禁；新增纯函数、配置迁移和子进程集成门禁，后端 71 项通过、2 项后续 P0 门禁 TODO、0 项失败。
+
+下一阶段为 2.4 DNS SSRF 校验。

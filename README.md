@@ -110,14 +110,14 @@ npm run build
 | `session.maxAgeMs` | Cookie 生命周期，毫秒 | 否，需重启 |
 | `limiter.windowMs` | 限流窗口，毫秒 | 是 |
 | `limiter.max` | 每个窗口的请求数 | 是 |
-| `blacklist` | 被拼接为正则表达式的字符串列表 | 是 |
+| `security.blockedHostnames` | 精确主机或 `*.example.com` 子域规则；不接受正则 | 是 |
 | `api.maxRedirects` | Axios 自动重定向上限 | 是 |
 
-旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；迁移会记录弃用警告，建议按模板尽快更新。
+旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin`、`blacklist` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins`、`security.blockedHostnames` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；旧黑名单值按精确主机或前导通配子域规则校验，不再作为正则执行。迁移会记录弃用警告，建议按模板尽快更新。
 
 ## 当前安全边界
 
-- 只会拦截 URL 中直接出现的 localhost 和非公网 IP；域名解析结果尚未校验，存在 DNS SSRF / DNS Rebinding 风险。
+- URL Validator 已拒绝非 HTTP(S) 协议、URL credentials、非法编码、localhost，以及 loopback/private/link-local/unspecified/multicast/reserved 等字面 IPv4/IPv6；域名解析结果尚未校验，仍存在 DNS SSRF / DNS Rebinding 风险。
 - Axios 自动跟随重定向，跳转后的每一跳尚未重新执行目标校验。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
 - 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。

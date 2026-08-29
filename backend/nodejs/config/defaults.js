@@ -26,10 +26,10 @@ function createDefaultConfig(env = process.env) {
             message: "Too many requests, please try again later.",
             statusCode: 429
         },
-        blacklist: [],
         security: {
             ssrf: true,
             allowPrivateNetworks: false,
+            blockedHostnames: [],
             maxRewriteBytes: 5242880
         },
         api: {

@@ -244,6 +244,8 @@ backend/nodejs/
 
 # 5. P0-2. 重做 SSRF Validator
 
+> 状态：🟨 路线图 2.3 已于 2026-08-29 完成 URL 与字面 IP 基础校验。`validateTarget()` 已提供规范目标结构，并覆盖 URL credentials、编码变体、IPv4/IPv6/IPv4-mapped IPv6、非公网范围与 hostname 规则；域名的 `addresses`/`selectedAddress` 仍待 2.4 DNS 校验和 2.5 Pinning 填充。
+
 当前同步布尔函数：
 
 ```js
@@ -704,6 +706,7 @@ cookie_max_age=86400
   "security": {
     "ssrf": true,
     "allowPrivateNetworks": false,
+    "blockedHostnames": [],
     "maxRewriteBytes": 5242880
   },
 
