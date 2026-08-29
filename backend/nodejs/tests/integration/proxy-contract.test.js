@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const { after, before, test } = require("node:test");
+const { toProxyUrl } = require("../../core/urlMapper");
 const { createUpstreamFixture, RANGE_BODY } = require("../fixtures/upstream-server");
 const { startProxy } = require("../helpers/proxy-process");
 
@@ -96,6 +97,72 @@ test("Browser route is explicit, disabled by default and isolated from API CORS"
     const reservedRoot = await fetch(`${proxy.origin}/__proxyweb`);
     assert.equal(reservedRoot.status, 404);
     assert.equal((await reservedRoot.json()).error.code, "PROXY_ROUTE_NOT_FOUND");
+});
+
+test("Browser entry creates a validated canonical URL whose query cannot become proxy controls", async () => {
+    const canonicalProxy = await startProxy({ browser: { enabled: true } });
+    try {
+        const injectedHeaders = encodeURIComponent(JSON.stringify({ "x-injected": "unsafe" }));
+        const target = `${fixture.origin}/echo?method=DELETE&headers=${injectedHeaders}&q=canonical#view`;
+        const entry = await fetch(modeUrl(canonicalProxy.origin, "browser", target), {
+            redirect: "manual"
+        });
+        const expectedLocation = toProxyUrl(target);
+
+        assert.equal(entry.status, 302);
+        assert.equal(entry.headers.get("location"), expectedLocation);
+        assert.equal(entry.headers.get("set-cookie"), null);
+
+        const response = await fetch(new URL(expectedLocation, canonicalProxy.origin), {
+            headers: { "x-real-header": "preserved" }
+        });
+        const payload = await response.json();
+        assert.equal(response.status, 200);
+        assert.equal(payload.method, "GET");
+        assert.equal(payload.headers["x-injected"], undefined);
+        assert.equal(payload.headers["x-real-header"], "preserved");
+        assert.equal(new URL(payload.url, fixture.origin).searchParams.get("method"), "DELETE");
+        assert.equal(new URL(payload.url, fixture.origin).searchParams.get("q"), "canonical");
+    } finally {
+        await canonicalProxy.close();
+    }
+});
+
+test("canonical Browser tokens isolate origins and never bypass SSRF validation", async () => {
+    const isolatedProxy = await startProxy({ browser: { enabled: true } }, {
+        dnsRecords: {
+            "other.test": [{ address: "93.184.216.35", family: 4 }]
+        }
+    });
+    try {
+        const port = new URL(fixture.origin).port;
+        const firstPath = toProxyUrl(`${fixture.origin}/json?origin=first`);
+        const secondPath = toProxyUrl(`http://other.test:${port}/json?origin=second`);
+        const [first, second] = await Promise.all([
+            fetch(new URL(firstPath, isolatedProxy.origin)),
+            fetch(new URL(secondPath, isolatedProxy.origin))
+        ]);
+        assert.equal((await first.json()).query.origin, "first");
+        assert.equal((await second.json()).query.origin, "second");
+
+        const privatePath = toProxyUrl("http://127.0.0.1/private");
+        const blocked = await fetch(new URL(privatePath, isolatedProxy.origin));
+        assert.equal(blocked.status, 403);
+        assert.equal((await blocked.json()).error.code, "PROXY_SSRF_BLOCKED");
+
+        const invalid = await fetch(`${isolatedProxy.origin}/__proxyweb/browser/not+a-token/path`);
+        assert.equal(invalid.status, 400);
+        assert.equal((await invalid.json()).error.code, "PROXY_BROWSER_URL_INVALID");
+
+        const token = toProxyUrl(`${fixture.origin}/`).split("/")[3];
+        const malformed = await fetch(
+            `${isolatedProxy.origin}/__proxyweb/browser/${token}/bad%zz`
+        );
+        assert.equal(malformed.status, 400);
+        assert.equal((await malformed.json()).error.code, "PROXY_BROWSER_URL_INVALID");
+    } finally {
+        await isolatedProxy.close();
+    }
 });
 
 test("API and Browser modes use independent response, CORS and redirect policies", async () => {

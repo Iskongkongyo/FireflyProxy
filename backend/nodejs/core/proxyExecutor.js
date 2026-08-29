@@ -51,7 +51,8 @@ function createProxyExecutor(options) {
         if (typeof options.onTargetValidated === "function") {
             options.onTargetValidated(target);
         }
-        const methodParam = String(req.query.method || "").toUpperCase();
+        const allowQueryControls = options.allowQueryControls !== false;
+        const methodParam = allowQueryControls ? String(req.query.method || "").toUpperCase() : "";
         const method = VALID_METHODS.has(methodParam) ? methodParam : req.method;
         const hasRequestBody = !["GET", "HEAD"].includes(method);
         if (hasRequestBody) assertRequestBodyLength(req.headers, requestConfig.api.maxRequestBodyBytes);
@@ -84,7 +85,7 @@ function createProxyExecutor(options) {
             });
 
             let customHeaders = {};
-            if (req.query.headers) {
+            if (allowQueryControls && req.query.headers) {
                 markDeprecated(res, HEADERS_QUERY_WARNING);
                 logger.warn("[Proxy] Deprecated headers query parameter used", { requestId: req.id });
                 try {

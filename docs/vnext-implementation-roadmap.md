@@ -39,7 +39,7 @@
 | 2.7 | 进程策略与资源限制 | 错误可控、资源有界 | 2.1–2.6 | ✅ |
 | 2.8 | P0 集成门禁 | P0 Definition of Done | 2.1–2.7 | ✅ |
 | 3.1 | API/Browser 路由分离 | 两种模式边界固定 | 2.8 | ✅ |
-| 3.2 | UrlMapper | Browser Canonical URL | 3.1 | ⬜ |
+| 3.2 | UrlMapper | Browser Canonical URL | 3.1 | ✅ |
 | 3.3 | Transform Pipeline | 流式与 Rewrite 正确分流 | 3.2 | ⬜ |
 | 3.4 | HTML Rewrite | 页面资源和导航留在代理内 | 3.3 | ⬜ |
 | 3.5 | CSS 与 Location Rewrite | 样式资源和跳转可用 | 3.4 | ⬜ |
@@ -564,3 +564,16 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端 120 项、前端 4 项测试通过，覆盖新 API、Legacy 兼容与弃用、Browser 开关、CORS 隔离、Header Policy、Redirect 上限和前端 URL 构造；语法检查、前端 lint/build 均纳入统一门禁。
 
 下一阶段为 3.2 UrlMapper 与 Canonical URL。
+
+### 第十四轮执行记录
+
+2026-08-30 已完成 3.2：
+
+- 新增 `core/urlMapper.js`，提供 `encodeOrigin()`、`decodeOrigin()`、`toProxyUrl()`、`fromProxyRequest()` 与 `resolveTargetUrl()`；HTTP(S) origin 使用无填充 base64url Token，可严格、唯一地往返。
+- Browser 入口在完整目标校验后 302 到 `/__proxyweb/browser/<originToken>/<path>`；Canonical 子路径可直接代理且不写入 Session，不同 origin/CDN 可安全并发隔离。
+- Token 只承担映射，不承担授权；非规范 Token、畸形编码和 origin 越界稳定返回 `PROXY_BROWSER_URL_INVALID`，私网 origin 即使能编码也仍由 SSRF/DNS/Pinning 门禁拒绝。
+- 映射保留 percent-encoded path、upstream query 与客户端 Fragment，规范化 dot segment；相对 URL 按 document URL 解析，并为后续 Rewrite 明确忽略 `javascript:`、`data:`、`blob:`、`mailto:`、`tel:` 与纯 Fragment。
+- Canonical query 完全归 upstream 所有，`method`、`headers` 等同名字段不会触发 API/Legacy 控制面；新增跨 origin 并发、查询隔离、无 Session、错误契约和真实路由测试。
+- 后端 128 项、前端 4 项测试通过，语法检查、前端 lint/build 继续纳入统一门禁。
+
+下一阶段为 3.3 Response Transform Pipeline。

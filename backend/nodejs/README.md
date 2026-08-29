@@ -14,7 +14,7 @@ main.js
         ├── config/              # 默认值、Schema、迁移和加载
         ├── api-proxy/           # API Router 与忠实响应策略
         ├── browser-proxy/       # Browser Router 骨架与兼容策略
-        ├── core/                # 共享代理执行器、DNS/Pinning、Validator、日志与错误
+        ├── core/                # 共享执行器、UrlMapper、DNS/Pinning、Validator、日志与错误
         ├── middleware/          # request ID、请求日志与 Legacy Adapter
         ├── config watcher       # 可由 runtime.close() 关闭
         └── runtime.getConfig()  # 启动端口及当前配置
@@ -176,7 +176,15 @@ http://localhost:8082/__proxyweb/api?url=https%3A%2F%2Fexample.com%2Fapi
 ANY /__proxyweb/browser?url=<percent-encoded-target>
 ```
 
-该入口默认关闭，访问时返回 404 `PROXY_BROWSER_DISABLED`。开启 `browser.enabled` 后，它会复用与 API Route 相同的 URL、SSRF、DNS Pinning、资源限制和逐跳 Redirect 内核，但不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除上游 `X-Frame-Options` 与 `Content-Security-Policy`，`strict` 则保留。当前只提供原始转发与模式隔离，尚无 Canonical URL、HTML/CSS Rewrite、Cookie Jar 或 WebSocket，不能作为完整网页代理使用。`/__proxyweb/browser/...` 子路径将在后续 UrlMapper 阶段实现。
+该入口默认关闭，访问时返回 404 `PROXY_BROWSER_DISABLED`。开启 `browser.enabled` 后，入口会先执行 URL、SSRF 与 DNS 校验，再返回 302 Canonical URL：
+
+```text
+/__proxyweb/browser/<base64url-origin>/<upstream-path>?<upstream-query>
+```
+
+Canonical 子路径可逆映射到唯一 upstream origin；不同 origin 的资源使用不同 Token，不依赖或修改 Legacy Session。Token 只是路由标识，不是凭据，也不是 SSRF allowlist：每次 Canonical 请求仍会重新执行 URL、DNS Pinning、资源限制和 Redirect 安全内核。畸形、非规范或非 HTTP(S) Token 返回 400 `PROXY_BROWSER_URL_INVALID`，Canonical 路径会规范化 dot segment，并保持 percent-encoded path、查询参数和客户端 Fragment 映射。
+
+Browser Canonical 查询字符串全部属于上游，即使字段名为 `method` 或 `headers` 也不会触发 API/Legacy 查询控制功能。Browser Mode 不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除上游 `X-Frame-Options` 与 `Content-Security-Policy`，`strict` 则保留。当前仍没有 HTML/CSS Rewrite、Cookie Jar 或 WebSocket，不能作为完整网页代理使用。
 
 ### Legacy Adapter（已弃用）
 
@@ -247,6 +255,7 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 - 508 `PROXY_REDIRECT_LIMIT`：Redirect 超出配置上限或形成循环。
 - 413 `PROXY_REQUEST_BODY_LIMIT`：请求体或 Redirect 重放内容超过 `api.maxRequestBodyBytes`。
 - 404 `PROXY_BROWSER_DISABLED`：Browser Route 尚未在配置中开启。
+- 400 `PROXY_BROWSER_URL_INVALID`：Canonical Token、路径或映射目标不合法或不规范。
 - 404 `PROXY_ROUTE_NOT_FOUND`：请求命中了未定义的 `/__proxyweb/*` 保留路径。
 
 ## 开发与测试
@@ -264,6 +273,6 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。
 
-后端当前 120 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、Streaming/Rewrite 分界、模式路由隔离和 graceful/fatal shutdown 均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 128 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、Streaming/Rewrite 分界、模式路由隔离、Canonical 映射与 graceful/fatal shutdown 均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装门禁已于 2026-08-29 通过 7/7：前后端 `npm ci`、后端测试与语法检查、前端测试、lint 和生产构建全部成功。逐项 DoD 与测试位置见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

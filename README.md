@@ -16,7 +16,7 @@
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
 | 本地功能 | 响应式界面、分享链接、浏览器本地历史记录 |
-| 后端 | API/Browser 分路由、共享安全网络内核、流式转发、限流、日志、部分配置热加载 |
+| 后端 | API/Browser 分路由、Browser Canonical URL、共享安全网络内核、流式转发、限流与日志 |
 
 当前已建立 Browser Route 骨架，但还没有完整的网页反向代理能力；HTML/CSS URL 重写、Cookie Jar、WebSocket 和 SPA 兼容仍属于 vNext 规划，而不是已完成功能。
 
@@ -33,7 +33,7 @@ proxyWeb/
 │       ├── api-proxy/           # API Route 与响应策略
 │       ├── browser-proxy/       # Browser Route 骨架与响应策略
 │       ├── config/              # 默认值、Schema 与配置加载
-│       ├── core/                # 日志脱敏、Header 与错误基础模块
+│       ├── core/                # 安全网络内核、UrlMapper、日志、Header 与错误模块
 │       ├── middleware/          # 请求日志等 Express 中间件
 │       ├── main.json            # 当前本地配置
 │       └── README.md            # 后端说明
@@ -70,7 +70,7 @@ npm start
 ANY /__proxyweb/api?url=<percent-encoded-target>
 ```
 
-旧 `/?url=...` 仅作为兼容 Adapter 保留，并返回 `Deprecation`、`Warning` 与后继路由 `Link`。`/__proxyweb/browser?url=...` 是 Browser Mode 的独立入口，默认由 `browser.enabled: false` 关闭；即使开启，目前也只是共享安全网络内核的原始转发骨架，不代表网页重写已经实现。
+旧 `/?url=...` 仅作为兼容 Adapter 保留，并返回 `Deprecation`、`Warning` 与后继路由 `Link`。`/__proxyweb/browser?url=...` 是 Browser Mode 的独立入口，默认由 `browser.enabled: false` 关闭；开启后会先校验目标，再 302 到 `/__proxyweb/browser/<originToken>/...` Canonical URL。Token 只标识 origin，每次请求仍执行完整安全校验；这不代表网页内容重写已经实现。
 
 ### 2. 启动前端
 
@@ -154,7 +154,7 @@ P0 的逐项证据见 [自动化验收矩阵](./docs/p0-verification-matrix.md)�
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 120 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 128 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 ## 文档索引
 

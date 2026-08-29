@@ -829,6 +829,8 @@ fonts.example.net
 
 # 17. Browser Canonical URL 设计
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.2。Browser 入口会在目标校验后 302 到 Canonical URL；Token 只标识 origin，每个 Canonical 请求仍重新执行 SSRF、DNS 与 Pinning。
+
 新增内部保留路径：
 
 ```text
@@ -874,6 +876,8 @@ token 不作为安全凭据，只作为 URL 映射。
 ---
 
 # 18. UrlMapper
+
+> 状态：✅ 已于 2026-08-30 完成路线图 3.2。已实现严格可逆 Token、相对 URL 解析、path/query/Fragment 映射、路径规范化、origin 隔离和稳定错误契约；HTML/CSS 对这些接口的消费从 3.3–3.5 继续实现。
 
 建立：
 
@@ -1489,7 +1493,7 @@ fallback 到原 BASE_URL
 
 # 36. P1-6. API Mode 与 Browser Mode 分路由
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.1。当前已提供独立 API Route、默认关闭的 Browser Route 原始转发骨架，以及带标准弃用响应头的 Legacy Adapter；Canonical URL 与内容 Rewrite 从 3.2 起继续实现。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.2。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL 与带标准弃用响应头的 Legacy Adapter；Response Transform 与内容 Rewrite 从 3.3 起继续实现。
 
 推荐：
 
