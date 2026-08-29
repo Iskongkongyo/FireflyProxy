@@ -37,7 +37,7 @@
 | 2.5 | DNS Pinning | 校验 IP 与连接 IP 一致 | 2.4 | ✅ |
 | 2.6 | 安全 Redirect Loop | 每一跳重新校验 | 2.5 | ✅ |
 | 2.7 | 进程策略与资源限制 | 错误可控、资源有界 | 2.1–2.6 | ✅ |
-| 2.8 | P0 集成门禁 | P0 Definition of Done | 2.1–2.7 | ⬜ |
+| 2.8 | P0 集成门禁 | P0 Definition of Done | 2.1–2.7 | ✅ |
 | 3.1 | API/Browser 路由分离 | 两种模式边界固定 | 2.8 | ⬜ |
 | 3.2 | UrlMapper | Browser Canonical URL | 3.1 | ⬜ |
 | 3.3 | Transform Pipeline | 流式与 Rewrite 正确分流 | 3.2 | ⬜ |
@@ -540,3 +540,15 @@
 - 后端 111 项通过、0 项 TODO、0 项失败；新增覆盖请求超时、连接定时器、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、Streaming/Rewrite 分界及 graceful/fatal shutdown。
 
 下一阶段为 2.8 P0 集成门禁。
+
+### 第十二轮执行记录
+
+2026-08-29 已完成 2.8：
+
+- 新增跨平台 `scripts/p0-gate.js`，支持复用现有依赖的 5 步门禁，以及带前后端 `npm ci` 的 7 步干净安装门禁；任一步骤失败都会立即非零退出。
+- 新增 `docs/p0-verification-matrix.md`，将总体方案第 15 节每一条 Definition of Done 映射到强制单元/集成测试，并明确 P0 通过不等于生产级开放代理。
+- 后端提供 `npm run verify:p0` 与 `npm run verify:p0:ci`，统一执行后端测试/语法检查和前端测试/lint/build，避免发布前遗漏某一侧。
+- 安全矩阵覆盖直接 IP、全部 DNS A/AAAA、Redirect、DNS Pinning/Rebinding、IPv6、TLS、认证隔离、日志脱敏、CORS、旧 API 方法、双向 Streaming、Range 与进程资源边界。
+- 干净安装门禁 7/7 通过：后端 111 项、前端 3 项测试均为 0 TODO/0 失败，后端语法检查、前端 lint 和 production build 成功；仅保留已记录的 Vue CLI 旧依赖提示与 bundle 体积 warning。
+
+Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser Mode 分路由。

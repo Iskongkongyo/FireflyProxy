@@ -5,7 +5,7 @@
 ![界面预览](./vue-request-app/review.png)
 
 > [!WARNING]
-> 当前后端已完成路线图 2.1–2.7，但 P0 集成门禁尚未收口，**不要直接暴露到公网，也不要把它当作生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
+> P0 网络安全与基础架构门禁已通过，但进程内 Session Store、旧查询兼容面和后续 Browser 隔离仍有限制，**不要直接暴露为生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
 
 ## 当前能力
 
@@ -131,7 +131,17 @@ npm run build
 - `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
 - Session 使用进程内存存储，不适合多实例或长期生产运行。
 
-其中未完成的问题已作为 vNext P0 阻塞项记录。更详细的运行方式与限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
+P0 的逐项证据见 [自动化验收矩阵](./docs/p0-verification-matrix.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
+
+## P0 自动化门禁
+
+从仓库根目录执行完整的锁文件安装与验收：
+
+```powershell
+node scripts/p0-gate.js --install
+```
+
+已完成依赖安装时可省略 `--install`。门禁会执行后端 111 项测试与语法检查、前端 3 项凭据回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示 P0 验收通过。
 
 ## 文档索引
 
@@ -139,6 +149,7 @@ npm run build
 - [Node.js 后端 README](./backend/nodejs/README.md)
 - [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)
 - [vNext 分阶段实施路线图](./docs/vnext-implementation-roadmap.md)
+- [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)
 
 ## 许可证状态
 

@@ -6,7 +6,7 @@
 > 基线复核：2026-08-28
 
 > [!IMPORTANT]
-> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明或完成报告。除“当前代码基线”明确列出的内容外，P0、P1、P2、P3 与各 Milestone 条目均应视为待实现；当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
+> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0 条目及路线图 2.8 已通过自动化验收；P1、P2、P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
 
 > 可执行的小阶段、依赖关系和逐阶段完成条件见 [`docs/vnext-implementation-roadmap.md`](./docs/vnext-implementation-roadmap.md)。
 
@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 与 P1 尚未达到 Definition of Done，不能将规划中的完整进程/资源策略、Cookie Jar、HTML/CSS Rewrite、WebSocket 等能力写成当前已实现功能。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 尚未完成，不能将规划中的 Cookie Jar、HTML/CSS Rewrite、WebSocket 等能力写成当前已实现功能。
 
 当前前端主要结构：
 
@@ -187,6 +187,8 @@ UserAuth.vue
 # 4. P0 — 网络安全与基础架构重构
 
 ## P0-1. 拆分 `main.js`
+
+> 状态：✅ 已于 2026-08-29 完成路线图 1.1–1.3 与 2.7。`main.js` 只保留启动和生命周期注册，Express runtime、配置、网络安全内核、Header、日志、错误和中间件均已拆分并可注入测试；目标目录中的 Browser/WebSocket 模块仍按 P1/P2 阶段创建。
 
 目标目录：
 
@@ -653,7 +655,7 @@ Bearer [REDACTED]
 
 # 13. P0-10. 配置系统统一
 
-> 状态：✅ 已于 2026-08-29 完成路线图 1.2。已实现 Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚；安全策略字段的实际行为仍按后续 P0/P1 阶段实施。
+> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7。已实现 Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚；P0 的 hostname、Redirect、连接/请求超时、Body/并发与 Session 生命周期字段均已生效，Browser 专用字段仍按 P1 实施。
 
 增加配置 Schema 校验。
 
@@ -749,6 +751,8 @@ cookie_max_age=86400
 
 # 14. P0-11. 修复进程异常策略
 
+> 状态：✅ 已于 2026-08-29 完成路线图 2.7。SIGINT/SIGTERM、未捕获异常与未处理 rejection 统一进入受控 shutdown；服务先停止接收连接并关闭 runtime，fatal error 以非零状态退出，超时后强制关闭连接。
+
 不要在：
 
 ```js
@@ -778,6 +782,8 @@ Docker
 ---
 
 # 15. P0 Definition of Done
+
+> 状态：✅ 已于 2026-08-29 通过路线图 2.8。`scripts/p0-gate.js --install` 从两端锁文件安装开始执行 7 步门禁，后端 111 项与前端 3 项测试、后端语法检查、前端 lint/build 全部通过；逐项证据见 [`docs/p0-verification-matrix.md`](./docs/p0-verification-matrix.md)。
 
 P0 完成标准：
 
