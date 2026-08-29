@@ -3,7 +3,7 @@
 这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。代理支持请求/响应流式转发、Session 目标地址、Basic Auth、限流、CORS、日志和部分配置热加载。
 
 > [!WARNING]
-> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是 DNS SSRF、DNS Pinning、重定向逐跳校验和 CORS 收紧仍未完成。请先阅读“当前安全限制”。
+> 当前实现适合本地开发和受信网络测试，**尚不具备安全公网开放代理所需的完整防护**。尤其是 DNS SSRF、DNS Pinning 和重定向逐跳校验仍未完成。请先阅读“当前安全限制”。
 
 ## 运行结构
 
@@ -85,8 +85,8 @@ npm start
 | `trustProxy` | Boolean/Number/String/String[] | 启动时应用到 Express；修改后必须重启 |
 | `timeoutMs` | Number，毫秒 | 每次上游请求读取，可热加载 |
 | `user` / `pwd` | String | 两者都非空时启用代理自身 Basic Auth |
-| `cors.allowedOrigins` | String[] | 允许的 HTTP(S) Origin 或 `*`；请求时读取 |
-| `cors.allowCredentials` | Boolean | 是否发送 Credentials CORS 响应头 |
+| `cors.allowedOrigins` | String[] | 允许的规范 HTTP(S) Origin 或 `*`；非法/未授权 Origin 返回 403 |
+| `cors.allowCredentials` | Boolean | 是否发送 Credentials CORS 响应头；为 `true` 时 Schema 禁止 `*` |
 | `defaultSkip` | String | Session 尚无目标 URL 时的跳转地址 |
 | `session.secret` | String | Session 签名密钥；中间件启动后不会热更新 |
 | `session.maxAgeMs` | Number，毫秒 | Session Cookie 生命周期；需重启生效 |
@@ -103,7 +103,7 @@ npm start
 | 旧字段 | 新字段 | 迁移单位 |
 | --- | --- | --- |
 | `timeout` | `timeoutMs` | 秒乘以 1000 |
-| `accessOrigin` | `cors.allowedOrigins` | 字符串转为单元素数组 |
+| `accessOrigin` | `cors.allowedOrigins` | 字符串转为单元素数组；`*` 同时迁移为 `allowCredentials: false` |
 | `session.cookie.maxAge` | `session.maxAgeMs` | 保持毫秒 |
 | `session.cookie_max_age` | `session.maxAgeMs` | 秒乘以 1000 |
 | `session.cookie_secure` | `session.secure` | 不变 |
@@ -169,16 +169,16 @@ GET /assets/app.css
 
 ## 当前安全限制
 
-以下都是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中的 P0 阻塞项：
+路线图 2.2 已完成严格 CORS 与客户端地址边界：带凭据请求必须命中显式 Origin allowlist，预检方法和请求头会校验；无 Origin 请求不会获得 CORS 响应头。`trustProxy` 默认关闭，限流使用 Express 按显式信任策略计算的 `req.ip`。如部署在 Nginx/Caddy 等反向代理后，必须按实际可信跳数或地址配置，错误配置仍会使日志与限流采用错误的客户端地址。
+
+以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
 1. **SSRF 校验不完整。** 代码只检查 URL 字面值中的 localhost 和 IP 地址，不解析域名后校验全部 A/AAAA 结果。指向私网的域名仍可能绕过检查。
 2. **存在 DNS Rebinding/TOCTOU 风险。** 校验与 Axios 实际建立连接没有绑定到同一个已验证 IP。
 3. **重定向未逐跳校验。** Axios 自动跟随跳转，新的 `Location` 目标不会再次执行 SSRF 检查。
 4. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
-5. **CORS 过宽。** `cors.allowedOrigins: ["*"]` 仍会反射客户端 Origin 并同时允许 Credentials，不应直接用于公网。
-6. **`trust proxy` 需要按部署拓扑设置。** 兼容默认值仍为 `1`；部署拓扑不匹配时，客户端 IP 与限流键可能不可信，新模板已默认关闭。
-7. **黑名单不是域名精确匹配。** 列表内容作为正则拼接，错误或过宽表达式可能误拦截，恶意表达式也可能带来性能问题。
-8. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
+5. **黑名单不是域名精确匹配。** 列表内容作为正则拼接，错误或过宽表达式可能误拦截，恶意表达式也可能带来性能问题。
+6. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
 
 配置 `user`/`pwd` 不能消除上述问题。完成 P0 安全测试前，不建议提供公网生产部署步骤。
 
@@ -222,4 +222,4 @@ GET /assets/app.css
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流和配置热加载。
 
-DNS SSRF、重定向逐跳验证和 CORS 收紧仍登记为 P0 TODO 测试；代理认证隔离、上游认证保留和端到端凭据日志快照已经强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 58 项测试通过、2 项 P0 TODO（DNS SSRF 与重定向逐跳验证）、0 项失败；CORS、代理跳数、伪造 `X-Forwarded-For`、代理认证隔离、上游认证保留和端到端凭据日志快照均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。

@@ -31,7 +31,15 @@ const sessionSchema = z.object({
 const corsSchema = z.object({
     allowedOrigins: z.array(originSchema).min(1),
     allowCredentials: z.boolean()
-}).strict();
+}).strict().superRefine((value, context) => {
+    if (value.allowCredentials && value.allowedOrigins.includes("*")) {
+        context.addIssue({
+            code: "custom",
+            path: ["allowedOrigins"],
+            message: "Wildcard origin is forbidden when allowCredentials is true"
+        });
+    }
+});
 
 const limiterSchema = z.object({
     windowMs: z.number().int().positive(),

@@ -94,7 +94,7 @@ npm run build
 - 独立静态站点：Web Server 必须把 `/web/*` 的 history fallback 指向 `/web/index.html`。
 - 随 Node.js 后端部署：把 `dist/` 内容复制到 `backend/nodejs/webPro/`，通过 `https://your-host/web/` 访问。
 
-若前后端不同源，后端 `accessOrigin` 需要与前端来源匹配。当前 CORS 实现仍有安全待办，公开部署前请阅读 [后端安全限制](../backend/nodejs/README.md#当前安全限制)。
+若前后端不同源，请把前端的规范 Origin（例如 `https://app.example.com`）加入后端 `cors.allowedOrigins`。需要 Cookie/HTTP 认证时再启用 `cors.allowCredentials`；该选项不能与 `*` 同时使用。公开部署前仍须阅读 [后端安全限制](../backend/nodejs/README.md#当前安全限制)。
 
 ## 项目结构
 

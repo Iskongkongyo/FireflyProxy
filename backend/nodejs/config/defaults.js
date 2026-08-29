@@ -1,8 +1,7 @@
 function createDefaultConfig(env = process.env) {
     return {
         port: 8082,
-        // Preserve the baseline until the dedicated trust-proxy security stage.
-        trustProxy: 1,
+        trustProxy: false,
         timeoutMs: 30000,
         user: "",
         pwd: "",
@@ -18,8 +17,7 @@ function createDefaultConfig(env = process.env) {
             sameSite: "lax"
         },
         cors: {
-            // Preserve the current wildcard behavior until P0 CORS hardening.
-            allowedOrigins: ["*"],
+            allowedOrigins: ["http://localhost:8080"],
             allowCredentials: true
         },
         limiter: {

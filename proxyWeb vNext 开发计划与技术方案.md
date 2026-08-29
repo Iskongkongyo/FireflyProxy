@@ -517,6 +517,8 @@ Authorization
 
 # 10. P0-7. 修复 CORS 策略
 
+> 状态：✅ 已于 2026-08-29 完成路线图 2.2。严格 Origin allowlist、凭据与通配互斥、标准预检处理和 CORS 响应头最小暴露均已进入强制测试；无 Origin 请求不会依据 Referer 生成 CORS 响应。
+
 当前 `"*"` 配置不要再自动等价于：
 
 ```text
@@ -558,6 +560,8 @@ Browser Mode 原则上不需要全局宽松 CORS。
 ---
 
 # 11. P0-8. trust proxy 改成配置项
+
+> 状态：✅ 已于 2026-08-29 完成路线图 2.2。内置与模板默认值均为 `false`；限流使用 Express 按显式信任策略计算的客户端地址，并已覆盖伪造 `X-Forwarded-For` 与多层代理跳数测试。
 
 不要硬编码：
 

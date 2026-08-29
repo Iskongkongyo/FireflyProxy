@@ -138,6 +138,82 @@ test("CORS preflight returns configured origin and credentials policy", async ()
     assert.equal(response.headers.get("access-control-allow-origin"), "http://frontend.test");
     assert.equal(response.headers.get("access-control-allow-credentials"), "true");
     assert.match(response.headers.get("access-control-allow-headers"), /x-requested-with/);
+    assert.match(response.headers.get("vary"), /Origin/);
+});
+
+test("credentialed CORS rejects arbitrary and malformed Origins", async () => {
+    for (const origin of ["https://evil.test", "https://frontend.test/path", "not-an-origin"]) {
+        const response = await fetch(`${proxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`, {
+            headers: { origin }
+        });
+        const payload = await response.json();
+
+        assert.equal(response.status, 403);
+        assert.equal(response.headers.get("access-control-allow-origin"), null);
+        assert.match(response.headers.get("vary"), /Origin/);
+        assert.equal(payload.error.code, "PROXY_CORS_ORIGIN_DENIED");
+    }
+});
+
+test("allowed and missing Origins receive distinct CORS responses", async () => {
+    const target = `${fixture.origin}/json`;
+    const allowed = await fetch(`${proxy.origin}/?url=${encodeURIComponent(target)}`, {
+        headers: { origin: "http://frontend.test" }
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.headers.get("access-control-allow-origin"), "http://frontend.test");
+    assert.equal(allowed.headers.get("access-control-allow-credentials"), "true");
+
+    const noOrigin = await fetch(`${proxy.origin}/?url=${encodeURIComponent(target)}`, {
+        headers: { referer: "https://evil.test/page" }
+    });
+    assert.equal(noOrigin.status, 200);
+    assert.equal(noOrigin.headers.get("access-control-allow-origin"), null);
+    assert.equal(noOrigin.headers.get("access-control-allow-credentials"), null);
+});
+
+test("wildcard CORS is only emitted without credentials", async () => {
+    const wildcardProxy = await startProxy({
+        cors: { allowedOrigins: ["*"], allowCredentials: false }
+    });
+    try {
+        const response = await fetch(`${wildcardProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`, {
+            headers: { origin: "https://anywhere.test" }
+        });
+
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("access-control-allow-origin"), "*");
+        assert.equal(response.headers.get("access-control-allow-credentials"), null);
+    } finally {
+        await wildcardProxy.close();
+    }
+});
+
+test("CORS preflight rejects unsupported methods and malformed requested headers", async () => {
+    const unsupported = await fetch(`${proxy.origin}/`, {
+        method: "OPTIONS",
+        headers: {
+            origin: "http://frontend.test",
+            "access-control-request-method": "TRACE"
+        }
+    });
+    assert.equal(unsupported.status, 403);
+    assert.equal((await unsupported.json()).error.code, "PROXY_CORS_METHOD_DENIED");
+
+    const malformedHeaders = await fetch(`${proxy.origin}/`, {
+        method: "OPTIONS",
+        headers: {
+            origin: "http://frontend.test",
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "x-valid, bad header"
+        }
+    });
+    assert.equal(malformedHeaders.status, 400);
+    assert.equal((await malformedHeaders.json()).error.code, "PROXY_CORS_HEADERS_INVALID");
+
+    const ordinaryOptions = await fetch(`${proxy.origin}/`, { method: "OPTIONS" });
+    assert.equal(ordinaryOptions.status, 400);
+    assert.equal(ordinaryOptions.headers.get("access-control-allow-origin"), null);
 });
 
 test("rate limiter can reject requests after the configured maximum", async () => {
@@ -152,6 +228,45 @@ test("rate limiter can reject requests after the configured maximum", async () =
         assert.equal(await second.text(), "fixture rate limit");
     } finally {
         await limitedProxy.close();
+    }
+});
+
+test("default trustProxy ignores spoofed X-Forwarded-For for rate-limit identity", async () => {
+    const directProxy = await startProxy({
+        trustProxy: false,
+        limiter: { windowMs: 60000, max: 1 }
+    });
+    try {
+        const target = `${fixture.origin}/json`;
+        const first = await fetch(`${directProxy.origin}/?url=${encodeURIComponent(target)}`, {
+            headers: { "x-forwarded-for": "198.51.100.10" }
+        });
+        const second = await fetch(`${directProxy.origin}/?url=${encodeURIComponent(target)}`, {
+            headers: { "x-forwarded-for": "198.51.100.11" }
+        });
+
+        assert.equal(first.status, 200);
+        assert.equal(second.status, 429);
+    } finally {
+        await directProxy.close();
+    }
+});
+
+test("numeric trustProxy uses the configured proxy hop count", async () => {
+    const target = `${fixture.origin}/json`;
+    for (const [trustProxy, expectedIp] of [[1, "203.0.113.20"], [2, "198.51.100.10"]]) {
+        const trustedProxy = await startProxy({ trustProxy });
+        try {
+            const outputIndex = trustedProxy.getOutput().length;
+            const response = await fetch(`${trustedProxy.origin}/?url=${encodeURIComponent(target)}`, {
+                headers: { "x-forwarded-for": "198.51.100.10, 203.0.113.20" }
+            });
+            assert.equal(response.status, 200);
+            await trustedProxy.waitForOutput(/Incoming request/, outputIndex);
+            assert.match(trustedProxy.getOutput().slice(outputIndex), new RegExp(`"ip":"${expectedIp}"`));
+        } finally {
+            await trustedProxy.close();
+        }
     }
 });
 
@@ -273,7 +388,6 @@ test("legacy headers query remains compatible and advertises deprecation", async
 
 test.todo("domain targets resolving to private addresses are rejected");
 test.todo("every redirect target is revalidated before connecting");
-test.todo("credentialed CORS never reflects an arbitrary Origin");
 
 test("request and error logs redact legacy and dedicated upstream credentials", async () => {
     const logProxy = await startProxy();

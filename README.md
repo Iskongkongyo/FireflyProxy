@@ -5,7 +5,7 @@
 ![界面预览](./vue-request-app/review.png)
 
 > [!WARNING]
-> 当前后端尚未完成 DNS 级 SSRF 校验、重定向逐跳校验和 CORS 收紧，**不要直接暴露到公网，也不要把它当作生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
+> 当前后端尚未完成 DNS 级 SSRF 校验和重定向逐跳校验，**不要直接暴露到公网，也不要把它当作生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
 
 ## 当前能力
 
@@ -105,6 +105,7 @@ npm run build
 | `timeoutMs` | 上游请求超时，毫秒 | 是 |
 | `user` / `pwd` | 代理自身 Basic Auth；两者均非空时启用 | 是 |
 | `cors.allowedOrigins` | 允许的浏览器 Origin 数组 | 是 |
+| `cors.allowCredentials` | 是否允许浏览器携带凭据；为 `true` 时禁止 `*` | 是 |
 | `session.secret` | Session 签名密钥 | 否，需重启 |
 | `session.maxAgeMs` | Cookie 生命周期，毫秒 | 否，需重启 |
 | `limiter.windowMs` | 限流窗口，毫秒 | 是 |
@@ -112,7 +113,7 @@ npm run build
 | `blacklist` | 被拼接为正则表达式的字符串列表 | 是 |
 | `api.maxRedirects` | Axios 自动重定向上限 | 是 |
 
-旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins` 与 `api.maxRedirects`。迁移会记录弃用警告，建议按模板尽快更新。
+旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；迁移会记录弃用警告，建议按模板尽快更新。
 
 ## 当前安全边界
 
@@ -120,11 +121,11 @@ npm run build
 - Axios 自动跟随重定向，跳转后的每一跳尚未重新执行目标校验。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
 - 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
-- `cors.allowedOrigins: ["*"]` 会反射请求 Origin 并允许 Credentials，不应作为公网配置。
-- `trustProxy` 已可配置，但旧配置与内置默认值仍为 `1` 以保持兼容；新模板默认 `false`。部署拓扑不匹配仍会影响客户端 IP 与限流判断。
+- CORS 使用显式 Origin allowlist；非法或未授权 Origin 会被拒绝，无 Origin 请求不会获得 CORS 响应头。`allowCredentials: true` 与 `allowedOrigins: ["*"]` 的组合会在配置加载时被拒绝。
+- `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
 - Session 使用进程内存存储，不适合多实例或长期生产运行。
 
-这些问题已作为 vNext P0 阻塞项记录。更详细的运行方式与限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
+其中未完成的问题已作为 vNext P0 阻塞项记录。更详细的运行方式与限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
 
 ## 文档索引
 

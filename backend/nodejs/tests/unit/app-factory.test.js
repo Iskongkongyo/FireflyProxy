@@ -76,7 +76,10 @@ test("createApp loads an injected config without opening a port", async () => {
             const address = server.address();
             const response = await fetch(`http://127.0.0.1:${address.port}/`, {
                 method: "OPTIONS",
-                headers: { origin: "http://factory.test" }
+                headers: {
+                    origin: "http://factory.test",
+                    "access-control-request-method": "GET"
+                }
             });
             assert.equal(response.status, 204);
             assert.equal(response.headers.get("x-request-id"), "factory-request-id");

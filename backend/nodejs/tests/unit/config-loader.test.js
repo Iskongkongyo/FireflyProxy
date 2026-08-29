@@ -17,6 +17,11 @@ test("default configuration uses explicit millisecond fields", () => {
     assert.equal(config.limiter.windowMs, 60000);
     assert.equal(config.session.secret, "default-test-secret");
     assert.equal(config.api.maxRedirects, 5);
+    assert.equal(config.trustProxy, false);
+    assert.deepEqual(config.cors, {
+        allowedOrigins: ["http://localhost:8080"],
+        allowCredentials: true
+    });
 });
 
 test("legacy flat and snake_case fields migrate without mutating input", () => {
@@ -64,6 +69,7 @@ test("legacy nested cookie maxAge keeps its documented millisecond unit", () => 
     }, { env: {} });
 
     assert.equal(result.config.session.maxAgeMs, 123456);
+    assert.equal(result.config.cors.allowCredentials, false);
 });
 
 test("new configuration interpolates environment variables and is deeply frozen", () => {
@@ -110,6 +116,21 @@ test("invalid values and unknown keys return actionable schema errors", () => {
             assert.equal(error.code, "CONFIG_SCHEMA_INVALID");
             assert.match(error.message, /port/);
             assert.match(error.message, /Unrecognized key/);
+            return true;
+        }
+    );
+});
+
+test("credentialed wildcard CORS configuration fails closed", () => {
+    assert.throws(
+        () => parseConfigObject({
+            cors: { allowedOrigins: ["*"], allowCredentials: true }
+        }, { env: {} }),
+        error => {
+            assert.ok(error instanceof ConfigLoadError);
+            assert.equal(error.code, "CONFIG_SCHEMA_INVALID");
+            assert.match(error.message, /cors\.allowedOrigins/);
+            assert.match(error.message, /Wildcard origin is forbidden/);
             return true;
         }
     );

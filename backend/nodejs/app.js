@@ -19,6 +19,7 @@ const { ERROR_CODES, ProxyError, createErrorMiddleware } = require("./core/error
 const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("./core/headers");
 const { createLogger } = require("./core/logger");
 const { createProxyAuth } = require("./middleware/auth");
+const { createCorsMiddleware, exposeCorsHeaders } = require("./middleware/cors");
 const { createRequestLogger } = require("./middleware/requestLogger");
 
 /**
@@ -95,7 +96,7 @@ function buildRateLimiter(nextConfig) {
         max: nextConfig.limiter.max,
         standardHeaders: true,
         legacyHeaders: false,
-        // 移除自定义 keyGenerator，利用 app.set('trust proxy') 正确识别 IP
+        // 保留 express-rate-limit 的默认 keyGenerator；它基于 Express 按 trustProxy 计算的 req.ip。
         handler: (req, res) => {
             logger.warn("[RateLimit] Blocked request", { requestId: req.id, ip: req.ip });
             res.status(nextConfig.limiter.statusCode).send(nextConfig.limiter.message);
@@ -148,40 +149,7 @@ app.use(session({
     // store: new RedisStore({ client: redisClient }), // Example for Prod
 }));
 
-function resolveCorsOrigin(req) {
-    const clientOrigin = req.headers.origin || req.headers.referer;
-    const allowedOrigins = config.cors.allowedOrigins;
-    const configuredOrigin = allowedOrigins[0] || "*";
-
-    if (allowedOrigins.includes("*") && clientOrigin) {
-        try {
-            return new URL(clientOrigin).origin;
-        } catch { /* Preserve the configured fallback for invalid input. */ }
-    }
-
-    if (clientOrigin) {
-        try {
-            const normalized = new URL(clientOrigin).origin;
-            if (allowedOrigins.includes(normalized)) return normalized;
-        } catch { /* Preserve baseline behavior until the CORS security stage. */ }
-    }
-
-    return configuredOrigin;
-}
-
-// CORS 安全配置
-app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", resolveCorsOrigin(req));
-    if (config.cors.allowCredentials) {
-        res.setHeader("Access-Control-Allow-Credentials", "true");
-    }
-    res.setHeader("Access-Control-Expose-Headers", "*"); // 允许前端获取所有响应头
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", req.headers["access-control-request-headers"] || "content-type, authorization, x-proxyweb-upstream-authorization");
-
-    if (req.method === "OPTIONS") return res.sendStatus(204);
-    next();
-});
+app.use(createCorsMiddleware({ getConfig: () => config }));
 
 // ---------------------------
 // 4. 安全鉴权模块
@@ -369,20 +337,13 @@ app.use("/", async (req, res, next) => {
             res.setHeader("Warning", '299 proxyWeb "headers query parameter is deprecated; send upstream Authorization with X-ProxyWeb-Upstream-Authorization"');
         }
 
-        // CORS & Security Headers (Ensure these are set)
-        res.setHeader("Access-Control-Allow-Origin", resolveCorsOrigin(req));
-        if (config.cors.allowCredentials) {
-            res.setHeader("Access-Control-Allow-Credentials", "true");
-        }
-        // 动态设置 Exposed Headers，因为 Credentials=true 时不能用 *
-        const exposedHeaders = [
+        exposeCorsHeaders(req, res, [
             ...new Set([
                 ...Object.keys(responseHeaders),
                 "x-request-id",
                 ...(req.query.headers ? ["deprecation", "warning"] : [])
             ])
-        ].join(", ");
-        res.setHeader("Access-Control-Expose-Headers", exposedHeaders);
+        ]);
         res.removeHeader('x-frame-options');
         res.removeHeader('content-security-policy');
 

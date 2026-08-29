@@ -31,7 +31,7 @@
 | 1.2 | 配置系统统一 | Schema、单位和迁移明确 | 1.1 | ✅ |
 | 1.3 | 日志、Header 与错误基础模块 | 安全模块共用基础设施 | 1.2 | ✅ |
 | 2.1 | 认证头隔离与日志脱敏 | 先关闭凭据泄漏风险 | 1.3 | ✅ |
-| 2.2 | CORS 与 trust proxy | 明确浏览器和代理边界 | 1.3 | ⬜ |
+| 2.2 | CORS 与 trust proxy | 明确浏览器和代理边界 | 1.3 | ✅ |
 | 2.3 | URL/IP Validator | 统一目标基础校验 | 1.3 | ⬜ |
 | 2.4 | DNS SSRF 校验 | 域名全部解析结果受控 | 2.3 | ⬜ |
 | 2.5 | DNS Pinning | 校验 IP 与连接 IP 一致 | 2.4 | ⬜ |
@@ -464,3 +464,15 @@
 - 更新前端兼容范围内的锁定生产依赖，生产审计降为 0；Vue CLI 5 开发工具链的 17 个间接公告记录为后续构建迁移项，不执行 npm 建议的破坏性强制降级。
 
 下一阶段为 2.2 CORS 与 `trust proxy` 边界收紧。
+
+### 第六轮执行记录
+
+2026-08-29 已完成 2.2：
+
+- 新增独立严格 CORS 中间件；仅接受规范 HTTP(S) Origin，显式拒绝未授权 Origin，并正确区分普通 OPTIONS 与带 `Access-Control-Request-Method` 的预检请求。
+- `allowCredentials: true` 必须使用显式 Origin allowlist，Schema 拒绝与 `*` 组合；旧 `accessOrigin: "*"` 自动以关闭 Credentials 的安全方式迁移。
+- 响应只向有效跨域请求暴露实际响应头；无 Origin 请求不再依据 Referer 生成 CORS 响应。
+- `trustProxy` 的内置默认值改为 `false`；限流沿用 Express 基于显式信任策略计算的 `req.ip`，默认忽略伪造的 `X-Forwarded-For`。
+- 新增允许/拒绝 Origin、Credentials、OPTIONS、非法请求头、伪造 XFF 和多层代理跳数测试；后端 58 项通过、2 项后续 P0 门禁 TODO、0 项失败。
+
+下一阶段为 2.3 URL 与字面 IP Validator。

@@ -57,11 +57,16 @@ function migrateLegacyConfig(input) {
     delete raw.timeout;
 
     if (raw.cors === undefined && raw.accessOrigin !== undefined) {
+        const legacyWildcard = raw.accessOrigin === "*";
         raw.cors = {
             allowedOrigins: [raw.accessOrigin],
-            allowCredentials: true
+            allowCredentials: !legacyWildcard
         };
-        warn("accessOrigin", "cors.allowedOrigins");
+        warn(
+            "accessOrigin",
+            "cors.allowedOrigins",
+            legacyWildcard ? "Wildcard origins are migrated with credentials disabled." : ""
+        );
     }
     delete raw.accessOrigin;
 
