@@ -87,7 +87,7 @@ npm start
 }
 ```
 
-完整模板还包含 `browser` 段。`browser.enabled`、`browser.maxRedirects` 与 `browser.headerPolicy` 已用于 Browser Route 骨架；HTML/CSS Rewrite、Cookie Jar 和 Runtime Bridge 字段仍是后续阶段预留，不能据此认为对应功能已经实现。`security.blockedHostnames` 已用于目标主机校验；任何模式都不能绕过现有安全检查。
+完整模板还包含 `browser` 段。`browser.enabled`、`browser.maxRedirects`、`browser.headerPolicy`、`rewriteHtml` 与 `rewriteCss` 已用于 Browser Route 和 Transform Pipeline；这两个 Rewrite 开关目前只控制文本是否进入受限变换流程，具体 HTML/CSS URL 改写仍从后续阶段实现。Cookie Jar 和 Runtime Bridge 字段仍是预留，不能据此认为对应功能已经实现。`security.blockedHostnames` 已用于目标主机校验；任何模式都不能绕过现有安全检查。
 
 | 字段 | 类型/单位 | 当前行为 |
 | --- | --- | --- |
@@ -105,6 +105,7 @@ npm start
 | `limiter.windowMs` | Number，毫秒 | 限流窗口；保存配置后重建限流器 |
 | `limiter.max` | Number | 每个窗口允许的请求数 |
 | `security.blockedHostnames` | String[] | 精确 hostname 或 `*.example.com` 子域规则；不接受正则，可热加载 |
+| `security.maxRewriteBytes` | Number，字节 | Browser HTML/CSS 解压后的变换上限；超限返回 413；可热加载 |
 | `api.followRedirects` | Boolean | 是否启用 proxyWeb 安全逐跳循环；Axios 自身始终禁止自动跳转；可热加载 |
 | `api.maxRedirects` | Number | 安全逐跳循环的最大次数；可热加载 |
 | `api.connectTimeoutMs` | Number，毫秒 | 每一跳 TCP/TLS 连接阶段的上限；可热加载 |
@@ -113,6 +114,7 @@ npm start
 | `browser.enabled` | Boolean | 是否开放 Browser Route 骨架；默认 `false`；可热加载 |
 | `browser.maxRedirects` | Number | Browser Mode 独立安全逐跳上限；可热加载 |
 | `browser.headerPolicy` | `compat` / `strict` | `compat` 移除 X-Frame-Options/CSP，`strict` 保留；可热加载 |
+| `browser.rewriteHtml` / `rewriteCss` | Boolean | 是否让对应 Content-Type 进入 Transform Pipeline；可热加载 |
 
 ### 旧配置迁移
 
@@ -184,7 +186,7 @@ ANY /__proxyweb/browser?url=<percent-encoded-target>
 
 Canonical 子路径可逆映射到唯一 upstream origin；不同 origin 的资源使用不同 Token，不依赖或修改 Legacy Session。Token 只是路由标识，不是凭据，也不是 SSRF allowlist：每次 Canonical 请求仍会重新执行 URL、DNS Pinning、资源限制和 Redirect 安全内核。畸形、非规范或非 HTTP(S) Token 返回 400 `PROXY_BROWSER_URL_INVALID`，Canonical 路径会规范化 dot segment，并保持 percent-encoded path、查询参数和客户端 Fragment 映射。
 
-Browser Canonical 查询字符串全部属于上游，即使字段名为 `method` 或 `headers` 也不会触发 API/Legacy 查询控制功能。Browser Mode 不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除上游 `X-Frame-Options` 与 `Content-Security-Policy`，`strict` 则保留。当前仍没有 HTML/CSS Rewrite、Cookie Jar 或 WebSocket，不能作为完整网页代理使用。
+Browser Canonical 查询字符串全部属于上游，即使字段名为 `method` 或 `headers` 也不会触发 API/Legacy 查询控制功能。Browser Mode 不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除上游 `X-Frame-Options` 与 `Content-Security-Policy`，`strict` 则保留。HTML/CSS 已进入受限 Transform Pipeline，但当前转换器仍是无 URL 改写的恒等实现；Cookie Jar、WebSocket 和具体内容 Rewrite 尚未实现，因此仍不能作为完整网页代理使用。
 
 ### Legacy Adapter（已弃用）
 
@@ -213,6 +215,8 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 路线图 2.7 已完成进程策略与资源限制：连接阶段使用请求级 Agent 定时器，请求阶段使用 `timeoutMs`；并发槽超限 fail-fast，客户端断开与 runtime shutdown 会 Abort 上游；上游半截响应和畸形 Content-Length 由 `pipeline` 在路由边界回收。未捕获异常与未处理 rejection 统一进入受控 shutdown，先停止接收连接并关闭 runtime，5 秒仍未完成才强制退出。API 响应继续流式传输，`security.maxRewriteBytes` 不会导致 API 大响应整体缓冲。
 
+路线图 3.3 已建立 Browser Response Transform Pipeline：HTML/XHTML/CSS 在 gzip、deflate、br 或 identity 解码后按 `security.maxRewriteBytes` 计算上限，再按声明 Charset 解码为文本、输出 UTF-8 并使用原 Content-Encoding 重新压缩。超过上限会在发送上游响应头前返回 413 `PROXY_REWRITE_LIMIT`；畸形压缩流返回受控 502。SSE、206/Content-Range、附件、`Cache-Control: no-transform`、音视频、PDF、二进制、未知 Encoding/Charset，以及关闭对应 Rewrite 开关的文本保持原始流式透传。
+
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
 1. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
@@ -222,12 +226,12 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 ## 响应与兼容性
 
-- 后端对所有响应使用 Axios `responseType: "stream"`，并关闭自动解压。
-- 会移除部分 hop-by-hop 响应头以及 `content-length`，由 Node.js 重新处理传输。
+- 后端对所有上游响应使用 Axios `responseType: "stream"`，并关闭 Axios 自动解压；只有选中的 Browser HTML/CSS 由受限 Pipeline 解压。
+- API/Legacy 继续移除 hop-by-hop 与 `content-length`。Browser passthrough 保留合法 `content-length`、ETag 与 Content-MD5；Transform 后移除这些已失效元数据，并把 Charset 规范为 UTF-8。
 - API Mode 保留上游 `X-Frame-Options` 和 `Content-Security-Policy`；Browser Mode 只在显式 `compat` 策略下移除，Legacy Adapter 为保持旧行为也会移除。
 - Range 请求头随普通请求头转发；自动化契约覆盖了 206、`Content-Range` 与响应片段。
 - 没有 Cookie Jar；客户端 Cookie 也被从上游请求头中删除。
-- 没有 HTML/CSS 重写、WebSocket 代理或 SSE 专项测试。
+- HTML/CSS URL 内容改写与 WebSocket 尚未实现；SSE 已有直通集成测试。
 
 ## 日志与排错
 
@@ -254,6 +258,7 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 - 503 `PROXY_CONCURRENCY_LIMIT`：正在执行的代理请求达到 `api.maxConcurrentRequests`。
 - 508 `PROXY_REDIRECT_LIMIT`：Redirect 超出配置上限或形成循环。
 - 413 `PROXY_REQUEST_BODY_LIMIT`：请求体或 Redirect 重放内容超过 `api.maxRequestBodyBytes`。
+- 413 `PROXY_REWRITE_LIMIT`：Browser HTML/CSS 解压后超过 `security.maxRewriteBytes`。
 - 404 `PROXY_BROWSER_DISABLED`：Browser Route 尚未在配置中开启。
 - 400 `PROXY_BROWSER_URL_INVALID`：Canonical Token、路径或映射目标不合法或不规范。
 - 404 `PROXY_ROUTE_NOT_FOUND`：请求命中了未定义的 `/__proxyweb/*` 保留路径。
@@ -273,6 +278,6 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。
 
-后端当前 128 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、Streaming/Rewrite 分界、模式路由隔离、Canonical 映射与 graceful/fatal shutdown 均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 137 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-29 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装门禁已于 2026-08-29 通过 7/7：前后端 `npm ci`、后端测试与语法检查、前端测试、lint 和生产构建全部成功。逐项 DoD 与测试位置见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

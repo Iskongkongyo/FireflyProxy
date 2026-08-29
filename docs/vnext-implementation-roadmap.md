@@ -40,7 +40,7 @@
 | 2.8 | P0 集成门禁 | P0 Definition of Done | 2.1–2.7 | ✅ |
 | 3.1 | API/Browser 路由分离 | 两种模式边界固定 | 2.8 | ✅ |
 | 3.2 | UrlMapper | Browser Canonical URL | 3.1 | ✅ |
-| 3.3 | Transform Pipeline | 流式与 Rewrite 正确分流 | 3.2 | ⬜ |
+| 3.3 | Transform Pipeline | 流式与 Rewrite 正确分流 | 3.2 | ✅ |
 | 3.4 | HTML Rewrite | 页面资源和导航留在代理内 | 3.3 | ⬜ |
 | 3.5 | CSS 与 Location Rewrite | 样式资源和跳转可用 | 3.4 | ⬜ |
 | 3.6 | Cookie Jar 与 Header Policy | 会话及上游语义映射 | 3.5 | ⬜ |
@@ -577,3 +577,16 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端 128 项、前端 4 项测试通过，语法检查、前端 lint/build 继续纳入统一门禁。
 
 下一阶段为 3.3 Response Transform Pipeline。
+
+### 第十五轮执行记录
+
+2026-08-30 已完成 3.3：
+
+- 新增 `core/responsePipeline.js`，按模式、方法、状态、Content-Type、Range、下载语义和缓存指令选择 transform 或原始 stream；API/Legacy 始终保持既有流式边界。
+- Browser HTML/XHTML/CSS 支持 identity、gzip、deflate 与 br 的受限解压，按声明 Charset 解码、经可插拔文本转换器处理、统一输出 UTF-8，并使用原 Content-Encoding 重新压缩；当前转换器为恒等实现，供 3.4–3.5 接入具体 Rewrite。
+- `security.maxRewriteBytes` 按解压后的字节数计算，防止压缩炸弹绕过。超限在响应头发出前返回 413 `PROXY_REWRITE_LIMIT` 并回收上游流；畸形压缩返回受控 502，后续请求保持健康。
+- Transform 后移除 `Content-Length`、`ETag`、`Content-MD5` 并规范 Charset；SSE、206/Content-Range、附件、`no-transform`、音视频、PDF、二进制及不支持的 Encoding/Charset 保持字节级 passthrough，并保留合法长度/缓存元数据。
+- Browser 请求优先发送 `Accept-Encoding: identity`，但对忽略该偏好的上游仍完整覆盖三种压缩格式；新增分类、Charset、压缩、上限、异常流、SSE 和二进制集成测试。
+- 后端 137 项、前端 4 项测试通过，语法检查、前端 lint/build 继续纳入统一门禁。
+
+下一阶段为 3.4 HTML Rewrite。

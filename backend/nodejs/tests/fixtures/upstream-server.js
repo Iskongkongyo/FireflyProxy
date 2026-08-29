@@ -1,4 +1,5 @@
 const http = require("node:http");
+const { gzipSync } = require("node:zlib");
 
 const RANGE_BODY = Buffer.from("0123456789abcdefghijklmnopqrstuvwxyz", "utf8");
 
@@ -50,6 +51,50 @@ async function handleRequest(req, res) {
             "x-frame-options": "DENY",
             "content-security-policy": "default-src 'none'"
         });
+    }
+
+    if (url.pathname === "/html") {
+        const body = Buffer.from("<!doctype html><html><body>pipeline</body></html>", "utf8");
+        res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "content-length": body.length,
+            etag: '"fixture-html-etag"',
+            "content-md5": "fixture-html-md5"
+        });
+        return res.end(body);
+    }
+
+    if (url.pathname === "/gzip-html") {
+        const body = Buffer.from("<!doctype html><html><body>compressed</body></html>", "utf8");
+        const compressed = gzipSync(body);
+        res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "content-encoding": "gzip",
+            "content-length": compressed.length,
+            etag: '"fixture-gzip-etag"',
+            "content-md5": "fixture-gzip-md5"
+        });
+        return res.end(compressed);
+    }
+
+    if (url.pathname === "/large-html") {
+        const size = Math.min(Math.max(Number(url.searchParams.get("size")) || 1024, 1), 1024 * 1024);
+        const body = Buffer.alloc(size, "h");
+        res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "content-length": body.length
+        });
+        return res.end(body);
+    }
+
+    if (url.pathname === "/sse") {
+        res.writeHead(200, {
+            "content-type": "text/event-stream; charset=utf-8",
+            "cache-control": "no-cache",
+            etag: '"fixture-sse-etag"'
+        });
+        res.write("data: first\n\n");
+        return setTimeout(() => res.end("data: second\n\n"), 10);
     }
 
     if (url.pathname === "/echo") {
@@ -157,7 +202,8 @@ async function handleRequest(req, res) {
                 "accept-ranges": "bytes",
                 "content-range": `bytes ${range.start}-${range.end}/${RANGE_BODY.length}`,
                 "content-length": part.length,
-                "content-type": "application/octet-stream"
+                "content-type": "application/octet-stream",
+                etag: '"fixture-range-etag"'
             });
             return res.end(part);
         }
@@ -165,7 +211,8 @@ async function handleRequest(req, res) {
         res.writeHead(200, {
             "accept-ranges": "bytes",
             "content-length": RANGE_BODY.length,
-            "content-type": "application/octet-stream"
+            "content-type": "application/octet-stream",
+            etag: '"fixture-range-etag"'
         });
         return res.end(RANGE_BODY);
     }

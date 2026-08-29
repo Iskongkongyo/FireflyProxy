@@ -2,6 +2,7 @@ const { pipeline } = require("node:stream");
 const axios = require("axios");
 const { markDeprecated } = require("./deprecation");
 const { exposeCorsHeaders } = require("../middleware/cors");
+const { prepareResponse } = require("./responsePipeline");
 const {
     assertRequestBodyLength,
     createConcurrencyGate,
@@ -146,12 +147,28 @@ function createProxyExecutor(options) {
                 options.onRedirect(finalTarget, target);
             }
 
+            const preparedResponse = await prepareResponse({
+                body: response.data,
+                headers: response.headers,
+                method,
+                status: response.status,
+                mode: policy.mode,
+                config: requestConfig,
+                targetUrl: finalTarget.url,
+                transformText: policy.transformResponseText,
+                logger,
+                requestId: req.id
+            });
             const controlHeaders = new Map(
                 ["deprecation", "warning", "link"]
                     .filter(name => res.hasHeader(name))
                     .map(name => [name, res.getHeader(name)])
             );
-            const responseHeaders = policy.filterResponseHeaders(response.headers, requestConfig);
+            const responseHeaders = policy.filterResponseHeaders(
+                preparedResponse.headers,
+                requestConfig,
+                preparedResponse
+            );
             for (const [key, value] of Object.entries(responseHeaders)) res.setHeader(key, value);
             for (const [key, value] of controlHeaders) res.setHeader(key, value);
             if (policy.exposeCors) {
@@ -165,7 +182,7 @@ function createProxyExecutor(options) {
             }
 
             res.status(response.status);
-            pipeline(response.data, res, error => {
+            pipeline(preparedResponse.body, res, error => {
                 releaseOnce();
                 requestState.finalize();
                 if (error && !controller.signal.aborted) {

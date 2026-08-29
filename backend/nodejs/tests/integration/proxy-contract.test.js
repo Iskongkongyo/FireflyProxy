@@ -217,6 +217,69 @@ test("strict Browser header policy preserves upstream embedding protections", as
     }
 });
 
+test("Browser response pipeline transforms bounded text while streaming SSE and binary metadata", async () => {
+    const pipelineProxy = await startProxy({ browser: { enabled: true } });
+    try {
+        const html = await fetch(new URL(toProxyUrl(`${fixture.origin}/html`), pipelineProxy.origin));
+        assert.equal(html.status, 200);
+        assert.match(await html.text(), /<body>pipeline<\/body>/);
+        assert.equal(html.headers.get("content-length"), null);
+        assert.equal(html.headers.get("etag"), null);
+        assert.equal(html.headers.get("content-md5"), null);
+        assert.equal(html.headers.get("content-type"), "text/html; charset=utf-8");
+
+        const compressed = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/gzip-html`),
+            pipelineProxy.origin
+        ));
+        assert.equal(compressed.status, 200);
+        assert.match(await compressed.text(), /<body>compressed<\/body>/);
+        assert.equal(compressed.headers.get("content-encoding"), "gzip");
+        assert.equal(compressed.headers.get("etag"), null);
+        assert.equal(compressed.headers.get("content-md5"), null);
+
+        const binary = await fetch(new URL(toProxyUrl(`${fixture.origin}/range`), pipelineProxy.origin));
+        assert.equal(binary.status, 200);
+        assert.equal((await binary.arrayBuffer()).byteLength, RANGE_BODY.length);
+        assert.equal(binary.headers.get("content-length"), String(RANGE_BODY.length));
+        assert.equal(binary.headers.get("etag"), '"fixture-range-etag"');
+
+        const sse = await fetch(new URL(toProxyUrl(`${fixture.origin}/sse`), pipelineProxy.origin));
+        assert.equal(await sse.text(), "data: first\n\ndata: second\n\n");
+        assert.equal(sse.headers.get("etag"), '"fixture-sse-etag"');
+    } finally {
+        await pipelineProxy.close();
+    }
+});
+
+test("Browser transform limits fail before response headers with a stable error", async () => {
+    const boundedPipelineProxy = await startProxy({
+        browser: { enabled: true },
+        security: { maxRewriteBytes: 16 }
+    });
+    try {
+        const response = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/large-html?size=64`),
+            boundedPipelineProxy.origin
+        ));
+        assert.equal(response.status, 413);
+        assert.deepEqual(await response.json(), {
+            error: {
+                code: "PROXY_REWRITE_LIMIT",
+                message: "Response exceeds rewrite size limit"
+            }
+        });
+        const healthy = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/range`),
+            boundedPipelineProxy.origin
+        ));
+        assert.equal(healthy.status, 200);
+        assert.equal((await healthy.arrayBuffer()).byteLength, RANGE_BODY.length);
+    } finally {
+        await boundedPipelineProxy.close();
+    }
+});
+
 for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
     test(`${method} streams body and custom headers`, async () => {
         const response = await fetch(proxyUrl(`${fixture.origin}/echo`, {

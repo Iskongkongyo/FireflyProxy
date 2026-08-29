@@ -82,12 +82,12 @@ function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}) {
     return result;
 }
 
-function filterUpstreamResponseHeaders(headers) {
+function filterUpstreamResponseHeaders(headers, options = {}) {
     const excluded = new Set([
         ...HOP_BY_HOP_HEADERS,
-        ...connectionHeaderNames(headers),
-        "content-length"
+        ...connectionHeaderNames(headers)
     ]);
+    if (!options.preserveContentLength) excluded.add("content-length");
     return omitHeaders(headers, excluded);
 }
 
@@ -97,6 +97,7 @@ module.exports = {
     UPSTREAM_AUTHORIZATION_HEADER,
     buildUpstreamRequestHeaders,
     filterUpstreamResponseHeaders,
+    getHeader,
     isHopByHopHeader,
     isProxyAuthenticationHeader,
     normalizeHeaderName,

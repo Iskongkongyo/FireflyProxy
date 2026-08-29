@@ -877,7 +877,7 @@ token 不作为安全凭据，只作为 URL 映射。
 
 # 18. UrlMapper
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.2。已实现严格可逆 Token、相对 URL 解析、path/query/Fragment 映射、路径规范化、origin 隔离和稳定错误契约；HTML/CSS 对这些接口的消费从 3.3–3.5 继续实现。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.2。已实现严格可逆 Token、相对 URL 解析、path/query/Fragment 映射、路径规范化、origin 隔离和稳定错误契约；3.3 已建立受限文本转换接口，具体 HTML/CSS URL Rewrite 从 3.4–3.5 继续实现。
 
 建立：
 
@@ -1080,6 +1080,8 @@ CSS 文件自身 upstream URL
 
 # 24. Response Transform Pipeline
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.3。当前按模式与 HTTP 语义区分 transform/stream，HTML/XHTML/CSS 接入可插拔文本转换器；SSE、Range、附件、no-transform、媒体和二进制保持直通。
+
 建立统一：
 
 ```text
@@ -1133,16 +1135,18 @@ Upstream Response
 超过限制：
 
 ```text
-停止 Rewrite
-直接 passthrough
+终止 Transform
+返回 413 PROXY_REWRITE_LIMIT
 记录 warning
 ```
 
-不能因为几十 MB HTML/CSS 导致 Node 内存爆炸。
+实现选择在响应头发出前明确失败，而不是在解压流已被消费后冒险拼接原始压缩数据。不能因为几十 MB HTML/CSS 或压缩炸弹导致 Node 内存爆炸。
 
 ---
 
 # 26. Content-Encoding
+
+> 状态：✅ 已于 2026-08-30 完成路线图 3.3。Browser 请求优先 identity；上游仍返回 gzip、deflate 或 br 时执行受限解压、UTF-8 文本处理并按原编码重新压缩，Transform 后清理失效元数据。
 
 Browser Mode 第一版为了 Rewrite 简单可靠，可以：
 
@@ -1493,7 +1497,7 @@ fallback 到原 BASE_URL
 
 # 36. P1-6. API Mode 与 Browser Mode 分路由
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.2。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL 与带标准弃用响应头的 Legacy Adapter；Response Transform 与内容 Rewrite 从 3.3 起继续实现。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.3。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、受限 Response Transform Pipeline 与带标准弃用响应头的 Legacy Adapter；具体内容 Rewrite 从 3.4 起继续实现。
 
 推荐：
 

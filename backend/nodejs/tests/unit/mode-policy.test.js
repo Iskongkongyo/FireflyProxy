@@ -41,6 +41,17 @@ test("API and Browser modes select separate redirect limits", () => {
     assert.deepEqual(browserPolicy.redirectOptions(config), { followRedirects: true, maxRedirects: 9 });
 });
 
+test("Browser requests prefer identity encoding without allowing case aliases to override it", () => {
+    const headers = browserPolicy.buildRequestHeaders({
+        Accept: "text/html",
+        "Accept-Encoding": "gzip, br"
+    }, {});
+
+    assert.equal(headers["Accept-Encoding"], undefined);
+    assert.equal(headers["accept-encoding"], "identity");
+    assert.equal(headers.Accept, "text/html");
+});
+
 test("legacy session paths retain origin-based URL joining", () => {
     assert.equal(
         getTargetUrl("https://example.test/base", "/echo?session=yes"),

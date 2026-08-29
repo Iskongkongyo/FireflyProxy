@@ -16,7 +16,7 @@
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
 | 本地功能 | 响应式界面、分享链接、浏览器本地历史记录 |
-| 后端 | API/Browser 分路由、Browser Canonical URL、共享安全网络内核、流式转发、限流与日志 |
+| 后端 | API/Browser 分路由、Canonical URL、受限响应变换、流式转发、共享安全网络内核与限流 |
 
 当前已建立 Browser Route 骨架，但还没有完整的网页反向代理能力；HTML/CSS URL 重写、Cookie Jar、WebSocket 和 SPA 兼容仍属于 vNext 规划，而不是已完成功能。
 
@@ -121,6 +121,7 @@ npm run build
 | `limiter.windowMs` | 限流窗口，毫秒 | 是 |
 | `limiter.max` | 每个窗口的请求数 | 是 |
 | `security.blockedHostnames` | 精确主机或 `*.example.com` 子域规则；不接受正则 | 是 |
+| `security.maxRewriteBytes` | Browser HTML/CSS 解压后的最大变换字节数，超限返回 413 | 是 |
 | `api.followRedirects` | 是否启用 proxyWeb 安全逐跳循环 | 是 |
 | `api.maxRedirects` | 安全逐跳循环的最大次数 | 是 |
 | `api.connectTimeoutMs` | 每一跳 TCP/TLS 连接超时，毫秒 | 是 |
@@ -129,6 +130,7 @@ npm run build
 | `browser.enabled` | 是否开放 Browser Route 骨架；默认关闭 | 是 |
 | `browser.maxRedirects` | Browser Mode 独立 Redirect 上限 | 是 |
 | `browser.headerPolicy` | `compat` 移除嵌入限制头，`strict` 保留 | 是 |
+| `browser.rewriteHtml` / `rewriteCss` | 是否让对应文本进入受限 Transform Pipeline | 是 |
 
 旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin`、`blacklist` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins`、`security.blockedHostnames` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；旧黑名单值按精确主机或前导通配子域规则校验，不再作为正则执行。迁移会记录弃用警告，建议按模板尽快更新。
 
@@ -137,6 +139,7 @@ npm run build
 - URL Validator 已拒绝非 HTTP(S) 协议、URL credentials、非法编码、localhost，以及 loopback/private/link-local/unspecified/multicast/reserved 等字面 IPv4/IPv6。域名使用 `lookup(all: true, verbatim: true)` 校验全部 A/AAAA，任一结果非公网即整体拒绝；请求级 HTTP/HTTPS Agent 的 `lookup` 只能返回该验证集合，并保持原 hostname、Host、SNI 和严格 TLS 证书校验。
 - Axios 自身固定 `maxRedirects: 0`；启用 `api.followRedirects` 时由 proxyWeb 处理 301/302/303/307/308，每一跳重新执行 URL、DNS 与 Pinning 校验。跨域跳转会删除认证、Cookie、Token、Secret 与 API Key 类 Header，循环或超限返回 508。
 - 代理请求同时受 `timeoutMs`、`api.connectTimeoutMs`、`api.maxRequestBodyBytes` 与 `api.maxConcurrentRequests` 约束；客户端断开会取消上游，异常响应流由管道边界回收。API 响应仍保持流式转发，不受 Rewrite 缓冲上限影响。
+- Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。SSE、206、附件、`no-transform`、音视频、PDF 和二进制保持流式，变换响应会移除失效的长度与缓存校验 Header。
 - 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
 - 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
@@ -154,7 +157,7 @@ P0 的逐项证据见 [自动化验收矩阵](./docs/p0-verification-matrix.md)�
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 128 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 137 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 ## 文档索引
 
