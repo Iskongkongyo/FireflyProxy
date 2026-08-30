@@ -43,6 +43,13 @@
 
 		<!-- 操作按钮组 -->
 		<div class="action-group">
+			<el-button type="primary" plain @click="$emit('import-curl')" class="action-btn" size="default">
+				<span class="btn-text-full">Import cURL</span>
+			</el-button>
+			<el-button type="primary" plain @click="$emit('copy-curl')" class="action-btn" size="default">
+				<el-icon><CopyDocument /></el-icon>
+				<span class="btn-text-full">Copy as cURL</span>
+			</el-button>
 			<el-button type="success" @click="$emit('add-row')" class="action-btn" size="default">
 				<el-icon><Plus /></el-icon>
 				<span class="btn-text-full">新增一行</span>
@@ -79,7 +86,7 @@ export default {
 		method: { type: String, default: 'GET' },
 		showDownload: { type: Boolean, default: false }
 	},
-	emits: ['switch-tab', 'add-row', 'copy-page', 'copy-api', 'download', 'history'],
+	emits: ['switch-tab', 'add-row', 'import-curl', 'copy-curl', 'copy-page', 'copy-api', 'download', 'history'],
 	setup() {
 		return {
 			VideoPlay: shallowRef(VideoPlay),

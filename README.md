@@ -5,20 +5,20 @@
 ![界面预览](./vue-request-app/review.png)
 
 > [!WARNING]
-> P0 网络安全门禁和 P1 Browser Core E2E 门禁已通过，但进程内 Session Store、旧查询兼容面和后续 Browser 隔离仍有限制，**不要直接暴露为生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
+> P0 网络安全、P1 Browser Core 与 P2 Runtime/WebSocket/Origin Isolation 门禁已通过，但进程内 Session Store、旧查询兼容面和可选隔离部署仍有限制，**不要直接暴露为生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
 
 ## 当前能力
 
 | 模块 | 已实现 |
 | --- | --- |
-| API 请求 | GET、POST、PUT、DELETE、PATCH、HEAD；查询参数；自定义请求头 |
-| 请求体 | URL 编码表单、multipart 文件、JSON、纯文本 |
+| API 请求 | GET、POST、PUT、DELETE、PATCH、HEAD；可逐行启停的查询参数与自定义请求头；安全 cURL Import/Export |
+| 请求体 | none、Raw、JSON、URL 编码表单、逐字段 multipart 文本/文件 |
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
 | 本地功能 | API/网页代理模式切换、独立 Browser 启动页、响应式界面、分享链接、浏览器本地历史记录 |
-| 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、SSE 提前 flush、Range/Media 元数据保持、受限响应变换、流式转发、共享安全网络内核与限流 |
+| 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、Runtime/WebSocket、可选 Origin Isolation、SSE 提前 flush、Range/Media 元数据保持、受限响应变换、流式转发、共享安全网络内核与限流 |
 
-当前 Browser Route 与独立 `/web/browser` 页面已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar、Origin/Referer 映射和可折叠兼容设置；静态/SSR、跨 CDN、表单、302 登录、Cookie、Range、下载和 SSE 已进入真实浏览器门禁。WebSocket 和 SPA 动态请求兼容仍属于后续 vNext 阶段。
+当前 Browser Route 与独立 `/web/browser` 页面已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar、Origin/Referer 映射和可折叠兼容设置；静态/SSR、跨 CDN、表单、302 登录、Cookie、Range、下载、SSE、常见 SPA 动态请求和 WebSocket 已进入真实浏览器门禁。高级 Worker/Service Worker 兼容仍属于后续 vNext 阶段。
 
 ## 目录结构
 
@@ -44,6 +44,9 @@ proxyWeb/
 ├── docs/
 │   ├── p0-verification-matrix.md        # P0 安全门禁证据
 │   ├── p1-verification-matrix.md        # P1 Browser Core E2E 证据
+│   ├── p2-runtime-verification-matrix.md # P2 Runtime/WebSocket/隔离证据
+│   ├── origin-isolation-threat-model.md # Origin Isolation 部署与威胁模型
+│   ├── request-editor-curl-contract.md  # API 编辑器与 cURL 安全契约
 │   └── vnext-implementation-roadmap.md  # vNext 分阶段实施路线图
 ├── scripts/                             # P0/P1 一键门禁
 └── proxyWeb vNext 开发计划与技术方案.md
@@ -174,7 +177,7 @@ P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 �
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 201 项测试与语法检查、前端 7 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 201 项测试与语法检查、前端 23 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 P1 门禁是 P0 的严格超集，并追加 Playwright Core 真实浏览器验收：
 

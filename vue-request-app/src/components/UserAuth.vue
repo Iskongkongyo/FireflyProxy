@@ -13,7 +13,7 @@
 				Username：<el-input v-model="auth.basicAuth.username" style="width: 240px" placeholder="请输入用户名"
 					:size="large" clearable /><br /><br />
 				Password：<el-input v-model="auth.basicAuth.password" style="width: 240px" placeholder="请输入密码"
-					:size="large" clearable />
+					:size="large" clearable show-password />
 			</div>
 
 			<!-- Bearer Auth -->
@@ -57,9 +57,15 @@
 			};
 		},
 		methods: {
+			encodeBasic(value) {
+				const bytes = new TextEncoder().encode(value);
+				let binary = '';
+				bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+				return btoa(binary);
+			},
 			basicAuth() {
 				if (this.auth.basicAuth.username != '' || this.auth.basicAuth.password != '') {
-					this.result = 'Basic ' + btoa(this.auth.basicAuth.username + ':' + this.auth.basicAuth.password);
+					this.result = 'Basic ' + this.encodeBasic(this.auth.basicAuth.username + ':' + this.auth.basicAuth.password);
 				} else {
 					this.result = '';
 				}
@@ -80,6 +86,31 @@
 					this.bearerAuth();
 				}
 				this.$emit('userAuth', this.result);
+				return this.result;
+			},
+			getDraft() {
+				if (this.value === 'Basic Auth') {
+					return {
+						type: 'basic',
+						username: this.auth.basicAuth.username,
+						password: this.auth.basicAuth.password
+					};
+				}
+				if (this.value === 'Bearer Auth') return { type: 'bearer', token: this.auth.bearerAuth };
+				return { type: 'none' };
+			},
+			applyDraft(draft = {}) {
+				if (draft.type === 'basic') {
+					this.value = 'Basic Auth';
+					this.auth.basicAuth.username = String(draft.username ?? '');
+					this.auth.basicAuth.password = String(draft.password ?? '');
+				} else if (draft.type === 'bearer') {
+					this.value = 'Bearer Auth';
+					this.auth.bearerAuth = String(draft.token ?? '');
+				} else {
+					this.value = 'No Auth';
+				}
+				this.handle();
 			}
 		},
 	};

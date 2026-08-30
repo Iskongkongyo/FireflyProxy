@@ -6,7 +6,7 @@
 > 基线复核：2026-08-28
 
 > [!IMPORTANT]
-> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8 与 P2 路线图 4.1–4.4 已通过自动化验收；P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
+> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8、P2 路线图 4.1–4.4 与 P3 路线图 5.1 已通过自动化验收；P3 其余部分与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
 
 > 可执行的小阶段、依赖关系和逐阶段完成条件见 [`docs/vnext-implementation-roadmap.md`](./docs/vnext-implementation-roadmap.md)。
 
@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1–4.4 已完成 SSE/Range/Media、最小 Runtime Bridge、安全 WebSocket Proxy 与可选 Origin Isolation，并通过独立 Edge E2E。高级 Worker/Service Worker 兼容尚未完成。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1–4.4 已完成 SSE/Range/Media、最小 Runtime Bridge、安全 WebSocket Proxy 与可选 Origin Isolation，并通过独立 Edge E2E；P3 路线图 5.1 已完成请求编辑与安全 cURL Import/Export。高级 Worker/Service Worker 兼容、Redirect Chain/Timing 与 Collections 尚未完成。
 
 当前前端主要结构：
 
@@ -1838,6 +1838,8 @@ host token
 # 45. P3 — Postman Lite 功能增强
 
 Browser Mode 稳定以后增强 API 工作台。
+
+> 状态：🟨 第一组与第二组已于 2026-08-31 完成路线图 5.1。Params/Headers/表单字段支持逐行启停，Body 覆盖 Raw、JSON、URL 编码与 multipart 文件；cURL Import 仅做静态文本解析并拒绝 Shell 控制语义，Copy as cURL 使用 POSIX 单引号转义且敏感凭据复制前二次确认。契约与验证见 [`docs/request-editor-curl-contract.md`](./docs/request-editor-curl-contract.md)。第三组 Redirect Chain 与 Timing 留待 5.2。
 
 优先级顺序：
 

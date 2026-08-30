@@ -63,6 +63,8 @@
 						:showDownload="!!downloadUrl"
 						@switch-tab="activeTab = $event"
 						@add-row="addRow(activeTab)"
+						@import-curl="openCurlImport"
+						@copy-curl="copyAsCurl"
 						@copy-page="copy(0)"
 						@copy-api="copy(1)"
 						@download="downloadResponse"
@@ -81,6 +83,11 @@
 				<!-- 动态表格 -->
 				<el-table v-if="activeTab && activeTab != 'auth' && activeTab != 'body'" :data="tableData[activeTab]"
 					style="margin-bottom: 20px;">
+					<el-table-column label="启用" width="76" align="center">
+						<template #default="scope">
+							<el-switch v-model="scope.row.enabled" />
+						</template>
+					</el-table-column>
 					<el-table-column prop="key" :label="'Key（'+buttons[activeTab]+')'">
 						<template #default="scope">
 							<el-input v-model="scope.row.key" clearable />
@@ -101,6 +108,17 @@
 					</el-table-column>
 				</el-table>
 			</el-card>
+
+			<el-dialog v-model="curlDialogVisible" title="Import cURL" width="min(760px, 92vw)" destroy-on-close>
+				<el-alert title="仅解析静态文本，不执行命令、变量替换或文件读取。"
+					type="info" :closable="false" show-icon />
+				<el-input v-model="curlInput" type="textarea" :rows="12" class="curl-input"
+					placeholder="粘贴以 curl 开头的命令；多行命令请使用反斜杠续行。" />
+				<template #footer>
+					<el-button @click="curlDialogVisible = false">取消</el-button>
+					<el-button type="primary" @click="applyCurlImport">解析并覆盖编辑器</el-button>
+				</template>
+			</el-dialog>
 
 			<!-- 响应内容 -->
 			<ResponseViewer
@@ -144,6 +162,15 @@
 	import { PROXY_CONFIG, URL_PATTERN } from '../config.js';
 	import { parseError } from '../utils/errorHandler.js';
 	import { buildProxyTransport, omitSensitiveHeaderRows } from '../utils/headerSecurity.mjs';
+	import {
+		activeEditorRows,
+		appendQueryRows,
+		createEditorRow,
+		editorRowsToHeaders,
+		parseEditorRows,
+		serializeEditorRows
+	} from '../utils/requestEditor.mjs';
+	import { exportCurl, parseCurl, requestContainsSecrets, supportsRequestBody } from '../utils/curl.mjs';
 
 	import UserAuth from './UserAuth.vue';
 	import RequestBody from './RequestBody.vue';
@@ -166,6 +193,8 @@
 				mobile: false, //是否是移动端
 				isShow: false, //是否显示
 				activeTab: 'params',
+				curlDialogVisible: false,
+				curlInput: '',
 				queryParams: {}, // 存储查询参数的对象
 				buttons: {
 					'headers': '请求头',
@@ -207,14 +236,8 @@
 					},
 				],
 				tableData: {
-					headers: [{
-						key: '',
-						value: ''
-					}],
-					params: [{
-						key: '',
-						value: ''
-					}],
+					headers: [createEditorRow()],
+					params: [createEditorRow()],
 				},
 				auth: '',
 				response: '',
@@ -245,8 +268,8 @@
 				this.queryParams = route.query;
 				this.url = decodeURIComponent(this.queryParams.url || '');
 				this.method = (this.queryParams.method || 'GET').toUpperCase();
-				this.tableData.headers = JSON.parse(this.queryParams.headers || "[{}]");
-				this.tableData.params = JSON.parse(this.queryParams.params || "[{}]");
+				this.tableData.headers = parseEditorRows(this.queryParams.headers);
+				this.tableData.params = parseEditorRows(this.queryParams.params);
 				this.display = this.queryParams.display || 0;
 				this.display === '1' ? this.$emit('update-message', false) : this.$emit('update-message', true);
 				this.display === '1' ? this.isShow = false : this.isShow = true;
@@ -263,12 +286,8 @@
 		},
 		methods: {
 			addRow(tab) {
-				if (tab) {
-					this.tableData[tab].push({
-						key: '',
-						value: ''
-					});
-				}
+				if (tab === 'body') return this.$refs.body?.addRow();
+				if (this.tableData[tab]) this.tableData[tab].push(createEditorRow());
 			},
 			// 获取 ResponseViewer 组件的类型
 			getViewerType() {
@@ -298,15 +317,57 @@
 				}
 			},
 			handleSearch(originArr) {
-				let resultArr = [];
-				originArr.forEach((value) => {
-					value.key ? resultArr.push({
-						"key": value.key,
-						"value": value.value
-					}) : true
-				});
-				JSON.stringify(resultArr) === JSON.stringify([]) ? resultArr = '' : resultArr = JSON.stringify(resultArr);
-				return resultArr;
+				return serializeEditorRows(originArr);
+			},
+			openCurlImport() {
+				this.curlInput = '';
+				this.curlDialogVisible = true;
+			},
+			applyCurlImport() {
+				try {
+					const imported = parseCurl(this.curlInput);
+					this.method = imported.method;
+					this.url = imported.url;
+					this.tableData.headers = imported.headers;
+					this.$refs.userAuth?.applyDraft(imported.auth);
+					this.$refs.body?.applyDraft(imported.body);
+					this.activeTab = imported.body.type === 'none' ? 'headers' : 'body';
+					this.curlDialogVisible = false;
+					if (imported.warnings.length) ElMessage.warning(imported.warnings.join('；'));
+					else ElMessage.success('cURL 已安全导入。');
+				} catch (error) {
+					ElMessage.error(error.message);
+				}
+			},
+			getRequestDraft() {
+				return {
+					method: this.method,
+					url: appendQueryRows(this.url, this.tableData.params),
+					headers: this.tableData.headers,
+					auth: this.$refs.userAuth?.getDraft() || { type: 'none' },
+					body: supportsRequestBody(this.method)
+						? (this.$refs.body?.getDraft() || { type: 'none' })
+						: { type: 'none' }
+				};
+			},
+			async copyAsCurl() {
+				try {
+					if (!this.patt.test(this.url)) throw new Error('请先输入有效的请求 URL。');
+					const draft = this.getRequestDraft();
+					const command = exportCurl(draft);
+					if (requestContainsSecrets(draft)) {
+						await ElMessageBox.confirm(
+							'生成的 cURL 包含认证信息或敏感请求头，复制后请按密码对待。是否继续？',
+							'敏感信息提醒',
+							{ type: 'warning', confirmButtonText: '继续复制', cancelButtonText: '取消' }
+						);
+					}
+					await navigator.clipboard.writeText(command);
+					ElMessage.success('POSIX Shell cURL 已复制。');
+				} catch (error) {
+					if (error === 'cancel' || error === 'close') return;
+					ElMessage.error(`复制 cURL 失败：${error.message || error}`);
+				}
 			},
 			copy(patt) {
 
@@ -321,15 +382,7 @@
 				if (patt == 1) {
 					// 复制API接口
 					const apiUrl = new URL(location.origin);
-					const nowUrl = new URL(that.url);
-					const urlParams = nowUrl.searchParams;
-					const queryString = that.tableData.params;
-					for (let obj of queryString) {
-						if (Object.keys(obj).toString() === 'key,value' && Object.values(obj)[0] != '') {
-							urlParams.append(obj.key, obj.value);
-						}
-					}
-					apiUrl.searchParams.append('url', `${nowUrl.origin}${nowUrl.pathname}?${urlParams.toString()}`);
+					apiUrl.searchParams.append('url', appendQueryRows(that.url, that.tableData.params));
 					apiUrl.searchParams.append('method', that.method);
 
 					return that.copyLinkToClipboard(
@@ -448,10 +501,12 @@
 				if (!this.patt.test(this.url)) {
 					return ElMessage.error('请检查请求URL格式是否有误！');
 				}
+				if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(this.method.toUpperCase())) {
+					this.latest = null;
+					if (this.$refs.body && !this.$refs.body.buildAndEmit()) return;
+				}
 
-				const nowUrl = new URL(this.url);
-				const urlParams = nowUrl.searchParams;
-				const queryString = this.tableData.params;
+				const requestUrl = appendQueryRows(this.url, this.tableData.params);
 				let headers = [];
 				let upstreamAuthorization = '';
 
@@ -463,7 +518,7 @@
 
 
 				// 处理自定义Cookie，因Cookie无法手动修改，通过document.cookie将Cookie写入客户端
-				for (let obj of this.tableData.headers) {
+				for (let obj of activeEditorRows(this.tableData.headers)) {
 					// 末尾添加“;domain=;path=/;”使得Cookie在当前域名和根目录下生效
 					if (obj && obj.key) { // 确保 obj 和 obj.key 存在
 						if (obj.key.toLowerCase() === 'authorization') {
@@ -479,26 +534,12 @@
 					}
 				}
 
-				for (let obj of queryString) {
-					if (Object.keys(obj).toString() === 'key,value' && Object.values(obj)[0] != '') {
-						urlParams.append(obj.key, obj.value);
-					}
+				const finHeaders = editorRowsToHeaders(headers);
+				if (this.latest?.mode === 'multipart') {
+					Object.keys(finHeaders).forEach((name) => {
+						if (name.toLowerCase() === 'content-type') delete finHeaders[name];
+					});
 				}
-
-				let requestUrl;
-
-				if (urlParams.toString()) {
-					requestUrl = `${nowUrl.origin}${nowUrl.pathname}?${urlParams.toString()}`;
-				} else {
-					requestUrl = nowUrl;
-				}
-
-
-				let finHeaders = {};
-
-				headers.forEach((value) => {
-					value.key ? finHeaders[value.key] = value.value : true
-				});
 
 				const proxyTransport = buildProxyTransport(
 					PROXY_CONFIG.BASE_URL,
@@ -514,7 +555,7 @@
 					`${date.getFullYear()}.${date.getMonth()+1}.${date.getDate()} ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
 				const newRecords = [{
 					"date": time,
-					"url": decodeURIComponent(this.copy(2))
+					"url": this.copy(2)
 				}].concat(records);
 				localStorage.setItem('history', JSON.stringify(newRecords));
 
@@ -528,15 +569,12 @@
 
 				// 根据请求方法设置请求体信息
 				if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(this.method.toUpperCase())) {
-					// 从子组件获取请求体信息
-					this.latest = null;
-					if (this.$refs.body) {
-						this.$refs.body.buildAndEmit();
-					}
-					if (this.latest) {
+					if (this.latest && this.latest.mode !== 'none') {
 						config.data = this.latest.body;
-						config.headers = config.headers || {};
-						config.headers['Content-Type'] = this.latest.contentType;
+						if (this.latest.contentType) {
+							config.headers = config.headers || {};
+							config.headers['Content-Type'] = this.latest.contentType;
+						}
 					}
 				}
 

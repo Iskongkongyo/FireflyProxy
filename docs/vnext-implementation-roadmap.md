@@ -50,7 +50,7 @@
 | 4.2 | Runtime Bridge | 常见 SPA 动态请求可映射 | 4.1 | ✅ |
 | 4.3 | WebSocket | WS/WSS 安全代理 | 4.2 | ✅ |
 | 4.4 | Origin Isolation | 多目标隔离增强 | 4.3 | ✅ |
-| 5.1 | 请求编辑增强 | Params、Body、cURL | 2.8，可并行于 P1 后执行 | ⬜ |
+| 5.1 | 请求编辑增强 | Params、Body、cURL | 2.8，可并行于 P1 后执行 | ✅ |
 | 5.2 | 响应诊断 | Redirect Chain、Timing | 5.1 | ⬜ |
 | 5.3 | Environment 与 Collections | 可复用请求资产 | 5.2 | ⬜ |
 
@@ -713,4 +713,15 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 新增 5 项纯函数/Host 双绑定单测、4 项子进程集成契约与独立 Edge Origin Isolation E2E。真实浏览器强制验证两个 upstream 的 `location.origin` 与同名 localStorage 分离、跨窗口 DOM 读取抛 `SecurityError`，以及 Runtime 跨 upstream fetch 按上游 CORS 工作。
 - 后端全量 201/201、lint 与独立 Edge Origin Isolation E2E 已通过；P2 Gate 已扩展为 P1 回归、Runtime/WebSocket E2E、Origin Isolation E2E 三阶段。下一主线阶段为 5.1 请求编辑与 cURL；高级 Worker/Service Worker 兼容仍作为独立后续项。
 
-下一阶段为 5.1 请求编辑与 cURL。
+### 第二十五轮执行记录
+
+2026-08-31 已完成 5.1：
+
+- Params、Headers、URL 编码表单与 multipart 字段统一增加逐行启停；旧分享数据缺少 `enabled` 时按启用迁移，损坏 JSON 安全回退，不再阻断 API 工作台初始化。目标 URL 构造保留既有 query 与重复 key 顺序，只发送启用字段。
+- Request Body 收敛为 `none`、Raw、JSON、`x-www-form-urlencoded` 与 `multipart/form-data`。JSON 在发送前验证；URL 编码字段保序并允许重复；multipart 每行可选 Text/File，必须持有浏览器实际授权的 `File`，Content-Type boundary 由浏览器生成。
+- 新增安全 Import cURL，覆盖 `-X/--request`、`-H/--header`、`-d/--data/--data-raw/--data-binary`、`-u/--user`、`-F/--form` 与 `--url`。解析器不执行 Shell、网络或文件操作，拒绝控制符、命令替换、未知选项、非 HTTP(S) 与 URL credentials；文件路径只成为待重新选择的占位符。
+- 新增 Copy as cURL，固定输出 POSIX Shell 格式并对每个用户 token 使用单引号转义；导出完整 upstream URL 而非 proxyWeb URL。Auth 或敏感 Header 导出前强制二次确认，页面分享/历史仍不保存 Body/Auth 并继续过滤敏感 Header。
+- 新增 `requestEditor.mjs`、`requestBody.mjs` 与 `curl.mjs` 纯函数边界，前端测试由 7 项增至 23 项；详细行为、安全约束和剩余兼容边界见 [`request-editor-curl-contract.md`](./request-editor-curl-contract.md)。
+- 后端全量 201/201、前端 23/23、lint 与生产构建通过；P0 Gate 5/5、P1 Gate 2/2、P2 Gate 3/3 全部 PASS，Edge 150 的 Browser Core、Runtime/WebSocket 与 Origin Isolation E2E 均保持通过。生产构建仍只有既有的 3 条 bundle 体积 warning。
+
+下一阶段为 5.2 Redirect Chain 与 Timing。
