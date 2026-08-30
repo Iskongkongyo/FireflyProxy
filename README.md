@@ -16,9 +16,9 @@
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
 | 本地功能 | 响应式界面、分享链接、浏览器本地历史记录 |
-| 后端 | API/Browser 分路由、Canonical URL、HTML URL 重写、受限响应变换、流式转发、共享安全网络内核与限流 |
+| 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、受限响应变换、流式转发、共享安全网络内核与限流 |
 
-当前 Browser Route 已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh 和内联 style URL 重写，但还没有完整的网页反向代理能力；独立 CSS 文件与 Location 重写、Cookie Jar、WebSocket 和 SPA 动态请求兼容仍属于后续 vNext 阶段。
+当前 Browser Route 已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS 与安全 Location 重写，但还没有完整的网页反向代理能力；Cookie Jar、WebSocket 和 SPA 动态请求兼容仍属于后续 vNext 阶段。
 
 ## 目录结构
 
@@ -128,10 +128,10 @@ npm run build
 | `api.maxRequestBodyBytes` | 非 GET/HEAD 请求体与 Redirect 重放缓存上限，字节 | 是 |
 | `api.maxConcurrentRequests` | 同时执行的代理请求上限，超出返回 503 | 是 |
 | `browser.enabled` | 是否开放 Browser Route 骨架；默认关闭 | 是 |
-| `browser.maxRedirects` | Browser Mode 独立 Redirect 上限 | 是 |
+| `browser.maxRedirects` | 兼容保留；Browser 3xx 已改为验证并返回 Canonical Location，不在服务端逐跳跟随 | 是 |
 | `browser.headerPolicy` | `compat` 移除嵌入限制头，`strict` 保留 | 是 |
 | `browser.rewriteHtml` | 是否启用 HTML 属性、`srcset`、Meta Refresh 和内联 style URL 重写 | 是 |
-| `browser.rewriteCss` | 是否让 CSS 进入受限 Transform Pipeline；CSS URL 重写将在 3.5 实现 | 是 |
+| `browser.rewriteCss` | 是否启用 CSS `url()` 与 `@import` AST 重写 | 是 |
 
 旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin`、`blacklist` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins`、`security.blockedHostnames` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；旧黑名单值按精确主机或前导通配子域规则校验，不再作为正则执行。迁移会记录弃用警告，建议按模板尽快更新。
 
@@ -140,7 +140,7 @@ npm run build
 - URL Validator 已拒绝非 HTTP(S) 协议、URL credentials、非法编码、localhost，以及 loopback/private/link-local/unspecified/multicast/reserved 等字面 IPv4/IPv6。域名使用 `lookup(all: true, verbatim: true)` 校验全部 A/AAAA，任一结果非公网即整体拒绝；请求级 HTTP/HTTPS Agent 的 `lookup` 只能返回该验证集合，并保持原 hostname、Host、SNI 和严格 TLS 证书校验。
 - Axios 自身固定 `maxRedirects: 0`；启用 `api.followRedirects` 时由 proxyWeb 处理 301/302/303/307/308，每一跳重新执行 URL、DNS 与 Pinning 校验。跨域跳转会删除认证、Cookie、Token、Secret 与 API Key 类 Header，循环或超限返回 508。
 - 代理请求同时受 `timeoutMs`、`api.connectTimeoutMs`、`api.maxRequestBodyBytes` 与 `api.maxConcurrentRequests` 约束；客户端断开会取消上游，异常响应流由管道边界回收。API 响应仍保持流式转发，不受 Rewrite 缓冲上限影响。
-- Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。HTML 使用 Parser 重写 allowlist 属性、`srcset`、`<base>`、Meta Refresh 与内联 style `url()`，忽略非 HTTP(S)、纯 Fragment 和带凭据目标；实际子资源请求仍执行完整 SSRF/DNS/Pinning 校验。SSE、206、附件、`no-transform`、音视频、PDF 和二进制保持流式，变换响应会移除失效的长度与缓存校验 Header。
+- Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。HTML 使用 Parser 重写 allowlist 属性、`srcset`、`<base>`、Meta Refresh 与内联 CSS，独立 CSS 使用 AST 重写 `url()`/`@import`；相对 CSS URL 基于样式表自身地址。Browser 301/302/303/307/308 会先验证 Location，再返回 Canonical Location 交由浏览器处理，不在服务端吞掉跳转。实际子请求与跳转目标仍执行完整 SSRF/DNS/Pinning 校验。SSE、206、附件、`no-transform`、音视频、PDF 和二进制保持流式。
 - 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
 - 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
@@ -158,7 +158,7 @@ P0 的逐项证据见 [自动化验收矩阵](./docs/p0-verification-matrix.md)�
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 143 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 152 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 ## 文档索引
 

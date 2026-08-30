@@ -1,6 +1,6 @@
 const cheerio = require("cheerio");
-const valueParser = require("postcss-value-parser");
 const { resolveTargetUrl, toProxyUrl } = require("../core/urlMapper");
+const { rewriteCss, rewriteCssValue } = require("./cssRewriter");
 
 const URL_ATTRIBUTES = Object.freeze([
     ["a[href]", "href"],
@@ -94,22 +94,7 @@ function rewriteSrcset(value, baseUrl) {
 }
 
 function rewriteInlineStyle(value, baseUrl) {
-    const parsed = valueParser(String(value || ""));
-    parsed.walk(node => {
-        if (node.type !== "function" || node.value.toLowerCase() !== "url") return;
-        const significantNodes = node.nodes.filter(child => child.type !== "space" && child.type !== "comment");
-        if (significantNodes.length !== 1 || !["word", "string"].includes(significantNodes[0].type)) return;
-
-        const targetNode = significantNodes[0];
-        const rewritten = rewriteUrlValue(targetNode.value, baseUrl);
-        if (rewritten === targetNode.value) return;
-        node.nodes = [{
-            type: "string",
-            quote: targetNode.type === "string" ? targetNode.quote : "\"",
-            value: rewritten
-        }];
-    });
-    return parsed.toString();
+    return rewriteCssValue(value, baseUrl);
 }
 
 function rewriteMetaRefresh(value, baseUrl) {
@@ -169,6 +154,16 @@ function rewriteHtml({ html, documentUrl, mediaType = "text/html" }) {
     $("[style]").each((index, element) => {
         const current = $(element).attr("style");
         if (typeof current === "string") $(element).attr("style", rewriteInlineStyle(current, effectiveBaseUrl));
+    });
+
+    $("style").each((index, element) => {
+        const style = $(element);
+        const type = String(style.attr("type") || "text/css").trim().toLowerCase();
+        if (type !== "text/css") return;
+        const current = style.html();
+        if (typeof current === "string") {
+            style.text(rewriteCss({ css: current, stylesheetUrl: effectiveBaseUrl }));
+        }
     });
 
     $("meta[http-equiv]").each((index, element) => {

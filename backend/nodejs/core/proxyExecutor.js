@@ -131,7 +131,12 @@ function createProxyExecutor(options) {
                 logger,
                 requestId: req.id
             });
-            const { response, target: finalTarget, release: releaseConnection } = redirectResult;
+            const {
+                response,
+                target: finalTarget,
+                redirectTarget,
+                release: releaseConnection
+            } = redirectResult;
 
             let connectionReleased = false;
             const releaseOnce = () => {
@@ -167,7 +172,12 @@ function createProxyExecutor(options) {
             const responseHeaders = policy.filterResponseHeaders(
                 preparedResponse.headers,
                 requestConfig,
-                preparedResponse
+                {
+                    ...preparedResponse,
+                    status: response.status,
+                    targetUrl: finalTarget.url,
+                    redirectTargetUrl: redirectTarget?.url
+                }
             );
             for (const [key, value] of Object.entries(responseHeaders)) res.setHeader(key, value);
             for (const [key, value] of controlHeaders) res.setHeader(key, value);

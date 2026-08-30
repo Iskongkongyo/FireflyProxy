@@ -32,13 +32,33 @@ test("Browser and legacy response policies are independently configurable", () =
     assert.equal(legacy["x-frame-options"], undefined);
 });
 
-test("API and Browser modes select separate redirect limits", () => {
+test("API and Browser modes select independent redirect behavior", () => {
     const config = {
         api: { followRedirects: false, maxRedirects: 2 },
         browser: { maxRedirects: 9 }
     };
     assert.deepEqual(apiPolicy.redirectOptions(config), { followRedirects: false, maxRedirects: 2 });
-    assert.deepEqual(browserPolicy.redirectOptions(config), { followRedirects: true, maxRedirects: 9 });
+    assert.deepEqual(browserPolicy.redirectOptions(config), {
+        followRedirects: false,
+        validateRedirects: true,
+        maxRedirects: 9
+    });
+});
+
+test("Browser response policy maps only prevalidated redirect Locations", () => {
+    const config = { browser: { headerPolicy: "strict" } };
+    const mapped = browserPolicy.filterResponseHeaders({
+        Location: "https://untrusted.test/raw"
+    }, config, {
+        redirectTargetUrl: "https://validated.test/login?next=1"
+    });
+    const untouched = browserPolicy.filterResponseHeaders({
+        Location: "https://untrusted.test/raw"
+    }, config);
+
+    assert.equal(mapped.Location, undefined);
+    assert.equal(mapped.location, "/__proxyweb/browser/aHR0cHM6Ly92YWxpZGF0ZWQudGVzdA/login?next=1");
+    assert.equal(untouched.Location, "https://untrusted.test/raw");
 });
 
 test("Browser requests prefer identity encoding without allowing case aliases to override it", () => {

@@ -266,6 +266,9 @@ test("Browser HTML Rewrite keeps resources, navigation, forms and inline CSS on 
 
         assert.equal($("base").attr("href"), toProxyUrl(`${fixture.origin}/assets/`));
         assert.equal($("#stylesheet").attr("href"), toProxyUrl(`${fixture.origin}/assets/site.css`));
+        assert.match($("#inline-sheet").html(), new RegExp(
+            toProxyUrl(`${fixture.origin}/assets/inline-banner.png`).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        ));
         assert.equal($("#navigation").attr("href"), toProxyUrl(`${fixture.origin}/json?via=html#result`));
         assert.equal($("#script").attr("src"), toProxyUrl(`${fixture.origin}/assets/app.js`));
         assert.equal($("#image").attr("src"), toProxyUrl(`${fixture.origin}/assets/logo.png`));
@@ -306,6 +309,94 @@ test("Browser rewriteHtml=false preserves upstream HTML bytes and metadata", asy
         assert.notEqual(response.headers.get("content-length"), null);
     } finally {
         await passthroughProxy.close();
+    }
+});
+
+test("Browser CSS Rewrite maps url() and @import relative to the stylesheet URL", async () => {
+    const cssProxy = await startProxy({ browser: { enabled: true } });
+    try {
+        const stylesheetUrl = `${fixture.origin}/styles/components/main.css`;
+        const response = await fetch(new URL(toProxyUrl(stylesheetUrl), cssProxy.origin));
+        const css = await response.text();
+
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("etag"), null);
+        assert.equal(response.headers.get("content-length"), null);
+        assert.match(css, new RegExp(
+            toProxyUrl(`${fixture.origin}/styles/components/theme/base.css`).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        ));
+        assert.match(css, new RegExp(
+            toProxyUrl(`${fixture.origin}/images/hero.png`).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        ));
+        assert.match(css, new RegExp(
+            toProxyUrl(`http://cdn.test:${fixture.port}/icons.svg#check`).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        ));
+        assert.match(css, new RegExp(
+            toProxyUrl(`${fixture.origin}/fonts/site.woff2`).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        ));
+        assert.match(css, /data:image\/png;base64,AAAA/);
+    } finally {
+        await cssProxy.close();
+    }
+});
+
+test("Browser rewriteCss=false preserves upstream CSS bytes and metadata", async () => {
+    const passthroughProxy = await startProxy({
+        browser: { enabled: true, rewriteCss: false }
+    });
+    try {
+        const response = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/styles/components/main.css`),
+            passthroughProxy.origin
+        ));
+        const css = await response.text();
+
+        assert.match(css, /url\("\.\.\/\.\.\/images\/hero\.png"\)/);
+        assert.match(css, /@import "theme\/base\.css"/);
+        assert.equal(response.headers.get("etag"), '"fixture-css-rewrite-etag"');
+        assert.notEqual(response.headers.get("content-length"), null);
+    } finally {
+        await passthroughProxy.close();
+    }
+});
+
+test("Browser redirects validate and rewrite Location without a server-side second hop", async () => {
+    const locationProxy = await startProxy(
+        { browser: { enabled: true } },
+        { dnsRecords: {
+            "cdn.test": [{ address: "93.184.216.35", family: 4 }]
+        } }
+    );
+    try {
+        const relative = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/redirect`),
+            locationProxy.origin
+        ), { redirect: "manual" });
+        const expectedRelative = toProxyUrl(`${fixture.origin}/json?via=redirect`);
+        assert.equal(relative.status, 302);
+        assert.equal(relative.headers.get("location"), expectedRelative);
+
+        const followed = await fetch(new URL(expectedRelative, locationProxy.origin));
+        assert.equal(followed.status, 200);
+        assert.equal((await followed.json()).query.via, "redirect");
+
+        const crossOriginTarget = `http://cdn.test:${fixture.port}/login?from=redirect`;
+        const crossOrigin = await fetch(new URL(
+            toProxyUrl(fixtureRedirect(crossOriginTarget)),
+            locationProxy.origin
+        ), { redirect: "manual" });
+        assert.equal(crossOrigin.status, 302);
+        assert.equal(crossOrigin.headers.get("location"), toProxyUrl(crossOriginTarget));
+
+        const privateTarget = fixtureRedirect("http://127.0.0.1/private");
+        const blocked = await fetch(new URL(
+            toProxyUrl(privateTarget),
+            locationProxy.origin
+        ), { redirect: "manual" });
+        assert.equal(blocked.status, 403);
+        assert.equal((await blocked.json()).error.code, "PROXY_SSRF_BLOCKED");
+    } finally {
+        await locationProxy.close();
     }
 });
 

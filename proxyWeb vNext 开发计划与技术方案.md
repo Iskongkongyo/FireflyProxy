@@ -1053,6 +1053,8 @@ image2.jpg 2x
 
 # 23. P1-2. CSS Rewrite
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.5。当前使用 PostCSS AST 与 CSS value parser 重写独立样式表、HTML `<style>` 和 style 属性中的 `url()`/`@import`；相对 URL 以 CSS 文件 URL 或文档 effective base 为准，非 HTTP(S) 与复杂转义保守直通。
+
 处理：
 
 ```css
@@ -1082,7 +1084,7 @@ CSS 文件自身 upstream URL
 
 # 24. Response Transform Pipeline
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.3–3.4。当前按模式与 HTTP 语义区分 transform/stream，HTML/XHTML 已接入 Parser Rewrite，CSS 转换器由 3.5 继续实现；SSE、Range、附件、no-transform、媒体和二进制保持直通。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.3–3.5。当前按模式与 HTTP 语义区分 transform/stream，HTML/XHTML 与 CSS 均已接入 Parser Rewrite；SSE、Range、附件、no-transform、媒体和二进制保持直通。
 
 建立统一：
 
@@ -1182,6 +1184,8 @@ Binary passthrough 不要无意义删除 Content-Length。
 ---
 
 # 27. P1-3. Location Rewrite
+
+> 状态：✅ 已于 2026-08-30 完成路线图 3.5。Browser 3xx 使用 validation-only Redirect 模式：相对/绝对 Location 先执行 URL/SSRF/DNS 校验，再返回 Canonical Location 交给浏览器；API/Legacy 的安全服务端 follow 行为不变。
 
 Browser Mode 不自动在服务端吞掉 302。
 
@@ -1499,7 +1503,7 @@ fallback 到原 BASE_URL
 
 # 36. P1-6. API Mode 与 Browser Mode 分路由
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.4。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML Rewrite、受限 Response Transform Pipeline 与带标准弃用响应头的 Legacy Adapter；CSS 与 Location Rewrite 从 3.5 继续实现。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.5。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML/CSS/Location Rewrite、受限 Response Transform Pipeline 与带标准弃用响应头的 Legacy Adapter；Cookie Jar 与 Header Policy 从 3.6 继续实现。
 
 推荐：
 

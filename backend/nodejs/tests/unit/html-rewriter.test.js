@@ -20,6 +20,8 @@ test("HTML attributes resolve through the first base URL and ignored schemes rem
             <base href="../assets/">
             <link id="css" href="/site.css">
             <meta http-equiv="Refresh" content="0; URL='../landing'">
+            <style id="page-style">@import "page-theme.css"; .banner { background: url('banner.png'); }</style>
+            <style id="less-style" type="text/less">.less { background: url('less.png'); }</style>
         </head><body>
             <a id="nav" href="guide.html#intro">Guide</a>
             <area id="area" href="map.html">
@@ -62,6 +64,9 @@ test("HTML attributes resolve through the first base URL and ignored schemes rem
     assert.equal($("#object").attr("data"), mapped("https://site.test/assets/manual.pdf"));
     assert.equal($("#embed").attr("src"), mapped("https://site.test/assets/plugin.bin"));
     assert.equal($("meta").attr("content"), `0; URL='${mapped("https://site.test/landing")}'`);
+    assert.match($("#page-style").html(), new RegExp(mapped("https://site.test/assets/page-theme.css").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match($("#page-style").html(), new RegExp(mapped("https://site.test/assets/banner.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.equal($("#less-style").html(), ".less { background: url('less.png'); }");
     assert.match($("#styled").attr("style"), new RegExp(mapped("https://site.test/img/bg.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match($("#styled").attr("style"), /data:image\/png;base64,AAAA/);
     assert.equal($("#fragment").attr("href"), "#local");

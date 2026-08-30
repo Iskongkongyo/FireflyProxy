@@ -70,6 +70,7 @@ async function handleRequest(req, res) {
             <base href="/assets/">
             <link id="stylesheet" href="site.css" rel="stylesheet">
             <meta http-equiv="refresh" content="0; url=/landing">
+            <style id="inline-sheet">.banner { background-image: url('inline-banner.png'); }</style>
         </head><body>
             <a id="navigation" href="/json?via=html#result">Next</a>
             <script id="script" src="app.js"></script>
@@ -83,6 +84,21 @@ async function handleRequest(req, res) {
             "content-type": "text/html; charset=utf-8",
             "content-length": body.length,
             etag: '"fixture-html-rewrite-etag"'
+        });
+        return res.end(body);
+    }
+
+    if (url.pathname === "/css" || url.pathname === "/styles/components/main.css") {
+        const port = String(req.headers.host || "").split(":").pop();
+        const body = Buffer.from(`@import "theme/base.css" screen;
+.hero { background-image: url("../../images/hero.png"); }
+.icon { mask-image: url("//cdn.test:${port}/icons.svg#check"); }
+@font-face { src: url('/fonts/site.woff2') format('woff2'); }
+.embedded { background-image: url(data:image/png;base64,AAAA); }`, "utf8");
+        res.writeHead(200, {
+            "content-type": "text/css; charset=utf-8",
+            "content-length": body.length,
+            etag: '"fixture-css-rewrite-etag"'
         });
         return res.end(body);
     }

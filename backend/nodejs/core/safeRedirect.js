@@ -149,6 +149,7 @@ async function requestWithRedirects(options) {
         headers,
         body,
         followRedirects,
+        validateRedirects = false,
         maxRedirects,
         validateTarget,
         connectionFactory,
@@ -195,7 +196,7 @@ async function requestWithRedirects(options) {
             throw error;
         }
 
-        if (!followRedirects || !isRedirectResponse(response)) {
+        if (!isRedirectResponse(response) || (!followRedirects && !validateRedirects)) {
             return Object.freeze({
                 response,
                 target: currentTarget,
@@ -204,7 +205,7 @@ async function requestWithRedirects(options) {
             });
         }
 
-        if (redirectCount >= maxRedirects) {
+        if (followRedirects && redirectCount >= maxRedirects) {
             disposeHop(response, connection);
             throw redirectError(
                 ERROR_CODES.REDIRECT_LIMIT,
@@ -228,12 +229,34 @@ async function requestWithRedirects(options) {
             );
         }
 
-        const nextMethod = redirectMethod(response.status, currentMethod);
         let nextTarget;
+        try {
+            nextTarget = await validateTarget(redirectUrl);
+        } catch (error) {
+            disposeHop(response, connection);
+            throw error;
+        }
+
+        if (!followRedirects) {
+            logger?.info("[Proxy] Browser redirect target validated", {
+                requestId,
+                statusCode: response.status,
+                fromUrl: currentTarget.url,
+                targetUrl: nextTarget.url
+            });
+            return Object.freeze({
+                response,
+                target: currentTarget,
+                redirectTarget: nextTarget,
+                redirectCount,
+                release: () => connection.destroy()
+            });
+        }
+
+        const nextMethod = redirectMethod(response.status, currentMethod);
         let nextHeaders;
         let nextBody;
         try {
-            nextTarget = await validateTarget(redirectUrl);
             if (visited.has(nextTarget.url)) {
                 throw redirectError(
                     ERROR_CODES.REDIRECT_LIMIT,

@@ -97,3 +97,76 @@ test("redirect loop validates a relative target and creates a new connection for
     result.release();
     assert.equal(destroyed, 2);
 });
+
+test("validation-only redirects return the first response with a validated target", async () => {
+    const initialTarget = { url: "https://one.test/start" };
+    const redirectTarget = { url: "https://two.test/next" };
+    const dispatched = [];
+    let destroyed = 0;
+
+    const result = await requestWithRedirects({
+        initialTarget,
+        method: "GET",
+        headers: {},
+        followRedirects: false,
+        validateRedirects: true,
+        maxRedirects: 0,
+        validateTarget: async url => {
+            assert.equal(url, redirectTarget.url);
+            return redirectTarget;
+        },
+        connectionFactory: () => ({
+            httpAgent: {},
+            httpsAgent: {},
+            assertRemoteAddress() {},
+            destroy() { destroyed += 1; }
+        }),
+        dispatch: async ({ target }) => {
+            dispatched.push(target.url);
+            return {
+                status: 302,
+                headers: { location: redirectTarget.url },
+                data: Readable.from([])
+            };
+        }
+    });
+
+    assert.deepEqual(dispatched, [initialTarget.url]);
+    assert.equal(result.target, initialTarget);
+    assert.equal(result.redirectTarget, redirectTarget);
+    assert.equal(result.response.status, 302);
+    assert.equal(destroyed, 0);
+    result.release();
+    assert.equal(destroyed, 1);
+});
+
+test("validation-only redirects dispose the upstream response when the target is rejected", async () => {
+    let connectionDestroyed = 0;
+    let responseDestroyed = 0;
+
+    await assert.rejects(requestWithRedirects({
+        initialTarget: { url: "https://one.test/start" },
+        method: "GET",
+        headers: {},
+        followRedirects: false,
+        validateRedirects: true,
+        maxRedirects: 0,
+        validateTarget: async () => {
+            throw new Error("blocked");
+        },
+        connectionFactory: () => ({
+            httpAgent: {},
+            httpsAgent: {},
+            assertRemoteAddress() {},
+            destroy() { connectionDestroyed += 1; }
+        }),
+        dispatch: async () => ({
+            status: 302,
+            headers: { location: "http://127.0.0.1/private" },
+            data: { destroy() { responseDestroyed += 1; } }
+        })
+    }), /blocked/);
+
+    assert.equal(responseDestroyed, 1);
+    assert.equal(connectionDestroyed, 1);
+});

@@ -42,7 +42,7 @@
 | 3.2 | UrlMapper | Browser Canonical URL | 3.1 | ✅ |
 | 3.3 | Transform Pipeline | 流式与 Rewrite 正确分流 | 3.2 | ✅ |
 | 3.4 | HTML Rewrite | 页面资源和导航留在代理内 | 3.3 | ✅ |
-| 3.5 | CSS 与 Location Rewrite | 样式资源和跳转可用 | 3.4 | ⬜ |
+| 3.5 | CSS 与 Location Rewrite | 样式资源和跳转可用 | 3.4 | ✅ |
 | 3.6 | Cookie Jar 与 Header Policy | 会话及上游语义映射 | 3.5 | ⬜ |
 | 3.7 | Browser UI | 独立入口与兼容设置 | 3.6 | ⬜ |
 | 3.8 | P1 E2E 门禁 | Browser Core 可验收 | 3.7 | ⬜ |
@@ -603,3 +603,17 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端 143 项、前端 4 项测试通过，语法检查、前端 lint/build 继续纳入统一门禁。
 
 下一阶段为 3.5 CSS 与 Location Rewrite。
+
+### 第十七轮执行记录
+
+2026-08-30 已完成 3.5：
+
+- 新增 `browser-proxy/cssRewriter.js`，使用 PostCSS AST 遍历 CSS 声明与 `@import`，再通过 CSS value parser 定位 `url()` token；不使用正则整体改写 CSS，也不处理完整 JavaScript。
+- 独立样式表的相对 URL 严格基于 CSS 文件自身 upstream URL，覆盖 root-relative、跨 origin/CDN、字体、嵌套 `image-set(url())` 和带 media/layer 条件的 `@import`；data URL、纯 Fragment、非 HTTP(S) 与复杂转义保持原值。
+- HTML `<style>` 复用同一 CSS AST 管线并遵循 effective base，非 `text/css` 的 Less/Sass 等预处理器块保持原样；`browser.rewriteCss: false` 继续保持独立 CSS 字节与长度/缓存元数据直通。
+- Redirect 内核新增 validation-only 模式。Browser 301/302/303/307/308 不再由服务端吞掉第二跳：相对/绝对 Location 先执行 URL、SSRF 和 DNS 校验，再映射到对应 origin Token 的 Canonical Location 交给浏览器；私网或非法目标在发出 3xx 前安全失败并回收上游流。
+- API/Legacy 原有服务端 follow、循环/次数上限、跨域敏感 Header 清理与方法/Body 规则保持不变；`browser.maxRedirects` 作为旧行为兼容字段保留，当前 Browser 跳转链由客户端逐跳处理。
+- 新增 CSS Parser、Location Header、Redirect validation-only 单元测试和真实 CSS/相对/跨域/私网 Location 集成测试；生产依赖经 npm 官方安全公告库审计为 0 个已知漏洞。
+- 后端 152 项、前端 4 项测试通过，语法检查、前端 lint/build 继续纳入统一门禁。
+
+下一阶段为 3.6 Cookie Jar 与 Header Policy。
