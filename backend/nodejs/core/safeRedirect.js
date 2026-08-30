@@ -42,6 +42,17 @@ function redirectError(code, message, statusCode, details, cause) {
     return new ProxyError(code, message, { statusCode, details, cause });
 }
 
+function attachRedirectDiagnostics(error, finalUrl, redirectChain) {
+    Object.defineProperty(error, "redirectDiagnostics", {
+        value: Object.freeze({
+            finalUrl,
+            redirectChain: Object.freeze([...redirectChain])
+        }),
+        enumerable: false
+    });
+    return error;
+}
+
 function createReplayableBody(source, maxBytes = DEFAULT_MAX_REPLAY_BODY_BYTES) {
     if (!source || typeof source.pipe !== "function") {
         throw new TypeError("Replayable body source must be a readable stream");
@@ -177,6 +188,7 @@ async function requestWithRedirects(options) {
         : null;
     let currentBody = replayableBody ? replayableBody.initial : body;
     let redirectCount = 0;
+    const redirectChain = [];
     const visited = new Set([currentTarget.url]);
 
     while (true) {
@@ -196,23 +208,56 @@ async function requestWithRedirects(options) {
             throw error;
         }
 
-        if (!isRedirectResponse(response) || (!followRedirects && !validateRedirects)) {
+        if (!isRedirectResponse(response)) {
             return Object.freeze({
                 response,
                 target: currentTarget,
                 redirectCount,
+                redirectChain: Object.freeze([...redirectChain]),
+                release: () => connection.destroy()
+            });
+        }
+
+        if (!followRedirects && !validateRedirects) {
+            let location = response.headers.location;
+            try {
+                location = new URL(location, currentTarget.url).href;
+            } catch {
+                // No-follow mode preserves invalid upstream Location as response data.
+            }
+            redirectChain.push(Object.freeze({
+                status: response.status,
+                method: currentMethod,
+                url: currentTarget.url,
+                location,
+                followed: false,
+                validated: false
+            }));
+            return Object.freeze({
+                response,
+                target: currentTarget,
+                redirectCount,
+                redirectChain: Object.freeze([...redirectChain]),
                 release: () => connection.destroy()
             });
         }
 
         if (followRedirects && redirectCount >= maxRedirects) {
+            const stoppedChain = [...redirectChain, Object.freeze({
+                status: response.status,
+                method: currentMethod,
+                url: currentTarget.url,
+                location: response.headers.location,
+                followed: false,
+                validated: false
+            })];
             disposeHop(response, connection);
-            throw redirectError(
+            throw attachRedirectDiagnostics(redirectError(
                 ERROR_CODES.REDIRECT_LIMIT,
                 "Upstream redirect limit exceeded",
                 508,
                 { maxRedirects }
-            );
+            ), currentTarget.url, stoppedChain);
         }
 
         let redirectUrl;
@@ -238,6 +283,14 @@ async function requestWithRedirects(options) {
         }
 
         if (!followRedirects) {
+            redirectChain.push(Object.freeze({
+                status: response.status,
+                method: currentMethod,
+                url: currentTarget.url,
+                location: nextTarget.url,
+                followed: false,
+                validated: true
+            }));
             logger?.info("[Proxy] Browser redirect target validated", {
                 requestId,
                 statusCode: response.status,
@@ -249,6 +302,7 @@ async function requestWithRedirects(options) {
                 target: currentTarget,
                 redirectTarget: nextTarget,
                 redirectCount,
+                redirectChain: Object.freeze([...redirectChain]),
                 release: () => connection.destroy()
             });
         }
@@ -258,12 +312,19 @@ async function requestWithRedirects(options) {
         let nextBody;
         try {
             if (visited.has(nextTarget.url)) {
-                throw redirectError(
+                throw attachRedirectDiagnostics(redirectError(
                     ERROR_CODES.REDIRECT_LIMIT,
                     "Upstream redirect loop detected",
                     508,
                     { redirectCount: redirectCount + 1 }
-                );
+                ), currentTarget.url, [...redirectChain, Object.freeze({
+                    status: response.status,
+                    method: currentMethod,
+                    url: currentTarget.url,
+                    location: nextTarget.url,
+                    followed: false,
+                    validated: true
+                })]);
             }
             nextHeaders = redirectHeaders(
                 currentHeaders,
@@ -281,6 +342,14 @@ async function requestWithRedirects(options) {
         }
         disposeHop(response, connection);
 
+        redirectChain.push(Object.freeze({
+            status: response.status,
+            method: currentMethod,
+            url: currentTarget.url,
+            location: nextTarget.url,
+            followed: true,
+            validated: true
+        }));
         redirectCount += 1;
         if (logger) {
             logger.info("[Proxy] Following validated redirect", {

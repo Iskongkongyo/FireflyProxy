@@ -29,7 +29,8 @@ Import 是本地纯文本 tokenizer/parser，不调用 Shell、`eval`、`Functio
 - `-d`、`--data`、`--data-raw`、`--data-binary`；
 - `-u`、`--user`；
 - `-F`、`--form`、`--url`；
-- 作为无状态兼容项忽略 `--location`、`--compressed`、`--silent`、`--insecure`，并向用户显示提示。
+- `-L`、`--location` 与 `--max-redirs`（0–20）；
+- 作为无状态兼容项忽略 `--compressed`、`--silent`、`--insecure`，并向用户显示提示。
 
 单引号、双引号、反斜杠和 POSIX 反斜杠续行会按静态文本解析。以下输入会被拒绝：
 
@@ -46,6 +47,8 @@ Import 是本地纯文本 tokenizer/parser，不调用 Shell、`eval`、`Functio
 导出格式固定为 POSIX Shell cURL。method、完整 upstream URL、启用的 Header、Auth 和 Body 每一个用户可控 token 都使用单引号包裹，内部单引号使用标准 `'"'"'` 序列转义。编辑器不会导出 proxyWeb 内部 API URL。
 
 JSON、Raw、URL 编码和 multipart 会分别导出为 `--data-raw` 或 `--form`；缺少的 Content-Type 会按 Body 模式补充。浏览器不能获知本地文件绝对路径，因此手选文件仅导出文件名，运行命令的人必须保证该文件位于相应工作目录或手工修改路径。
+
+启用 Follow Redirects 时，导出会附加 `--location --max-redirs <n>`；未启用时不输出 Redirect flags。导入未带 `-L`/`--location` 的命令按 cURL 默认语义关闭跟随；单独提供 `--max-redirs` 会保留上限，但不会暗中开启跟随。逐请求 Redirect 的服务端收紧规则和响应诊断见 [`api-response-diagnostics-contract.md`](./api-response-diagnostics-contract.md)。
 
 如果请求使用 Auth，或 Header 名匹配 Authorization、Cookie、Token、Secret、Password、API Key 等敏感规则，复制前必须二次确认。cURL 是用户明确要求的完整请求副本，因此确认后会包含这些凭据；应按密码处理，不能写入工单、日志或公共聊天。
 
@@ -69,4 +72,4 @@ JSON、Raw、URL 编码和 multipart 会分别导出为 `--data-raw` 或 `--form
 - POSIX 单引号转义与 Export → Import 往返；
 - 敏感 Header/Auth 二次确认判定。
 
-本次仓库级门禁已执行后端 201/201、前端 23/23、lint/build，以及 Browser Core、Runtime/WebSocket 和 Origin Isolation 的真实 Edge 150 E2E；P0 5/5、P1 2/2、P2 3/3 全部通过，证明 5.1 没有破坏已有 P0–P2 边界。生产构建只保留既有的 3 条 bundle 体积 warning。
+5.1 完成时的仓库级门禁为后端 201/201、前端 23/23。5.2 扩展 Redirect flags 后，当前门禁为后端 209/209、前端 27/27、lint/build，以及 Browser Core、Runtime/WebSocket 和 Origin Isolation 的真实 Edge 150 E2E；P0 5/5、P1 2/2、P2 3/3 全部通过。生产构建只保留既有的 3 条 bundle 体积 warning。

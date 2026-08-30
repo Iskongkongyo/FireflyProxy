@@ -51,7 +51,7 @@
 | 4.3 | WebSocket | WS/WSS 安全代理 | 4.2 | ✅ |
 | 4.4 | Origin Isolation | 多目标隔离增强 | 4.3 | ✅ |
 | 5.1 | 请求编辑增强 | Params、Body、cURL | 2.8，可并行于 P1 后执行 | ✅ |
-| 5.2 | 响应诊断 | Redirect Chain、Timing | 5.1 | ⬜ |
+| 5.2 | 响应诊断 | Redirect Chain、Timing | 5.1 | ✅ |
 | 5.3 | Environment 与 Collections | 可复用请求资产 | 5.2 | ⬜ |
 
 依赖主线：
@@ -725,3 +725,16 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端全量 201/201、前端 23/23、lint 与生产构建通过；P0 Gate 5/5、P1 Gate 2/2、P2 Gate 3/3 全部 PASS，Edge 150 的 Browser Core、Runtime/WebSocket 与 Origin Isolation E2E 均保持通过。生产构建仍只有既有的 3 条 bundle 体积 warning。
 
 下一阶段为 5.2 Redirect Chain 与 Timing。
+
+### 第二十六轮执行记录
+
+2026-08-31 已完成 5.2：
+
+- API 工作台新增逐请求 Follow Redirects 与 Max Redirects；查询值采用严格布尔/0–20 整数契约，实际策略只能关闭或收紧 `api.followRedirects` 与 `api.maxRedirects`，不能由 UI 放宽服务端上限。
+- 安全 Redirect 内核返回有序链条，记录每跳 Status、Method、源 URL、Location、是否跟随及是否校验；关闭跟随保留首个 3xx，循环或次数超限的 508 响应也保留已完成项与停止项。每一条实际跟随仍重新执行 URL、DNS、SSRF、Pinning 与跨 Origin 敏感 Header 清理。
+- API 响应新增可信 Final URL、Redirect Chain、有效控制值与显式截断诊断头。元数据使用有界 Base64URL JSON；同名上游 Header 先删除再由 proxyWeb 写入，并通过现有显式 CORS 策略暴露，不能由目标站伪造。
+- 响应面板新增 HTTP Status、Final URL、Redirect 时间线、Content-Type、Response Size 与 Duration。Duration 使用 `performance.now()` 统计 Axios 分派至完整 Body 读取的可靠 total；大小按浏览器实际 Blob/ArrayBuffer 或 UTF-8 数据计算，不伪装为 DNS/connect/TLS/TTFB 或网络压缩字节数。
+- cURL Import/Export 新增 `-L`/`--location` 与 `--max-redirs`；页面分享和 API 链接保存非敏感 Redirect 控制。原生音视频元素为保持 Range/流式播放不经 Axios，暂不提供上述诊断，已作为显式限制记录。
+- 新增 [`api-response-diagnostics-contract.md`](./api-response-diagnostics-contract.md)，并增加参数、安全、链路、Header 防伪/截断、cURL 与前端指标纯函数测试。后端全量 209/209、前端 27/27、lint 与生产构建通过；P0 Gate 5/5、P1 Gate 2/2、P2 Gate 3/3 全部 PASS，Edge 150 三组真实浏览器 E2E 保持通过。生产构建仍只有既有的 3 条 bundle 体积 warning。
+
+下一阶段为 5.3 Environment 与 Collections。

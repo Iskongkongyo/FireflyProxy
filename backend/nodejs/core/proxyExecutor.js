@@ -78,6 +78,7 @@ function createProxyExecutor(options) {
             requestState.finalize();
         });
         res.once("finish", requestState.finalize);
+        let effectiveRedirectOptions;
 
         try {
             logger.info("[Proxy] Dispatching request", {
@@ -113,7 +114,8 @@ function createProxyExecutor(options) {
             const requestBody = hasRequestBody
                 ? createLimitedRequestBody(req, requestConfig.api.maxRequestBodyBytes)
                 : undefined;
-            const redirectOptions = policy.redirectOptions(requestConfig);
+            const redirectOptions = policy.redirectOptions(requestConfig, policyContext);
+            effectiveRedirectOptions = redirectOptions;
             const redirectResult = await requestWithRedirects({
                 initialTarget: target,
                 method,
@@ -147,6 +149,7 @@ function createProxyExecutor(options) {
                 response,
                 target: finalTarget,
                 redirectTarget,
+                redirectChain,
                 release: releaseConnection
             } = redirectResult;
 
@@ -208,6 +211,13 @@ function createProxyExecutor(options) {
                     redirectTargetUrl: redirectTarget?.url
                 }
             ), preparedResponse.classification);
+            if (typeof policy.responseDiagnostics === "function") {
+                Object.assign(responseHeaders, policy.responseDiagnostics({
+                    finalUrl: finalTarget.url,
+                    redirectChain,
+                    ...redirectOptions
+                }));
+            }
             for (const [key, value] of Object.entries(responseHeaders)) res.setHeader(key, value);
             for (const [key, value] of controlHeaders) res.setHeader(key, value);
             if (policy.exposeCors) {
@@ -234,6 +244,22 @@ function createProxyExecutor(options) {
                 }
             });
         } catch (error) {
+            if (
+                typeof policy.responseDiagnostics === "function"
+                && error.redirectDiagnostics
+                && !res.headersSent
+            ) {
+                const diagnosticHeaders = policy.responseDiagnostics({
+                    ...error.redirectDiagnostics,
+                    ...(effectiveRedirectOptions || policy.redirectOptions(requestConfig, {
+                        request: req
+                    }))
+                });
+                for (const [name, value] of Object.entries(diagnosticHeaders)) res.setHeader(name, value);
+                if (policy.exposeCors) {
+                    exposeCorsHeaders(req, res, [...Object.keys(diagnosticHeaders), "x-request-id"]);
+                }
+            }
             requestState.finalize();
             throw error;
         }

@@ -1,4 +1,6 @@
 const { buildUpstreamRequestHeaders, filterUpstreamResponseHeaders } = require("../core/headers");
+const { resolveApiRedirectOptions } = require("./requestControls");
+const { buildApiResponseDiagnosticHeaders } = require("./responseDiagnostics");
 
 const apiPolicy = Object.freeze({
     mode: "api",
@@ -11,11 +13,11 @@ const apiPolicy = Object.freeze({
             preserveContentLength: context.preserveContentLength
         });
     },
-    redirectOptions(config) {
-        return {
-            followRedirects: config.api.followRedirects,
-            maxRedirects: config.api.maxRedirects
-        };
+    redirectOptions(config, context = {}) {
+        return resolveApiRedirectOptions(config, context.request?.query);
+    },
+    responseDiagnostics(context) {
+        return buildApiResponseDiagnosticHeaders(context);
     }
 });
 

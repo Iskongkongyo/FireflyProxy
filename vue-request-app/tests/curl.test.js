@@ -31,6 +31,20 @@ test('imports compact -d and long --user aliases as static values', async () => 
 	assert.match(parsed.warnings[0], /不会读取本地文件/);
 });
 
+test('imports and exports redirect controls without treating them as transport warnings', async () => {
+	const { exportCurl, parseCurl } = await import('../src/utils/curl.mjs');
+	const parsed = parseCurl("curl --location --max-redirs 3 'https://example.test/'");
+	assert.deepEqual(parsed.redirect, { followRedirects: true, maxRedirects: 3 });
+	assert.deepEqual(parsed.warnings, []);
+	const command = exportCurl({
+		method: 'GET', url: parsed.url, headers: [], body: { type: 'none' }, redirect: parsed.redirect
+	});
+	assert.match(command, /--location/);
+	assert.match(command, /--max-redirs/);
+	assert.deepEqual(parseCurl(command).redirect, parsed.redirect);
+	assert.throws(() => parseCurl("curl --max-redirs 21 'https://example.test/'"), /0 到 20/);
+});
+
 test('rejects shell operators, command substitutions, and unsupported schemes', async () => {
 	const { parseCurl } = await import('../src/utils/curl.mjs');
 	assert.throws(() => parseCurl('curl https://example.test; whoami'), /Shell 控制符/);

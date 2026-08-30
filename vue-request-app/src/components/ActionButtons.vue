@@ -39,6 +39,10 @@
 				<el-icon class="btn-icon"><Search /></el-icon>
 				<span class="btn-text">请求参数</span>
 			</el-button>
+			<el-button type="info" :plain="true" @click="$emit('switch-tab', 'redirect')"
+				class="tab-btn" size="default">
+				<span class="btn-text">重定向</span>
+			</el-button>
 		</div>
 
 		<!-- 操作按钮组 -->
@@ -50,7 +54,7 @@
 				<el-icon><CopyDocument /></el-icon>
 				<span class="btn-text-full">Copy as cURL</span>
 			</el-button>
-			<el-button type="success" @click="$emit('add-row')" class="action-btn" size="default">
+			<el-button v-if="showAddRow" type="success" @click="$emit('add-row')" class="action-btn" size="default">
 				<el-icon><Plus /></el-icon>
 				<span class="btn-text-full">新增一行</span>
 			</el-button>
@@ -84,6 +88,7 @@ export default {
 	name: 'ActionButtons',
 	props: {
 		method: { type: String, default: 'GET' },
+		activeTab: { type: String, default: 'params' },
 		showDownload: { type: Boolean, default: false }
 	},
 	emits: ['switch-tab', 'add-row', 'import-curl', 'copy-curl', 'copy-page', 'copy-api', 'download', 'history'],
@@ -96,6 +101,9 @@ export default {
 	computed: {
 		showBody() {
 			return !['GET', 'HEAD'].includes(this.method.toUpperCase());
+		},
+		showAddRow() {
+			return ['headers', 'params', 'body'].includes(this.activeTab);
 		}
 	}
 };

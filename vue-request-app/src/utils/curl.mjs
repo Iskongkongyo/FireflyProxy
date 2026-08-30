@@ -193,6 +193,8 @@ export function parseCurl(input) {
 	let rawUrl = '';
 	let auth = { type: 'none' };
 	let forceGet = false;
+	let followRedirects = false;
+	let maxRedirects = 5;
 	const headers = [];
 	const dataParts = [];
 	const formRows = [];
@@ -244,7 +246,16 @@ export function parseCurl(input) {
 			index = result.nextIndex;
 		} else if (['-G', '--get'].includes(option)) {
 			forceGet = true;
-		} else if (['-L', '--location', '-s', '--silent', '--compressed', '-k', '--insecure'].includes(option)) {
+		} else if (['-L', '--location'].includes(option)) {
+			followRedirects = true;
+		} else if (option === '--max-redirs') {
+			const result = optionValue(tokens, index, option, inlineValue);
+			if (!/^(?:0|[1-9]\d?)$/.test(result.value) || Number(result.value) > 20) {
+				throw importError('--max-redirs 必须是 0 到 20 的整数。');
+			}
+			maxRedirects = Number(result.value);
+			index = result.nextIndex;
+		} else if (['-s', '--silent', '--compressed', '-k', '--insecure'].includes(option)) {
 			warnings.push(`已忽略 cURL 传输选项 ${option}。`);
 		} else if (token.startsWith('-')) {
 			throw importError(`暂不支持 cURL 选项 ${token}。`);
@@ -280,6 +291,7 @@ export function parseCurl(input) {
 		headers: normalizeEditorRows(headers),
 		auth,
 		body,
+		redirect: { followRedirects, maxRedirects },
 		warnings
 	};
 }
@@ -309,6 +321,14 @@ export function exportCurl(request) {
 	const headers = activeEditorRows(request?.headers || []);
 	const body = request?.body || { type: 'none' };
 	const tokens = ['curl', '--request', method, url];
+	const redirect = request?.redirect || {};
+	if (redirect.followRedirects === true) {
+		const maxRedirects = Number(redirect.maxRedirects ?? 5);
+		if (!Number.isInteger(maxRedirects) || maxRedirects < 0 || maxRedirects > 20) {
+			throw new Error('Max Redirects 必须是 0 到 20 的整数。');
+		}
+		tokens.push('--location', '--max-redirs', String(maxRedirects));
+	}
 
 	const exportHeaders = [...headers];
 	if (body.type === 'json' && !hasHeader(exportHeaders, 'content-type')) {

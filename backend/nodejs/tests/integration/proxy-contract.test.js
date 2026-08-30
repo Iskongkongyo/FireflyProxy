@@ -22,6 +22,18 @@ function modeUrl(proxyOrigin, mode, target) {
     return `${proxyOrigin}/__proxyweb/${mode}?url=${encodeURIComponent(target)}`;
 }
 
+function apiControlUrl(proxyOrigin, target, controls = {}) {
+    const url = new URL(modeUrl(proxyOrigin, "api", target));
+    for (const [name, value] of Object.entries(controls)) url.searchParams.set(name, String(value));
+    return url.href;
+}
+
+function decodeDiagnosticHeader(response, name) {
+    const value = response.headers.get(name);
+    assert.ok(value, `missing ${name}`);
+    return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+}
+
 function fixtureRedirect(location, status = 302) {
     const target = new URL(`${fixture.origin}/redirect-to`);
     target.searchParams.set("status", String(status));
@@ -675,6 +687,85 @@ test("validated redirect loop follows relative and absolute Location values", as
     const absolute = await fetch(proxyUrl(fixtureRedirect(absoluteTarget)));
     assert.equal(absolute.status, 200);
     assert.equal((await absolute.json()).query.via, "absolute");
+});
+
+test("API redirect controls expose trustworthy final URL and ordered chain diagnostics", async () => {
+    const target = `${fixture.origin}/redirect-chain/2`;
+    const response = await fetch(apiControlUrl(proxy.origin, target, {
+        followRedirects: true,
+        maxRedirects: 2
+    }), { headers: { origin: "http://frontend.test" } });
+    const chain = decodeDiagnosticHeader(response, "x-proxyweb-redirect-chain");
+
+    assert.equal(response.status, 200);
+    assert.equal(decodeDiagnosticHeader(response, "x-proxyweb-final-url"), `${fixture.origin}/redirect-chain/0`);
+    assert.deepEqual(chain.map(entry => [entry.status, entry.url, entry.location, entry.followed]), [
+        [302, `${fixture.origin}/redirect-chain/2`, `${fixture.origin}/redirect-chain/1`, true],
+        [302, `${fixture.origin}/redirect-chain/1`, `${fixture.origin}/redirect-chain/0`, true]
+    ]);
+    assert.equal(response.headers.get("x-proxyweb-redirect-count"), "2");
+    assert.equal(response.headers.get("x-proxyweb-follow-redirects"), "true");
+    assert.equal(response.headers.get("x-proxyweb-max-redirects"), "2");
+    assert.match(response.headers.get("access-control-expose-headers"), /x-proxyweb-final-url/i);
+    assert.match(response.headers.get("access-control-expose-headers"), /x-proxyweb-redirect-chain/i);
+});
+
+test("API no-follow diagnostics preserve the first response without validating its target", async () => {
+    const target = `${fixture.origin}/redirect`;
+    const response = await fetch(apiControlUrl(proxy.origin, target, {
+        followRedirects: false,
+        maxRedirects: 5
+    }), { redirect: "manual" });
+    const chain = decodeDiagnosticHeader(response, "x-proxyweb-redirect-chain");
+
+    assert.equal(response.status, 302);
+    assert.equal(decodeDiagnosticHeader(response, "x-proxyweb-final-url"), target);
+    assert.equal(response.headers.get("x-proxyweb-follow-redirects"), "false");
+    assert.deepEqual(chain, [{
+        status: 302,
+        method: "GET",
+        url: target,
+        location: `${fixture.origin}/json?via=redirect`,
+        followed: false,
+        validated: false
+    }]);
+});
+
+test("API request controls cannot loosen global redirect policy and reject malformed values", async () => {
+    const limited = await fetch(apiControlUrl(proxy.origin, `${fixture.origin}/redirect-chain/2`, {
+        followRedirects: true,
+        maxRedirects: 1
+    }));
+    assert.equal(limited.status, 508);
+    assert.equal((await limited.json()).error.code, "PROXY_REDIRECT_LIMIT");
+    const limitedChain = decodeDiagnosticHeader(limited, "x-proxyweb-redirect-chain");
+    assert.equal(limitedChain.length, 2);
+    assert.deepEqual(limitedChain.map(entry => entry.followed), [true, false]);
+
+    const invalid = await fetch(`${modeUrl(proxy.origin, "api", `${fixture.origin}/json`)}&followRedirects=true&followRedirects=false`);
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json()).error.code, "PROXY_REQUEST_CONTROL_INVALID");
+
+    const noFollowProxy = await startProxy({ api: { followRedirects: false, maxRedirects: 1 } });
+    try {
+        const response = await fetch(apiControlUrl(noFollowProxy.origin, `${fixture.origin}/redirect`, {
+            followRedirects: true,
+            maxRedirects: 20
+        }), { redirect: "manual" });
+        assert.equal(response.status, 302);
+        assert.equal(response.headers.get("x-proxyweb-follow-redirects"), "false");
+        assert.equal(response.headers.get("x-proxyweb-max-redirects"), "1");
+    } finally {
+        await noFollowProxy.close();
+    }
+});
+
+test("upstream cannot spoof reserved API diagnostic headers", async () => {
+    const target = `${fixture.origin}/diagnostic-spoof`;
+    const response = await fetch(modeUrl(proxy.origin, "api", target));
+    assert.equal(response.status, 200);
+    assert.equal(decodeDiagnosticHeader(response, "x-proxyweb-final-url"), target);
+    assert.deepEqual(decodeDiagnosticHeader(response, "x-proxyweb-redirect-chain"), []);
 });
 
 test("disabled redirect following returns the original 3xx response", async () => {

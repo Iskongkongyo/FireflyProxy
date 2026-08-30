@@ -149,17 +149,18 @@ npm start
 ### API Route（推荐）
 
 ```text
-ANY /__proxyweb/api?url=<percent-encoded-target>&method=<optional-method>
+ANY /__proxyweb/api?url=<percent-encoded-target>&method=<optional-method>&followRedirects=<true|false>&maxRedirects=<0..20>
 ```
 
 - `url` 必填，且应为完整的 `http://` 或 `https://` URL。
 - 未提供 `method` 时使用客户端实际 HTTP 方法；提供时只接受 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS。
+- `followRedirects` 只接受精确的 `true`/`false`，`maxRedirects` 只接受 0–20 整数；重复或非法值返回 400 `PROXY_REQUEST_CONTROL_INVALID`。两者只能关闭或收紧全局 `api` 策略。
 - 非 GET/HEAD 请求体以流的方式转发。
 - 自定义上游 Header 直接作为该 HTTP 请求的 Header 发送；上游 Bearer/Basic 使用 `X-ProxyWeb-Upstream-Authorization`，后端会将其转换为上游 `Authorization`，且不会把控制头本身转发出去。
 - 普通 `Authorization` 专用于 proxyWeb 自身 Basic Auth，鉴权后立即从请求中删除。即使代理未启用认证，它也不会被隐式转发；需要上游认证时必须使用上述专用头。
 - 旧 `headers=<percent-encoded-json>` 查询参数仍兼容，响应会携带 `Deprecation: true` 与 HTTP `Warning: 299`；新调用方不得继续生成该参数。
 - 入站和兼容 Header 合并后会统一移除 hop-by-hop、`Proxy-Authorization` 及其 `Connection` 扩展字段。
-- 上游状态码和大多数响应头会透传，响应体以流方式管道输出。
+- 上游状态码和大多数响应头会透传，响应体以流方式管道输出；API 响应另带有界 Final URL、Redirect Chain 与有效控制值诊断头。
 - API Route 不写入 Legacy Session，保留上游的 `X-Frame-Options` 与 `Content-Security-Policy`，并使用显式 API CORS 策略。
 
 每个请求都会获得服务端生成的 request ID，并通过 `X-Request-ID` 响应头返回。代理自身产生的 JSON 错误使用稳定格式：
@@ -248,7 +249,7 @@ Legacy 响应会携带 `Deprecation: true`、HTTP `Warning: 299` 和指向 `/__p
 
 路线图 2.3–2.6 已完成 URL、字面 IP、DNS 结果校验、连接绑定与安全 Redirect Loop：域名通过可注入 Resolver 执行 `lookup({ all: true, verbatim: true })`，保留全部规范化 A/AAAA；空结果、失败、超时、非法结果，以及任一非公网或混合公网/私网结果都会安全失败。每个请求创建独立 HTTP/HTTPS Agent，其 `lookup` 只能返回冻结后的验证地址集合；Axios 的环境代理发现被关闭，HTTPS 保持原 hostname、Host、SNI 和 `rejectUnauthorized: true`。平台提供远端 socket 地址时还会再次核对其是否属于验证集合。
 
-Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时，proxyWeb 处理 301/302/303/307/308：每一跳解析相对或绝对 `Location`、重新执行 URL/DNS/Pinning、创建新的请求级 Agent，并按 `api.maxRedirects` 检测循环和超限。跨 Origin 会删除认证、Cookie、Token、Password、Secret 与 API Key 类 Header；301/302 的 POST 和 303 按规则转换为 GET，307/308 保留方法与 Body。请求体始终以流式 Transform 按 `api.maxRequestBodyBytes` 计数；需要重放 307/308 时使用同一上限进行有限捕获，超限返回 413 `PROXY_REQUEST_BODY_LIMIT`。
+Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时，proxyWeb 处理 301/302/303/307/308：每一跳解析相对或绝对 `Location`、重新执行 URL/DNS/Pinning、创建新的请求级 Agent，并按 `api.maxRedirects` 检测循环和超限。API Route 的 `followRedirects`/`maxRedirects` 查询控制只能关闭或收紧该全局策略。跨 Origin 会删除认证、Cookie、Token、Password、Secret 与 API Key 类 Header；301/302 的 POST 和 303 按规则转换为 GET，307/308 保留方法与 Body。请求体始终以流式 Transform 按 `api.maxRequestBodyBytes` 计数；需要重放 307/308 时使用同一上限进行有限捕获，超限返回 413 `PROXY_REQUEST_BODY_LIMIT`。
 
 路线图 2.7 已完成进程策略与资源限制：连接阶段使用请求级 Agent 定时器，请求阶段使用 `timeoutMs`；并发槽超限 fail-fast，客户端断开与 runtime shutdown 会 Abort 上游；上游半截响应和畸形 Content-Length 由 `pipeline` 在路由边界回收。未捕获异常与未处理 rejection 统一进入受控 shutdown，先停止接收连接并关闭 runtime，5 秒仍未完成才强制退出。API 响应继续流式传输，`security.maxRewriteBytes` 不会导致 API 大响应整体缓冲。
 
@@ -294,6 +295,7 @@ location /__proxyweb/ {
 ## 响应与兼容性
 
 - 后端对所有上游响应使用 Axios `responseType: "stream"`，并关闭 Axios 自动解压；只有选中的 Browser HTML/CSS 由受限 Pipeline 解压。
+- API Mode 写入 `X-ProxyWeb-Final-URL`、`X-ProxyWeb-Redirect-Chain`、`X-ProxyWeb-Redirect-Count`、`X-ProxyWeb-Follow-Redirects` 与 `X-ProxyWeb-Max-Redirects`。URL 与链为 Base64URL JSON；达到 4096 字符安全上限时按完整条目截断并增加 `X-ProxyWeb-Diagnostics-Truncated: true`。上游同名 Header 会先删除，允许的 CORS 响应会显式暴露可信诊断头。
 - API/Legacy/Browser 都继续移除 hop-by-hop Header；Response Pipeline 明确认定未变换时保留合法 `content-length`、ETag 与 Content-MD5，Transform 后移除这些已失效元数据，并把 Charset 规范为 UTF-8。
 - API Mode 保留上游安全响应头；Browser `preserve`/`strict` 保留，只有显式 `compat` 会移除列出的 CSP、嵌入和跨源策略头；Legacy Adapter 为保持旧行为仍移除 X-Frame-Options/CSP。
 - Range 请求头随普通请求头转发；自动化契约覆盖 API/Legacy/Browser 的 206、`Content-Range`、`Accept-Ranges`、正确 `Content-Length`、开放/后缀范围和响应片段。
@@ -317,6 +319,7 @@ location /__proxyweb/ {
 - 修改端口或 Session 配置没有生效：这两类配置需要重启。
 - 前端 `/web/` 返回错误：确认已部署 `webPro/index.html` 以及其静态资源。
 - 400 `PROXY_INVALID_URL`：目标 URL 格式、编码或 credentials 非法。
+- 400 `PROXY_REQUEST_CONTROL_INVALID`：API Redirect 控制重复、类型错误或超出规定范围。
 - 403 `PROXY_PROTOCOL_BLOCKED`：目标不是 HTTP(S) URL。
 - 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP、域名的任一 DNS 结果为非公网地址，或命中 `security.blockedHostnames`。
 - 502 `PROXY_DNS_FAILED`：域名解析失败、超时、返回空列表或非法地址记录。
@@ -341,6 +344,7 @@ location /__proxyweb/ {
 | `npm run test:integration` | 运行当前代理行为契约测试 |
 | `npm run test:e2e` | 使用本机 Chromium 浏览器运行 P1 Browser Core E2E |
 | `npm run test:streaming` | 运行 SSE、Range/Media、附件与 Response Pipeline 专项门禁 |
+| `npm run test:diagnostics` | 运行 API Redirect 控制、逐跳链和响应诊断专项测试 |
 | `npm run test:runtime` | 运行 Runtime Bridge 注入、配置和端点契约专项测试 |
 | `npm run test:websocket` | 运行 WebSocket URL、安全握手、双向消息及资源上限专项测试 |
 | `npm run test:runtime:e2e` | 使用本机 Chromium 验证动态 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History |
@@ -355,6 +359,6 @@ location /__proxyweb/ {
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射、Runtime Bridge、WebSocket Upgrade 与 Origin Isolation Host 双绑定，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE、脚本动态 URL、WebSocket、独立 Origin/Storage 与 SOP 边界。
 
-后端当前 201 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 209 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.4 的 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)、[P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md)、[P2 Runtime/WebSocket/Origin Isolation 自动化验收矩阵](../../docs/p2-runtime-verification-matrix.md) 与 [Origin Isolation 威胁模型](../../docs/origin-isolation-threat-model.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

@@ -10,7 +10,8 @@
 - 可逐行启停的查询参数和自定义请求头。
 - Basic Auth、Bearer Token 上游认证。
 - URL 编码表单、multipart 文件、JSON 和纯文本请求体。
-- JSON/文本、响应头、图片、音视频和下载响应展示。
+- 逐请求 Follow Redirects/Max Redirects，以及可信 Final URL 与 Redirect Chain。
+- HTTP Status、可靠 total、实际响应大小、Content-Type、JSON/文本、响应头、图片、音视频和下载响应展示。
 - 复制页面配置链接、复制代理 API 链接。
 - 安全 Import cURL 与 POSIX Shell 格式的 Copy as cURL。
 - 使用 `localStorage` 保存请求历史。
@@ -69,10 +70,12 @@ npm run build
 
 1. 输入包含 `http://` 或 `https://` 的完整目标 URL。
 2. 选择 HTTP 方法。
-3. 在“请求参数”“请求头”“请求验证”中补充配置；每行可独立启停。非 GET/HEAD 请求可在“请求体”中选择 none、Raw、JSON、URL 编码或 multipart，并为 multipart 文件字段逐项选择本地文件。
-4. 点击“发送请求”，在下方查看内容、响应头、耗时和大小。
+3. 在“请求参数”“请求头”“请求验证”和“重定向”中补充配置；每行可独立启停。Redirect 设置只能关闭或收紧后端全局策略。非 GET/HEAD 请求可在“请求体”中选择 none、Raw、JSON、URL 编码或 multipart，并为 multipart 文件字段逐项选择本地文件。
+4. 点击“发送请求”，在下方查看 Status、Final URL、Redirect Chain、Content-Type、total、实际数据大小、内容与响应头。
 
-“Import cURL”只解析静态 HTTP(S) cURL 文本，不运行 Shell、读取路径或发起请求；导入的 `@file` 必须在文件选择器中重新授权。“Copy as cURL”输出 POSIX Shell 单引号转义格式，若包含 Auth 或敏感 Header 会先二次确认。PowerShell/`cmd.exe` 不能保证直接复用该格式，完整契约见 [请求编辑器与 cURL 契约](../docs/request-editor-curl-contract.md)。
+“Import cURL”只解析静态 HTTP(S) cURL 文本，不运行 Shell、读取路径或发起请求；导入的 `@file` 必须在文件选择器中重新授权。它支持 `-L`/`--location` 与 0–20 的 `--max-redirs`。“Copy as cURL”输出 POSIX Shell 单引号转义格式，若包含 Auth 或敏感 Header 会先二次确认。PowerShell/`cmd.exe` 不能保证直接复用该格式，完整契约见 [请求编辑器与 cURL 契约](../docs/request-editor-curl-contract.md) 和 [Redirect/响应诊断契约](../docs/api-response-diagnostics-contract.md)。
+
+Duration 使用单调时钟统计 Axios 分派至完整响应体读取的客户端 total，不是服务端耗时，也不拆分 DNS/connect/TLS/TTFB。Response Size 是浏览器实际获得的 Blob/ArrayBuffer 字节数或文本/JSON 的 UTF-8 字节数，可能与压缩传输量或上游 Content-Length 不同。Final URL 与 Redirect Chain 可能包含目标 URL 自身的 Token，复制或截图前应检查。
 
 网页代理页位于 `/web/browser`：输入完整 HTTP(S) URL 后默认在无 opener 的新标签页打开。高级设置可以为当前 Browser Session 关闭 HTML/CSS Rewrite、Runtime Bridge、WebSocket Proxy、Cookie Jar 或 Compatibility Headers，但不能打开后端全局禁用的能力。Runtime Bridge 映射 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History 动态 URL；Runtime 与 WebSocket 后端能力均默认关闭，需分别显式启用。嵌入预览只有在 Browser Proxy 与管理 UI 不同 Origin 时可选，并可能受第三方 Cookie、目标站 CSP/防嵌入策略和浏览器隐私设置影响。
 
@@ -135,9 +138,10 @@ vue-request-app/
 
 ## 当前限制
 
-- 已有 23 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、请求行/Body/cURL 契约、Browser URL/偏好构造和 iframe Origin 边界；仓库级 P1/P2 门禁已通过真实 Chromium 覆盖 Browser Core、Runtime/WebSocket 与 Origin Isolation 页面链路。Vue 组件挂载级测试仍未单独引入。
+- 已有 27 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、请求行/Body/cURL、Redirect 控制、诊断解析、UTF-8 大小/total、Browser URL/偏好构造和 iframe Origin 边界；仓库级 P1/P2 门禁已通过真实 Chromium 覆盖 Browser Core、Runtime/WebSocket 与 Origin Isolation 页面链路。Vue 组件挂载级测试仍未单独引入。
 - Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
+- 无自定义 Header 的扩展名音视频会由原生媒体元素直接流式加载，不经 Axios，因此当前不显示可靠的 Status、Final URL、Redirect Chain、Duration 或 Response Size；可使用浏览器 Network 面板诊断。
 - API 请求页仍把 HTML 响应作为文本或 Blob 处理；只有独立网页代理页会进入后端 HTML/CSS/Location Rewrite。
 - API 请求页手工 Cookie 仍是旧兼容行为，不能完整复现 cURL Cookie 语义；网页代理 Cookie 请使用后端 Session Jar。
 - 项目只包含 Node.js 后端，没有 Python 后端。

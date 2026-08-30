@@ -4,6 +4,9 @@
 			<div class="response-header">
 				<span>响应内容</span>
 				<div class="response-stats">
+					<el-tag v-if="status !== null" :type="statusTagType" size="small">
+						HTTP {{ status }}{{ statusText ? ` ${statusText}` : '' }}
+					</el-tag>
 					<el-tag v-if="responseTime" type="info" size="small">
 						⏱️ {{ responseTime }}ms
 					</el-tag>
@@ -13,6 +16,38 @@
 				</div>
 			</div>
 		</template>
+
+		<div v-if="hasDiagnostics && !loading" class="diagnostics-panel">
+			<el-descriptions :column="2" border size="small">
+				<el-descriptions-item label="Status">
+					{{ status }}{{ statusText ? ` ${statusText}` : '' }}
+				</el-descriptions-item>
+				<el-descriptions-item label="Duration">{{ responseTime }} ms (total)</el-descriptions-item>
+				<el-descriptions-item label="Response Size">{{ formatSize(responseSize) }}</el-descriptions-item>
+				<el-descriptions-item label="Content-Type">{{ contentType || '未提供' }}</el-descriptions-item>
+				<el-descriptions-item label="Final URL" :span="2">
+					<span class="diagnostic-url">{{ finalUrl || '未知' }}</span>
+				</el-descriptions-item>
+			</el-descriptions>
+			<el-alert v-if="diagnosticsTruncated" title="诊断响应头达到安全大小上限，部分 URL 或跳转项已截断。"
+				type="warning" :closable="false" show-icon />
+			<div v-if="redirectChain.length" class="redirect-chain">
+				<div class="redirect-chain-title">Redirect Chain</div>
+				<el-timeline>
+					<el-timeline-item v-for="(hop, index) in redirectChain" :key="`${index}-${hop.url}`"
+						:type="hop.followed ? 'primary' : 'warning'" :timestamp="`${hop.status} · ${hop.method}`">
+						<div class="redirect-hop-url">{{ hop.url }}</div>
+						<div class="redirect-arrow">→ {{ hop.location }}</div>
+						<el-tag size="small" :type="hop.followed ? 'success' : 'warning'">
+							{{ hop.followed ? '已跟随' : '未跟随' }}
+						</el-tag>
+					</el-timeline-item>
+					<el-timeline-item type="success" timestamp="Final">
+						<div class="redirect-hop-url">{{ finalUrl }}</div>
+					</el-timeline-item>
+				</el-timeline>
+			</div>
+		</div>
 		
 		<!-- Loading 状态指示器 -->
 		<div v-if="loading" class="loading-container">
@@ -108,7 +143,13 @@ export default {
 		isStreaming: { type: Boolean, default: false },
 		loading: { type: Boolean, default: false },
 		responseTime: { type: Number, default: 0 },
-		responseSize: { type: Number, default: 0 }
+		responseSize: { type: Number, default: 0 },
+		status: { type: Number, default: null },
+		statusText: { type: String, default: '' },
+		finalUrl: { type: String, default: '' },
+		redirectChain: { type: Array, default: () => [] },
+		contentType: { type: String, default: '' },
+		diagnosticsTruncated: { type: Boolean, default: false }
 	},
 	data() {
 		return {
@@ -116,6 +157,14 @@ export default {
 		};
 	},
 	computed: {
+		hasDiagnostics() {
+			return this.status !== null;
+		},
+		statusTagType() {
+			if (this.status >= 200 && this.status < 300) return 'success';
+			if (this.status >= 300 && this.status < 400) return 'warning';
+			return 'danger';
+		},
 		highlightedContent() {
 			if (!this.content) return '';
 			try {
@@ -128,7 +177,7 @@ export default {
 	},
 	methods: {
 		formatSize(bytes) {
-			if (!bytes) return '';
+			if (!Number.isFinite(bytes) || bytes < 0) return '未知';
 			const units = ['B', 'KB', 'MB', 'GB'];
 			let unitIndex = 0;
 			let size = bytes;
@@ -188,7 +237,14 @@ export default {
 .response-stats {
 	display: flex;
 	gap: 8px;
+	flex-wrap: wrap;
 }
+
+.diagnostics-panel { display: grid; gap: 14px; margin-bottom: 16px; }
+.diagnostic-url, .redirect-hop-url, .redirect-arrow { overflow-wrap: anywhere; font-family: monospace; }
+.redirect-chain { padding: 4px 8px 0; }
+.redirect-chain-title { font-weight: 600; margin-bottom: 12px; }
+.redirect-arrow { color: #606266; margin: 5px 0 8px; }
 
 /* Loading 动画 */
 .loading-container {

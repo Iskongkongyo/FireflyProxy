@@ -204,6 +204,13 @@ async function handleRequest(req, res) {
         return res.end();
     }
 
+    if (url.pathname === "/diagnostic-spoof") {
+        return sendJson(res, 200, { ok: true }, {
+            "x-proxyweb-final-url": "attacker-controlled",
+            "x-proxyweb-redirect-chain": "attacker-controlled"
+        });
+    }
+
     if (url.pathname === "/redirect-to") {
         await readBody(req);
         const status = Number(url.searchParams.get("status") || 302);

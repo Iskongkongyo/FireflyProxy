@@ -60,6 +60,7 @@
 				<el-col :span="24">
 					<ActionButtons
 						:method="method"
+						:activeTab="activeTab"
 						:showDownload="!!downloadUrl"
 						@switch-tab="activeTab = $event"
 						@add-row="addRow(activeTab)"
@@ -80,8 +81,22 @@
 				<!-- 用户验证 -->
 				<UserAuth v-show="activeTab === 'auth'" @userAuth="handleAuth" ref="userAuth" />
 
+				<div v-show="activeTab === 'redirect'" class="redirect-settings">
+					<el-form label-width="150px">
+						<el-form-item label="Follow Redirects">
+							<el-switch v-model="redirectSettings.followRedirects" />
+						</el-form-item>
+						<el-form-item label="Max Redirects">
+							<el-input-number v-model="redirectSettings.maxRedirects" :min="0" :max="20"
+								:disabled="!redirectSettings.followRedirects" />
+						</el-form-item>
+					</el-form>
+					<el-alert title="逐请求设置只能关闭或收紧服务端全局策略；每一跳仍执行 URL、DNS、SSRF 与 Pinning 校验。"
+						type="info" :closable="false" show-icon />
+				</div>
+
 				<!-- 动态表格 -->
-				<el-table v-if="activeTab && activeTab != 'auth' && activeTab != 'body'" :data="tableData[activeTab]"
+				<el-table v-if="['headers', 'params'].includes(activeTab)" :data="tableData[activeTab]"
 					style="margin-bottom: 20px;">
 					<el-table-column label="启用" width="76" align="center">
 						<template #default="scope">
@@ -131,6 +146,12 @@
 				:loading="isLoading"
 				:responseTime="responseTime"
 				:responseSize="responseSize"
+				:status="responseStatus"
+				:statusText="responseStatusText"
+				:finalUrl="responseFinalUrl"
+				:redirectChain="responseRedirectChain"
+				:contentType="responseContentType"
+				:diagnosticsTruncated="responseDiagnosticsTruncated"
 			/>
 
 			<!-- 返回顶部 -->
@@ -171,6 +192,13 @@
 		serializeEditorRows
 	} from '../utils/requestEditor.mjs';
 	import { exportCurl, parseCurl, requestContainsSecrets, supportsRequestBody } from '../utils/curl.mjs';
+	import {
+		applyRedirectSettings,
+		elapsedMilliseconds,
+		normalizeRedirectSettings,
+		parseResponseDiagnostics,
+		responseByteLength
+	} from '../utils/responseDiagnostics.mjs';
 
 	import UserAuth from './UserAuth.vue';
 	import RequestBody from './RequestBody.vue';
@@ -193,6 +221,7 @@
 				mobile: false, //是否是移动端
 				isShow: false, //是否显示
 				activeTab: 'params',
+				redirectSettings: { followRedirects: true, maxRedirects: 5 },
 				curlDialogVisible: false,
 				curlInput: '',
 				queryParams: {}, // 存储查询参数的对象
@@ -251,6 +280,12 @@
 				isLoading: false, // 请求加载中状态
 				responseTime: 0, // 响应时间(毫秒)
 				responseSize: 0, // 响应大小(字节)
+				responseStatus: null,
+				responseStatusText: '',
+				responseFinalUrl: '',
+				responseRedirectChain: [],
+				responseContentType: '',
+				responseDiagnosticsTruncated: false,
 			};
 		},
 		mounted() {
@@ -270,6 +305,10 @@
 				this.method = (this.queryParams.method || 'GET').toUpperCase();
 				this.tableData.headers = parseEditorRows(this.queryParams.headers);
 				this.tableData.params = parseEditorRows(this.queryParams.params);
+				this.redirectSettings = normalizeRedirectSettings({
+					followRedirects: this.queryParams.followRedirects,
+					maxRedirects: this.queryParams.maxRedirects
+				});
 				this.display = this.queryParams.display || 0;
 				this.display === '1' ? this.$emit('update-message', false) : this.$emit('update-message', true);
 				this.display === '1' ? this.isShow = false : this.isShow = true;
@@ -329,6 +368,10 @@
 					this.method = imported.method;
 					this.url = imported.url;
 					this.tableData.headers = imported.headers;
+					this.redirectSettings = normalizeRedirectSettings(imported.redirect, {
+						followRedirects: false,
+						maxRedirects: 5
+					});
 					this.$refs.userAuth?.applyDraft(imported.auth);
 					this.$refs.body?.applyDraft(imported.body);
 					this.activeTab = imported.body.type === 'none' ? 'headers' : 'body';
@@ -345,6 +388,7 @@
 					url: appendQueryRows(this.url, this.tableData.params),
 					headers: this.tableData.headers,
 					auth: this.$refs.userAuth?.getDraft() || { type: 'none' },
+					redirect: { ...this.redirectSettings },
 					body: supportsRequestBody(this.method)
 						? (this.$refs.body?.getDraft() || { type: 'none' })
 						: { type: 'none' }
@@ -384,6 +428,8 @@
 					const apiUrl = new URL(location.origin);
 					apiUrl.searchParams.append('url', appendQueryRows(that.url, that.tableData.params));
 					apiUrl.searchParams.append('method', that.method);
+					apiUrl.searchParams.append('followRedirects', String(this.redirectSettings.followRedirects));
+					apiUrl.searchParams.append('maxRedirects', String(this.redirectSettings.maxRedirects));
 
 					return that.copyLinkToClipboard(
 						apiUrl.href,
@@ -401,6 +447,8 @@
 				url.searchParams.append('headers', this.handleSearch(array));
 				url.searchParams.append('method', this.method);
 				url.searchParams.append('params', this.handleSearch(this.tableData.params));
+				url.searchParams.append('followRedirects', String(this.redirectSettings.followRedirects));
+				url.searchParams.append('maxRedirects', String(this.redirectSettings.maxRedirects));
 				url.searchParams.append('display', 0);
 				if (patt) {
 					return url.href;
@@ -495,6 +543,28 @@
 			onReceiveBody(payload) {
 				this.latest = payload;
 			},
+			resetResponseDiagnostics() {
+				this.responseTime = 0;
+				this.responseSize = 0;
+				this.responseStatus = null;
+				this.responseStatusText = '';
+				this.responseFinalUrl = '';
+				this.responseRedirectChain = [];
+				this.responseContentType = '';
+				this.responseDiagnosticsTruncated = false;
+			},
+			captureResponseDiagnostics(res, fallbackUrl, startTime) {
+				const diagnostics = parseResponseDiagnostics(res.headers, fallbackUrl);
+				this.responseStatus = res.status;
+				this.responseStatusText = res.statusText || '';
+				this.responseFinalUrl = diagnostics.finalUrl;
+				this.responseRedirectChain = diagnostics.redirectChain;
+				this.responseDiagnosticsTruncated = diagnostics.truncated;
+				this.responseContentType = res.headers['content-type'] || '';
+				this.responseTime = elapsedMilliseconds(startTime, performance.now());
+				this.responseSize = responseByteLength(res.data);
+				this.resHead = res.headers;
+			},
 			async sendRequest() {
 				const display = this.display; //数据展示方式，0为响应内容部分展示，1为跳转新页面展示
 
@@ -547,7 +617,7 @@
 					finHeaders,
 					upstreamAuthorization
 				);
-				const finReqUrl = proxyTransport.url;
+				const finReqUrl = applyRedirectSettings(proxyTransport.url, this.redirectSettings);
 
 				const records = JSON.parse(localStorage.getItem('history') || "[]");
 				const date = new Date();
@@ -564,7 +634,8 @@
 					method: this.method.toUpperCase(),
 					url: finReqUrl,
 					withCredentials: true,
-					headers: proxyTransport.headers
+					headers: proxyTransport.headers,
+					validateStatus: () => true
 				};
 
 				// 根据请求方法设置请求体信息
@@ -579,6 +650,7 @@
 				}
 
 				// 🎬 流媒体模式：对于视频/音频，直接设置src让浏览器流式加载
+				this.resetResponseDiagnostics();
 				if (this.method.toUpperCase() === 'GET' && this.isMediaUrl(this.url) && Object.keys(config.headers).length === 0) {
 					console.log('[Streaming] 检测到流媒体URL，启用流媒体模式');
 					this.streamRequest(finReqUrl);
@@ -597,26 +669,16 @@
 				
 				// 设置加载状态
 				this.isLoading = true;
-				this.responseTime = 0;
-				this.responseSize = 0;
-				const startTime = Date.now();
+				const startTime = performance.now();
 
 				try {
 					const res = await axios(config);
 					
-					// 记录响应时间
-					this.responseTime = Date.now() - startTime;
+					this.captureResponseDiagnostics(res, requestUrl, startTime);
 					
 					if (isBinary) {
-						// 记录响应大小
-						this.responseSize = res.data?.size || 0;
 						this.handleResponse(res, display);
 					} else {
-						// 记录响应大小
-						// 记录响应大小
-						this.responseSize = (typeof res.data === 'object') ? JSON.stringify(res.data).length : res.data.length;
-						
-						this.resHead = res.headers;
 						// 如果是对象则格式化，如果是字符串则直接显示（修复 HTML 被 JSON.stringify 包裹的问题）
 						this.response = (typeof res.data === 'object') ? JSON.stringify(res.data, null, 2) : res.data;
 						
@@ -641,6 +703,9 @@
 						this.downloadUrl = URL.createObjectURL(blob);
 					}
 				} catch (err) {
+					if (this.responseStatus === null) {
+						this.responseTime = elapsedMilliseconds(startTime, performance.now());
+					}
 					// 使用错误处理工具解析错误
 					const errorInfo = parseError(err);
 					
@@ -665,7 +730,7 @@
 				}
 			},
 			handleResponse(response, display) {
-				const contentType = response.headers['content-type'];
+				const contentType = response.headers['content-type'] || 'text/plain;charset=utf-8';
 				this.contentType = contentType;
 				const blob = new Blob([response.data], {
 					type: contentType
@@ -759,6 +824,12 @@
 
 	.item {
 		margin: 10px;
+	}
+
+	.redirect-settings {
+		max-width: 720px;
+		display: grid;
+		gap: 12px;
 	}
 
 	.el-row {

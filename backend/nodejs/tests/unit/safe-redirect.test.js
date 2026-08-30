@@ -93,6 +93,10 @@ test("redirect loop validates a relative target and creates a new connection for
     assert.deepEqual(dispatched, ["http://one.test/start", "http://one.test/next"]);
     assert.equal(result.target, nextTarget);
     assert.equal(result.redirectCount, 1);
+    assert.deepEqual(result.redirectChain, [{
+        status: 302, method: "GET", url: initialTarget.url,
+        location: nextTarget.url, followed: true, validated: true
+    }]);
     assert.equal(destroyed, 1);
     result.release();
     assert.equal(destroyed, 2);
@@ -135,6 +139,10 @@ test("validation-only redirects return the first response with a validated targe
     assert.equal(result.target, initialTarget);
     assert.equal(result.redirectTarget, redirectTarget);
     assert.equal(result.response.status, 302);
+    assert.deepEqual(result.redirectChain, [{
+        status: 302, method: "GET", url: initialTarget.url,
+        location: redirectTarget.url, followed: false, validated: true
+    }]);
     assert.equal(destroyed, 0);
     result.release();
     assert.equal(destroyed, 1);

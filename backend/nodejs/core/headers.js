@@ -17,6 +17,15 @@ const PROXY_AUTHENTICATION_HEADERS = new Set([
 
 const UPSTREAM_AUTHORIZATION_HEADER = "x-proxyweb-upstream-authorization";
 
+const PROXY_RESPONSE_CONTROL_HEADERS = new Set([
+    "x-proxyweb-final-url",
+    "x-proxyweb-redirect-chain",
+    "x-proxyweb-redirect-count",
+    "x-proxyweb-follow-redirects",
+    "x-proxyweb-max-redirects",
+    "x-proxyweb-diagnostics-truncated"
+]);
+
 const LEGACY_REQUEST_EXCLUDED_HEADERS = new Set([
     "host",
     "origin",
@@ -85,6 +94,7 @@ function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}) {
 function filterUpstreamResponseHeaders(headers, options = {}) {
     const excluded = new Set([
         ...HOP_BY_HOP_HEADERS,
+        ...PROXY_RESPONSE_CONTROL_HEADERS,
         ...connectionHeaderNames(headers)
     ]);
     if (!options.preserveContentLength) excluded.add("content-length");
@@ -93,6 +103,7 @@ function filterUpstreamResponseHeaders(headers, options = {}) {
 
 module.exports = {
     HOP_BY_HOP_HEADERS,
+    PROXY_RESPONSE_CONTROL_HEADERS,
     PROXY_AUTHENTICATION_HEADERS,
     UPSTREAM_AUTHORIZATION_HEADER,
     buildUpstreamRequestHeaders,
