@@ -16,7 +16,7 @@
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
 | 本地功能 | API/网页代理模式切换、独立 Browser 启动页、响应式界面、分享链接、浏览器本地历史记录 |
-| 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、受限响应变换、流式转发、共享安全网络内核与限流 |
+| 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、SSE 提前 flush、Range/Media 元数据保持、受限响应变换、流式转发、共享安全网络内核与限流 |
 
 当前 Browser Route 与独立 `/web/browser` 页面已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar、Origin/Referer 映射和可折叠兼容设置；静态/SSR、跨 CDN、表单、302 登录、Cookie、Range、下载和 SSE 已进入真实浏览器门禁。WebSocket 和 SPA 动态请求兼容仍属于后续 vNext 阶段。
 
@@ -145,7 +145,7 @@ npm run build
 - URL Validator 已拒绝非 HTTP(S) 协议、URL credentials、非法编码、localhost，以及 loopback/private/link-local/unspecified/multicast/reserved 等字面 IPv4/IPv6。域名使用 `lookup(all: true, verbatim: true)` 校验全部 A/AAAA，任一结果非公网即整体拒绝；请求级 HTTP/HTTPS Agent 的 `lookup` 只能返回该验证集合，并保持原 hostname、Host、SNI 和严格 TLS 证书校验。
 - Axios 自身固定 `maxRedirects: 0`；启用 `api.followRedirects` 时由 proxyWeb 处理 301/302/303/307/308，每一跳重新执行 URL、DNS 与 Pinning 校验。跨域跳转会删除认证、Cookie、Token、Secret 与 API Key 类 Header，循环或超限返回 508。
 - 代理请求同时受 `timeoutMs`、`api.connectTimeoutMs`、`api.maxRequestBodyBytes` 与 `api.maxConcurrentRequests` 约束；客户端断开会取消上游，异常响应流由管道边界回收。API 响应仍保持流式转发，不受 Rewrite 缓冲上限影响。
-- Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。HTML 使用 Parser 重写 allowlist 属性、`srcset`、`<base>`、Meta Refresh 与内联 CSS，独立 CSS 使用 AST 重写 `url()`/`@import`；相对 CSS URL 基于样式表自身地址。Browser 301/302/303/307/308 会先验证 Location，再返回 Canonical Location 交由浏览器处理，不在服务端吞掉跳转。实际子请求与跳转目标仍执行完整 SSRF/DNS/Pinning 校验。SSE、206、附件、`no-transform`、音视频、PDF 和二进制保持流式。
+- Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。HTML 使用 Parser 重写 allowlist 属性、`srcset`、`<base>`、Meta Refresh 与内联 CSS，独立 CSS 使用 AST 重写 `url()`/`@import`；相对 CSS URL 基于样式表自身地址。Browser 301/302/303/307/308 会先验证 Location，再返回 Canonical Location 交由浏览器处理，不在服务端吞掉跳转。实际子请求与跳转目标仍执行完整 SSRF/DNS/Pinning 校验。SSE 会提前发送响应头并携带 `X-Accel-Buffering: no`；206、附件、`no-transform`、音视频、PDF 和二进制保持流式，未变换响应保留合法 Content-Length。
 - Browser Cookie Jar 仅由服务端按 proxyWeb Session 保存，并按 upstream Domain、Path、Secure 与 Expiry 匹配；入站 proxyWeb Cookie 不会直接转发，上游 `Set-Cookie` 也不会设置到 proxyWeb 域名。Canonical Referer 会映射回完整 upstream URL，Origin 只取已验证的来源页面 origin；来源未知时使用 `null`，不会把跨站请求伪装成与目标同源。
 - Browser UI 的兼容参数绑定当前 Browser Session，只能关闭服务器已经允许的 Rewrite、Cookie Jar 或兼容 Header，不能从前端开启全局禁用能力，也不能把 `preserve/strict` 降级为 `compat`。默认使用 `noopener` 新标签页；同源部署时禁用 iframe 预览，并持续建议把不可信 Browser Proxy 与管理 UI 分离到不同 Origin。
 - 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
@@ -165,7 +165,7 @@ P0 与 P1 的逐项证据分别见 [P0 自动化验收矩阵](./docs/p0-verifica
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 166 项测试与语法检查、前端 7 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 172 项测试与语法检查、前端 7 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 P1 门禁是 P0 的严格超集，并追加 Playwright Core 真实浏览器验收：
 
@@ -174,6 +174,12 @@ node scripts/p1-gate.js --install
 ```
 
 Playwright Core 不自动下载浏览器；门禁会寻找本机 Edge、Chrome 或 Chromium，也可通过 `PROXYWEB_E2E_BROWSER_PATH` 指定。找不到浏览器会失败而不是跳过，详细场景与失败诊断见 [P1 验收矩阵](./docs/p1-verification-matrix.md)。
+
+SSE、Range、媒体和大附件可在后端目录单独快速复核：
+
+```powershell
+npm run test:streaming
+```
 
 ## 文档索引
 

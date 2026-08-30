@@ -35,4 +35,11 @@ test("fixture implements deterministic Range responses", async () => {
     assert.equal(response.status, 206);
     assert.equal(response.headers.get("content-range"), `bytes 5-9/${RANGE_BODY.length}`);
     assert.equal(await response.text(), RANGE_BODY.subarray(5, 10).toString("utf8"));
+
+    const suffix = await fetch(`${fixture.localOrigin}/range`, {
+        headers: { range: "bytes=-5" }
+    });
+    assert.equal(suffix.status, 206);
+    assert.equal(suffix.headers.get("content-range"), `bytes ${RANGE_BODY.length - 5}-${RANGE_BODY.length - 1}/${RANGE_BODY.length}`);
+    assert.equal(await suffix.text(), RANGE_BODY.subarray(-5).toString("utf8"));
 });

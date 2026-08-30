@@ -6,8 +6,10 @@ const apiPolicy = Object.freeze({
     buildRequestHeaders(inboundHeaders, customHeaders) {
         return buildUpstreamRequestHeaders(inboundHeaders, customHeaders);
     },
-    filterResponseHeaders(upstreamHeaders) {
-        return filterUpstreamResponseHeaders(upstreamHeaders);
+    filterResponseHeaders(upstreamHeaders, config, context = {}) {
+        return filterUpstreamResponseHeaders(upstreamHeaders, {
+            preserveContentLength: context.preserveContentLength
+        });
     },
     redirectOptions(config) {
         return {

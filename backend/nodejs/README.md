@@ -231,6 +231,23 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 路线图 3.8 已完成 P1 Browser Core E2E：`playwright-core` 驱动本机 Edge/Chrome/Chromium，访问两个本地虚拟 upstream origin，强制验证静态/SSR 页面、多 CSS/图片、跨 CDN 图片与脚本、GET/POST 表单、302 登录、Cookie Session、字体、MP4 Range、下载和 SSE。HTML/CSS/Location 不逃回 upstream、跨 origin Token 隔离和二进制逐字节直通也属于门禁条件；失败会保留截图、HTML、浏览器错误、失败请求与代理日志。
 
+路线图 4.1 已完成 SSE 与 Range/Media 专项可靠性：SSE 在首个事件前显式 flush 下游响应头并设置 `X-Accel-Buffering: no`；API/Legacy/Browser 的未变换响应均保留合法 Content-Length。开放/后缀 Range、2 MiB 媒体、512 KiB HTML 附件和分块时序已在仅 32 字节 Rewrite 上限下验证，证明 206、媒体与附件不会进入文本 Buffer。
+
+### 反向代理与 SSE
+
+proxyWeb 会为 SSE 响应发送 `X-Accel-Buffering: no`，但生产链路中的外层代理仍必须允许流式响应。Nginx 可对承载 proxyWeb 的 location 显式配置：
+
+```nginx
+location /__proxyweb/ {
+    proxy_pass http://127.0.0.1:8082;
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_read_timeout 1h;
+}
+```
+
+若网关会忽略或删除 `X-Accel-Buffering`，必须在该网关配置中关闭响应缓冲。不要通过 CDN 缓存 SSE；超时值应按业务心跳周期设置，而不是无限放大所有普通请求的超时。
+
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
 1. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
@@ -242,9 +259,9 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 ## 响应与兼容性
 
 - 后端对所有上游响应使用 Axios `responseType: "stream"`，并关闭 Axios 自动解压；只有选中的 Browser HTML/CSS 由受限 Pipeline 解压。
-- API/Legacy 继续移除 hop-by-hop 与 `content-length`。Browser passthrough 保留合法 `content-length`、ETag 与 Content-MD5；Transform 后移除这些已失效元数据，并把 Charset 规范为 UTF-8。
+- API/Legacy/Browser 都继续移除 hop-by-hop Header；Response Pipeline 明确认定未变换时保留合法 `content-length`、ETag 与 Content-MD5，Transform 后移除这些已失效元数据，并把 Charset 规范为 UTF-8。
 - API Mode 保留上游安全响应头；Browser `preserve`/`strict` 保留，只有显式 `compat` 会移除列出的 CSP、嵌入和跨源策略头；Legacy Adapter 为保持旧行为仍移除 X-Frame-Options/CSP。
-- Range 请求头随普通请求头转发；自动化契约覆盖了 206、`Content-Range` 与响应片段。
+- Range 请求头随普通请求头转发；自动化契约覆盖 API/Legacy/Browser 的 206、`Content-Range`、`Accept-Ranges`、正确 `Content-Length`、开放/后缀范围和响应片段。
 - Browser Cookie Jar 已实现：客户端 proxyWeb Cookie 会先删除，只按目标 URL 注入 Session Jar 中的 upstream Cookie；上游 `Set-Cookie` 不向下游透传。API/Legacy 行为不变。
 - HTML/CSS 静态 URL、Browser Location、Cookie 与来源 Header 映射已实现；脚本动态请求与 WebSocket 尚未实现，SSE 已有直通集成测试。
 
@@ -288,6 +305,7 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 | `npm run test:unit` | 运行本地 Fixture 单元测试 |
 | `npm run test:integration` | 运行当前代理行为契约测试 |
 | `npm run test:e2e` | 使用本机 Chromium 浏览器运行 P1 Browser Core E2E |
+| `npm run test:streaming` | 运行 SSE、Range/Media、附件与 Response Pipeline 专项门禁 |
 | `npm run lint` | 检查生产入口与测试辅助脚本语法 |
 | `npm run verify:p0` | 运行前后端完整 P0 门禁（复用已安装依赖） |
 | `npm run verify:p0:ci` | 先执行两端 `npm ci`，再运行完整 P0 门禁 |
@@ -296,6 +314,6 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离与 Origin/Referer 映射，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载与 SSE。
 
-后端当前 166 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 172 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁于 2026-08-30 在完整 P0 回归后通过真实浏览器 E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md) 与 [P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

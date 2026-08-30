@@ -132,8 +132,10 @@ const legacyPolicy = Object.freeze({
     ...browserPolicy,
     mode: "legacy",
     exposeCors: true,
-    filterResponseHeaders(upstreamHeaders) {
-        const headers = filterUpstreamResponseHeaders(upstreamHeaders);
+    filterResponseHeaders(upstreamHeaders, config, context = {}) {
+        const headers = filterUpstreamResponseHeaders(upstreamHeaders, {
+            preserveContentLength: context.preserveContentLength
+        });
         delete headers["x-frame-options"];
         delete headers["content-security-policy"];
         return headers;

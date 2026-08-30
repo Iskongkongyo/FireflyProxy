@@ -3,6 +3,7 @@ const axios = require("axios");
 const { markDeprecated } = require("./deprecation");
 const { exposeCorsHeaders } = require("../middleware/cors");
 const { prepareResponse } = require("./responsePipeline");
+const { applyStreamingHeaders, flushStreamingHeaders } = require("./streamingPolicy");
 const {
     assertRequestBodyLength,
     createConcurrencyGate,
@@ -194,7 +195,7 @@ function createProxyExecutor(options) {
                     .filter(name => res.hasHeader(name))
                     .map(name => [name, res.getHeader(name)])
             );
-            const responseHeaders = policy.filterResponseHeaders(
+            const responseHeaders = applyStreamingHeaders(policy.filterResponseHeaders(
                 preparedResponse.headers,
                 requestConfig,
                 {
@@ -203,7 +204,7 @@ function createProxyExecutor(options) {
                     targetUrl: finalTarget.url,
                     redirectTargetUrl: redirectTarget?.url
                 }
-            );
+            ), preparedResponse.classification);
             for (const [key, value] of Object.entries(responseHeaders)) res.setHeader(key, value);
             for (const [key, value] of controlHeaders) res.setHeader(key, value);
             if (policy.exposeCors) {
@@ -217,6 +218,7 @@ function createProxyExecutor(options) {
             }
 
             res.status(response.status);
+            flushStreamingHeaders(res, preparedResponse.classification);
             pipeline(preparedResponse.body, res, error => {
                 releaseOnce();
                 requestState.finalize();

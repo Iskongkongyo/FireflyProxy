@@ -46,7 +46,7 @@
 | 3.6 | Cookie Jar 与 Header Policy | 会话及上游语义映射 | 3.5 | ✅ |
 | 3.7 | Browser UI | 独立入口与兼容设置 | 3.6 | ✅ |
 | 3.8 | P1 E2E 门禁 | Browser Core 可验收 | 3.7 | ✅ |
-| 4.1 | SSE 与 Range/Media | 实时流与媒体拖动可靠 | 3.8 | ⬜ |
+| 4.1 | SSE 与 Range/Media | 实时流与媒体拖动可靠 | 3.8 | ✅ |
 | 4.2 | Runtime Bridge | 常见 SPA 动态请求可映射 | 4.1 | ⬜ |
 | 4.3 | WebSocket | WS/WSS 安全代理 | 4.2 | ⬜ |
 | 4.4 | Origin Isolation | 多目标隔离增强 | 4.3 | ⬜ |
@@ -658,3 +658,17 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端 166 项、前端 7 项回归继续通过，P0 Gate 5/5、P1 Gate 2/2 与 Edge 真实浏览器场景全部 PASS；两端生产依赖经 npm 官方安全公告库审计均为 0 个已知漏洞。前端生产构建仍只有既有的 3 条 bundle 体积 warning。
 
 下一阶段为 4.1 SSE 与 Range/Media 专项可靠性。
+
+### 第二十一轮执行记录
+
+2026-08-30 已完成 4.1：
+
+- 新增 `core/streamingPolicy.js`。`text/event-stream` 保持 stream 分类，代理在 Body 首块前显式 `flushHeaders()`，并强制下游 `X-Accel-Buffering: no`，避免 Nginx 等兼容反向代理重新缓冲；非 SSE 响应不触发该策略。
+- API、Legacy 与 Browser Policy 仅在 Response Pipeline 明确认定 Body 未变换时保留合法 `Content-Length`；hop-by-hop Header 继续删除，HTML/CSS Transform 后仍清理长度、ETag 与 Content-MD5，不会把已失效元数据带回客户端。
+- Fixture 新增延迟 SSE、2 MiB 确定性 MP4 字节流、开放/后缀 Range 与分块 HTML 附件；Range Parser 按 HTTP suffix 语义修正 `bytes=-N`，无效范围继续返回 416。
+- 新增 `streaming-contract.test.js`：同时验证 API/Browser SSE 的响应头与两条事件分时到达；验证 API/Legacy/Browser 的 206、Content-Range、Accept-Ranges、Content-Length、Content-Type、ETag 和字节片段完全一致。
+- 以 `security.maxRewriteBytes: 32` 强制证明完整 2 MiB 媒体与 512 KiB `text/html` 附件不进入 Rewrite Buffer；附件首块在上游结束前到达，Content-Length 和二进制内容保持不变。
+- 新增 `npm run test:streaming` 专项入口，覆盖 Streaming Policy、Response Pipeline 与真实代理时序契约；后端测试由 166 项增至 172 项。
+- 后端全量 172/172 与专项 12/12 已通过，P0 Gate 5/5、P1 Gate 2/2 和 Edge Browser Core E2E 全部 PASS；前端生产构建仍只有既有的 3 条 bundle 体积 warning。Nginx 部署说明明确要求 SSE 路由关闭响应缓冲，并说明 proxyWeb 已发送 `X-Accel-Buffering: no`，但外层代理仍需正确配置。
+
+下一阶段为 4.2 Runtime Bridge。

@@ -6,7 +6,7 @@
 > 基线复核：2026-08-28
 
 > [!IMPORTANT]
-> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8 与 3.8 已通过自动化验收；P2、P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
+> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8 与 P2 路线图 4.1 已通过自动化验收；P2 其余阶段、P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
 
 > 可执行的小阶段、依赖关系和逐阶段完成条件见 [`docs/vnext-implementation-roadmap.md`](./docs/vnext-implementation-roadmap.md)。
 
@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E。WebSocket、Runtime Bridge、高级 SPA 和 Origin Isolation 尚未完成。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1 已完成 SSE 与 Range/Media 专项可靠性。WebSocket、Runtime Bridge、高级 SPA 和 Origin Isolation 尚未完成。
 
 当前前端主要结构：
 
@@ -1084,7 +1084,7 @@ CSS 文件自身 upstream URL
 
 # 24. Response Transform Pipeline
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.3–3.5。当前按模式与 HTTP 语义区分 transform/stream，HTML/XHTML 与 CSS 均已接入 Parser Rewrite；SSE、Range、附件、no-transform、媒体和二进制保持直通。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.3–3.5，并在 4.1 补齐专项时序与元数据门禁。当前按模式与 HTTP 语义区分 transform/stream，HTML/XHTML 与 CSS 均已接入 Parser Rewrite；SSE 提前 flush，Range、附件、no-transform、媒体和二进制保持直通且未变换时保留合法长度。
 
 建立统一：
 
@@ -1716,6 +1716,8 @@ idle timeout
 
 # 42. P2-3. SSE
 
+> 状态：✅ 已于 2026-08-30 完成路线图 4.1。`core/streamingPolicy.js` 对 SSE 显式提前发送响应头并覆盖 `X-Accel-Buffering: no`；延迟 Fixture 同时验证 API 与 Browser 的两条事件在各自时点到达，而非结束时合并。Nginx 部署要求已写入后端 README。
+
 SSE：
 
 ```text
@@ -1741,6 +1743,8 @@ proxy_buffering off;
 ---
 
 # 43. P2-4. Range / Media
+
+> 状态：✅ 已于 2026-08-30 完成路线图 4.1。API、Legacy 与 Browser 的未变换响应会保留 Content-Length；2 MiB 媒体覆盖固定、开放与 suffix Range，强制断言 206、Content-Range、Accept-Ranges、Content-Length、Content-Type、ETag 和字节片段。大媒体与 HTML 附件在极小 Rewrite 上限下仍渐进传输。
 
 测试：
 
@@ -2273,6 +2277,8 @@ stream response limit
 
 # 59. Streaming 原则
 
+> 状态：✅ 路线图 3.3 建立 transform/stream 分类，4.1 进一步用真实延迟与大 Body Fixture 验证 SSE、video、206 和 attachment 不进入 Rewrite Buffer。Rewrite Buffer 上限与流式响应大小保持独立。
+
 以下内容永远优先 Streaming：
 
 ```text
@@ -2540,6 +2546,8 @@ Header Rewrite
 ---
 
 ## Milestone 4 — Browser Advanced
+
+> 状态：🟨 路线图 4.1 的 SSE 与 Range/Media 已完成；Runtime Bridge、WebSocket、SPA Compatibility 和 Origin Isolation 仍待后续阶段。
 
 完成：
 

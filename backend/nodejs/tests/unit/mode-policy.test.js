@@ -19,7 +19,11 @@ const upstreamHeaders = {
 
 test("API response policy preserves security headers without transport metadata", () => {
     const headers = apiPolicy.filterResponseHeaders(upstreamHeaders);
+    const passthrough = apiPolicy.filterResponseHeaders(upstreamHeaders, {}, {
+        preserveContentLength: true
+    });
     assert.equal(headers["content-length"], undefined);
+    assert.equal(passthrough["content-length"], "10");
     assert.equal(headers["x-frame-options"], "DENY");
     assert.equal(headers["content-security-policy"], "default-src 'none'");
 });
@@ -43,7 +47,9 @@ test("Browser and legacy response policies are independently configurable", () =
     const preserve = browserPolicy.filterResponseHeaders(extendedHeaders, {
         browser: { headerPolicy: "preserve" }
     });
-    const legacy = legacyPolicy.filterResponseHeaders(upstreamHeaders);
+    const legacy = legacyPolicy.filterResponseHeaders(upstreamHeaders, {}, {
+        preserveContentLength: true
+    });
 
     for (const name of COMPAT_RESPONSE_HEADERS) assert.equal(compat[name], undefined);
     assert.equal(strict["x-frame-options"], "DENY");
@@ -51,6 +57,7 @@ test("Browser and legacy response policies are independently configurable", () =
     assert.equal(strict["set-cookie"], undefined);
     assert.equal(preserve["set-cookie"], undefined);
     assert.equal(legacy["x-frame-options"], undefined);
+    assert.equal(legacy["content-length"], "10");
 });
 
 test("API and Browser modes select independent redirect behavior", () => {

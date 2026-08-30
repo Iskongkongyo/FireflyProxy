@@ -2,6 +2,11 @@ const http = require("node:http");
 const { gzipSync } = require("node:zlib");
 
 const RANGE_BODY = Buffer.from("0123456789abcdefghijklmnopqrstuvwxyz", "utf8");
+const MEDIA_BODY = Buffer.allocUnsafe(2 * 1024 * 1024 + 333);
+const LARGE_DOWNLOAD_BODY = Buffer.alloc(512 * 1024 + 17, "d");
+const SSE_FIRST_DELAY_MS = 200;
+const SSE_SECOND_DELAY_MS = 200;
+for (let index = 0; index < MEDIA_BODY.length; index += 1) MEDIA_BODY[index] = (index * 31) % 251;
 
 function readBody(req) {
     return new Promise((resolve, reject) => {
@@ -24,9 +29,15 @@ function sendJson(res, status, value, headers = {}) {
 
 function parseRange(value, size) {
     const match = /^bytes=(\d*)-(\d*)$/.exec(value || "");
-    if (!match) return null;
+    if (!match || (!match[1] && !match[2])) return null;
 
-    const start = match[1] === "" ? 0 : Number(match[1]);
+    if (!match[1]) {
+        const suffixLength = Number(match[2]);
+        if (!Number.isInteger(suffixLength) || suffixLength <= 0) return null;
+        return { start: Math.max(size - suffixLength, 0), end: size - 1 };
+    }
+
+    const start = Number(match[1]);
     const end = match[2] === "" ? size - 1 : Number(match[2]);
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= size) {
         return null;
@@ -161,6 +172,18 @@ async function handleRequest(req, res) {
         return setTimeout(() => res.end("data: second\n\n"), 10);
     }
 
+    if (url.pathname === "/sse-delayed") {
+        res.writeHead(200, {
+            "content-type": "text/event-stream; charset=utf-8",
+            "cache-control": "no-cache"
+        });
+        res.flushHeaders();
+        return setTimeout(() => {
+            res.write("data: first\n\n");
+            setTimeout(() => res.end("data: second\n\n"), SSE_SECOND_DELAY_MS);
+        }, SSE_FIRST_DELAY_MS);
+    }
+
     if (url.pathname === "/echo") {
         const body = await readBody(req);
         return sendJson(res, 200, {
@@ -281,6 +304,47 @@ async function handleRequest(req, res) {
         return res.end(RANGE_BODY);
     }
 
+    if (url.pathname === "/media") {
+        const range = parseRange(req.headers.range, MEDIA_BODY.length);
+        if (!range && req.headers.range) {
+            res.writeHead(416, {
+                "accept-ranges": "bytes",
+                "content-range": `bytes */${MEDIA_BODY.length}`
+            });
+            return res.end();
+        }
+        if (range) {
+            const part = MEDIA_BODY.subarray(range.start, range.end + 1);
+            res.writeHead(206, {
+                "accept-ranges": "bytes",
+                "content-range": `bytes ${range.start}-${range.end}/${MEDIA_BODY.length}`,
+                "content-length": part.length,
+                "content-type": "video/mp4",
+                etag: '"fixture-media-etag"'
+            });
+            return res.end(part);
+        }
+        res.writeHead(200, {
+            "accept-ranges": "bytes",
+            "content-length": MEDIA_BODY.length,
+            "content-type": "video/mp4",
+            etag: '"fixture-media-etag"'
+        });
+        return res.end(MEDIA_BODY);
+    }
+
+    if (url.pathname === "/large-download-html") {
+        const firstChunkSize = 16384;
+        res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "content-disposition": 'attachment; filename="large.html"',
+            "content-length": LARGE_DOWNLOAD_BODY.length,
+            etag: '"fixture-large-download-etag"'
+        });
+        res.write(LARGE_DOWNLOAD_BODY.subarray(0, firstChunkSize));
+        return setTimeout(() => res.end(LARGE_DOWNLOAD_BODY.subarray(firstChunkSize)), 150);
+    }
+
     if (url.pathname === "/slow") {
         const delayMs = Math.min(Number(url.searchParams.get("ms")) || 50, 1000);
         return setTimeout(() => sendJson(res, 200, { delayMs }), delayMs);
@@ -314,6 +378,10 @@ async function createUpstreamFixture() {
 }
 
 module.exports = {
+    LARGE_DOWNLOAD_BODY,
+    MEDIA_BODY,
     RANGE_BODY,
+    SSE_FIRST_DELAY_MS,
+    SSE_SECOND_DELAY_MS,
     createUpstreamFixture
 };
