@@ -8,6 +8,7 @@
 			</el-row>
 		</el-header>
 		<el-main>
+			<ModeSwitcher />
 
 			<!-- 移动端第一行: 请求方法、API URL 和发送按钮 -->
 			<!-- 移动端第一行: 请求方法、API URL 和发送按钮 (分行显示) -->
@@ -148,13 +149,15 @@
 	import RequestBody from './RequestBody.vue';
 	import ActionButtons from './ActionButtons.vue';
 	import ResponseViewer from './ResponseViewer.vue';
+	import ModeSwitcher from './ModeSwitcher.vue';
 	export default {
 		name: 'RequestForm',
 		components: {
 			UserAuth,
 			RequestBody,
 			ActionButtons,
-			ResponseViewer
+			ResponseViewer,
+			ModeSwitcher
 		},
 		data() {
 			return {

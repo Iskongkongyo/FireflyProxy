@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 已于 2026-08-29 达到 Definition of Done；P1 已完成路线图 3.1–3.6 的 Browser Core（含 HTML/CSS/Location Rewrite、Cookie Jar 与 Header Policy），Browser UI、P1 E2E、WebSocket 和 Runtime Bridge 尚未完成。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 已完成路线图 3.1–3.7 的 Browser Core 与 Browser UI（含 HTML/CSS/Location Rewrite、Cookie Jar、Header Policy 和独立启动页），P1 E2E、WebSocket 和 Runtime Bridge 尚未完成。
 
 当前前端主要结构：
 
@@ -1482,6 +1482,8 @@ API Mode 应尽量展示真实 upstream Headers。
 
 # 35. UI 与 Browser Proxy 安全隔离
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.7 的前端配置边界。`VUE_APP_PROXY_API_URL` 与 `VUE_APP_PROXY_BROWSE_URL` 可独立部署，缺省时兼容回退旧 `VUE_APP_PROXY_URL`；Browser UI 同源时禁用 iframe，并始终建议将不可信目标代码与管理 UI 分离 Origin。
+
 推荐生产部署：
 
 ```text
@@ -1515,7 +1517,7 @@ fallback 到原 BASE_URL
 
 # 36. P1-6. API Mode 与 Browser Mode 分路由
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.6。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML/CSS/Location Rewrite、Session Cookie Jar、Origin/Referer 与安全 Header Policy、受限 Response Transform Pipeline，以及带标准弃用响应头的 Legacy Adapter；下一步进入 Browser UI 与 P1 E2E。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.7。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML/CSS/Location Rewrite、Session Cookie Jar、Origin/Referer 与安全 Header Policy、受限 Response Transform Pipeline、独立 Browser UI，以及带标准弃用响应头的 Legacy Adapter；下一步进入 P1 E2E。
 
 推荐：
 
@@ -1993,6 +1995,8 @@ Auth
 
 # 50. 前端 UI 改造
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.7。顶部模式切换保留现有 API Request 页面，并新增 `/web/browser` 与 `BrowserProxy.vue`；默认使用无 opener 新标签页，跨 Origin 时提供 sandbox iframe 可选预览，同源时因安全边界禁用嵌入。
+
 主界面顶部增加：
 
 ```text
@@ -2028,6 +2032,8 @@ BrowserProxy.vue
 ---
 
 # 51. Browser Compatibility UI
+
+> 状态：✅ 已于 2026-08-30 完成路线图 3.7。HTML/CSS Rewrite、Cookie Jar 与 Compatibility Headers 位于高级折叠面板；参数绑定 Browser Session 且只能收紧服务器全局配置。Runtime Bridge 因 P2 尚未实现而显示为禁用，不提供虚假开关。
 
 允许设置：
 

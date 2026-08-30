@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import Index from '../components/Index.vue';
 import History from '../components/History.vue';
+import BrowserProxy from '../components/BrowserProxy.vue';
 
 const routes = [
   {
@@ -8,6 +9,12 @@ const routes = [
     name: 'RequestForm',
     component: Index,
     meta: { title: '在线代理网站' }
+  },
+  {
+    path: '/browser',
+    name: 'BrowserProxy',
+    component: BrowserProxy,
+    meta: { title: '网页代理' }
   },
   {
     path: '/history',

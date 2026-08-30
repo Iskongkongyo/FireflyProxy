@@ -6,6 +6,7 @@ const {
     toProxyUrl
 } = require("../core/urlMapper");
 const { browserPolicy } = require("./policy");
+const { applyBrowserPreferences, parseBrowserPreferences } = require("./preferences");
 
 function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
     const router = express.Router();
@@ -19,6 +20,12 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
                 });
             }
             const target = await proxyExecutor.resolveTarget(req.query.url, requestConfig);
+            const preferences = parseBrowserPreferences(req.query);
+            if (Object.keys(preferences).length > 0) {
+                req.session.proxyWebBrowserPreferences = preferences;
+            } else if (req.session.proxyWebBrowserPreferences) {
+                delete req.session.proxyWebBrowserPreferences;
+            }
             return res.redirect(302, toProxyUrl(target.url));
         } catch (error) {
             next(error);
@@ -27,12 +34,16 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
 
     router.use(async (req, res, next) => {
         try {
-            const requestConfig = getConfig();
-            if (!requestConfig.browser.enabled) {
+            const configuredRequest = getConfig();
+            if (!configuredRequest.browser.enabled) {
                 throw new ProxyError(ERROR_CODES.BROWSER_DISABLED, "Browser proxy mode is disabled", {
                     statusCode: 404
                 });
             }
+            const requestConfig = applyBrowserPreferences(
+                configuredRequest,
+                req.session.proxyWebBrowserPreferences
+            );
 
             const targetValue = fromProxyRequest(req);
             const canonicalUrl = toProxyUrl(targetValue);
@@ -43,7 +54,7 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
             if (requestConfig.browser.cookieJar) {
                 req.session.proxyWebBrowser = true;
                 sessionState = await sessionStateStore.get(req.sessionID, requestConfig.session.maxAgeMs);
-            } else {
+            } else if (!configuredRequest.browser.cookieJar) {
                 await sessionStateStore.delete(req.sessionID);
             }
 

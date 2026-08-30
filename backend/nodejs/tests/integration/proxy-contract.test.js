@@ -129,6 +129,96 @@ test("Browser entry creates a validated canonical URL whose query cannot become 
     }
 });
 
+test("Browser entry preferences tighten rewrite, Cookie Jar and response header behavior per session", async () => {
+    const preferenceProxy = await startProxy({ browser: { enabled: true } });
+    try {
+        const entryUrl = new URL(modeUrl(
+            preferenceProxy.origin,
+            "browser",
+            `${fixture.origin}/html-relative`
+        ));
+        entryUrl.searchParams.set("rewriteHtml", "false");
+        entryUrl.searchParams.set("rewriteCss", "false");
+        entryUrl.searchParams.set("cookieJar", "false");
+        entryUrl.searchParams.set("compatHeaders", "false");
+        const entry = await fetch(entryUrl, { redirect: "manual" });
+        const proxySessionCookie = entry.headers.get("set-cookie").split(";", 1)[0];
+
+        assert.equal(entry.status, 302);
+        const html = await fetch(new URL(entry.headers.get("location"), preferenceProxy.origin), {
+            headers: { cookie: proxySessionCookie }
+        });
+        const htmlText = await html.text();
+        assert.match(htmlText, /href="\/json\?via=html#result"/);
+        assert.match(htmlText, /src="app\.js"/);
+        assert.notEqual(html.headers.get("content-length"), null);
+
+        const securityHeaders = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/security-headers`),
+            preferenceProxy.origin
+        ), {
+            headers: { cookie: proxySessionCookie }
+        });
+        assert.equal(securityHeaders.headers.get("x-frame-options"), "DENY");
+        assert.equal(securityHeaders.headers.get("content-security-policy"), "default-src 'none'");
+
+        await fetch(new URL(toProxyUrl(`${fixture.origin}/cookie/set`), preferenceProxy.origin), {
+            headers: { cookie: proxySessionCookie }
+        });
+        const cookieEcho = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/cookie/echo`),
+            preferenceProxy.origin
+        ), {
+            headers: { cookie: proxySessionCookie }
+        });
+        assert.equal((await cookieEcho.json()).cookie, "");
+    } finally {
+        await preferenceProxy.close();
+    }
+});
+
+test("Browser entry rejects malformed preferences and cannot enable globally restricted behavior", async () => {
+    const restrictedProxy = await startProxy({
+        browser: {
+            enabled: true,
+            rewriteHtml: false,
+            rewriteCss: false,
+            cookieJar: false,
+            headerPolicy: "strict"
+        }
+    });
+    try {
+        const malformedUrl = new URL(modeUrl(
+            restrictedProxy.origin,
+            "browser",
+            `${fixture.origin}/html-relative`
+        ));
+        malformedUrl.searchParams.set("rewriteHtml", "sometimes");
+        const malformed = await fetch(malformedUrl);
+        assert.equal(malformed.status, 400);
+        assert.equal((await malformed.json()).error.code, "PROXY_BROWSER_URL_INVALID");
+
+        const attemptedEnable = new URL(modeUrl(
+            restrictedProxy.origin,
+            "browser",
+            `${fixture.origin}/html-relative`
+        ));
+        attemptedEnable.searchParams.set("rewriteHtml", "true");
+        attemptedEnable.searchParams.set("rewriteCss", "true");
+        attemptedEnable.searchParams.set("cookieJar", "true");
+        attemptedEnable.searchParams.set("compatHeaders", "true");
+        const entry = await fetch(attemptedEnable, { redirect: "manual" });
+        const proxySessionCookie = entry.headers.get("set-cookie").split(";", 1)[0];
+        const html = await fetch(new URL(entry.headers.get("location"), restrictedProxy.origin), {
+            headers: { cookie: proxySessionCookie }
+        });
+        assert.match(await html.text(), /src="app\.js"/);
+        assert.notEqual(html.headers.get("content-length"), null);
+    } finally {
+        await restrictedProxy.close();
+    }
+});
+
 test("canonical Browser tokens isolate origins and never bypass SSRF validation", async () => {
     const isolatedProxy = await startProxy({ browser: { enabled: true } }, {
         dnsRecords: {

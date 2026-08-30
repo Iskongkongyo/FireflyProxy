@@ -3,10 +3,15 @@
  * 将环境相关的配置集中管理，方便不同环境部署
  */
 
+const DEFAULT_PROXY_URL = 'http://localhost:8082';
+const LEGACY_PROXY_URL = process.env.VUE_APP_PROXY_URL || DEFAULT_PROXY_URL;
+
 // 代理服务器配置
 export const PROXY_CONFIG = {
-    // 代理服务器地址 - 开发环境使用 localhost，生产环境可改为实际部署地址
-    BASE_URL: process.env.VUE_APP_PROXY_URL || 'http://localhost:8082',
+    // BASE_URL 保留为 API 请求页兼容字段。
+    BASE_URL: process.env.VUE_APP_PROXY_API_URL || LEGACY_PROXY_URL,
+    API_BASE_URL: process.env.VUE_APP_PROXY_API_URL || LEGACY_PROXY_URL,
+    BROWSER_BASE_URL: process.env.VUE_APP_PROXY_BROWSE_URL || LEGACY_PROXY_URL,
 
     // 请求超时时间 (毫秒)
     TIMEOUT: 60000,

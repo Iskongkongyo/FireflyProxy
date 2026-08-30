@@ -44,7 +44,7 @@
 | 3.4 | HTML Rewrite | 页面资源和导航留在代理内 | 3.3 | ✅ |
 | 3.5 | CSS 与 Location Rewrite | 样式资源和跳转可用 | 3.4 | ✅ |
 | 3.6 | Cookie Jar 与 Header Policy | 会话及上游语义映射 | 3.5 | ✅ |
-| 3.7 | Browser UI | 独立入口与兼容设置 | 3.6 | ⬜ |
+| 3.7 | Browser UI | 独立入口与兼容设置 | 3.6 | ✅ |
 | 3.8 | P1 E2E 门禁 | Browser Core 可验收 | 3.7 | ⬜ |
 | 4.1 | SSE 与 Range/Media | 实时流与媒体拖动可靠 | 3.8 | ⬜ |
 | 4.2 | Runtime Bridge | 常见 SPA 动态请求可映射 | 4.1 | ⬜ |
@@ -630,3 +630,16 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 新增 Cookie 属性、Session/host/path 隔离、开关关闭、Origin/Referer 跨 origin 映射、未知来源降级和完整安全响应头策略测试；后端 161 项、前端 4 项测试通过，生产依赖审计为 0 个已知漏洞。
 
 下一阶段为 3.7 Browser UI。
+
+### 第十九轮执行记录
+
+2026-08-30 已完成 3.7：
+
+- 前端新增独立 `/web/browser` 与 `BrowserProxy.vue`，并通过 `ModeSwitcher.vue` 在现有 API 请求页和网页代理页之间显式切换；API 请求编排、响应展示、分享与历史行为保持原路径和传输逻辑。
+- Browser UI 对目标执行无 credentials 的 HTTP(S) URL 校验，默认使用 `noopener,noreferrer` 新标签页打开；只有 `VUE_APP_PROXY_BROWSE_URL` 与管理 UI 不同 Origin 时才开放 sandbox iframe 预览，并提示第三方 Cookie、CSP/防嵌入与隐私策略限制。
+- 高级折叠面板提供 HTML Rewrite、CSS Rewrite、Cookie Jar 与 Compatibility Headers 开关；Runtime Bridge 明确禁用并标记为 P2。偏好写入 Browser 入口并绑定签名 Session，最近一次启动对该 Session 生效。
+- 新增 `browser-proxy/preferences.js`。入口偏好只能关闭全局允许的能力，不能启用服务器关闭项，也不能把 `preserve/strict` 降级为 `compat`；非法、重复或非布尔值稳定返回 400。无偏好入口会清除旧值并恢复服务器配置。
+- `VUE_APP_PROXY_API_URL` 与 `VUE_APP_PROXY_BROWSE_URL` 支持独立部署；未配置时依次回退到旧 `VUE_APP_PROXY_URL` 和本地默认值，保留旧部署兼容。
+- 新增前端 Browser URL/偏好/iframe Origin 工具测试，以及后端偏好解析、全局上限和真实 Session 路由测试；后端 166 项、前端 7 项测试通过，lint 和生产构建继续纳入统一门禁。
+
+下一阶段为 3.8 P1 E2E 门禁。

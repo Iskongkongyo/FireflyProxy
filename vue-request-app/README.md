@@ -14,6 +14,8 @@
 - 复制页面配置链接、复制代理 API 链接。
 - 使用 `localStorage` 保存请求历史。
 - PC 与移动端布局。
+- “API 请求 / 网页代理”模式切换和独立 `/web/browser` 启动页。
+- Browser Proxy 默认新标签页打开，提供跨 Origin sandbox iframe 预览和可折叠兼容设置。
 
 ## 本地开发
 
@@ -34,7 +36,7 @@ npm run serve
 | `npm run serve` | 启动开发服务器 |
 | `npm run build` | 构建到 `dist/` |
 | `npm run lint` | 运行 ESLint |
-| `npm test` | 运行零依赖安全工具测试 |
+| `npm test` | 运行零依赖安全与 Browser URL 工具测试 |
 
 ### 已验证状态
 
@@ -45,20 +47,22 @@ npm run serve
 
 ## 后端地址配置
 
-`src/config.js` 使用：
+`src/config.js` 分别支持：
 
 ```js
-BASE_URL: process.env.VUE_APP_PROXY_URL || 'http://localhost:8082'
+API_BASE_URL: process.env.VUE_APP_PROXY_API_URL || process.env.VUE_APP_PROXY_URL
+BROWSER_BASE_URL: process.env.VUE_APP_PROXY_BROWSE_URL || process.env.VUE_APP_PROXY_URL
 ```
 
-`VUE_APP_PROXY_URL` 是 Vue CLI 构建时变量，修改后需要重新启动开发服务器或重新构建：
+三个字段都是 Vue CLI 构建时变量，修改后需要重新启动开发服务器或重新构建。推荐将 Browser Proxy 放在与管理 UI 不同的 Origin：
 
 ```powershell
-$env:VUE_APP_PROXY_URL = "https://proxy.example.com"
+$env:VUE_APP_PROXY_API_URL = "https://api.proxy.example.com"
+$env:VUE_APP_PROXY_BROWSE_URL = "https://browse.proxy.example.net"
 npm run build
 ```
 
-不要在变量值末尾添加 `/`，当前代码会自行拼接 `/?url=...`。
+未配置新字段时会回退到 `VUE_APP_PROXY_URL`，全部未配置时回退到 `http://localhost:8082`，因此旧部署保持兼容。末尾 `/` 会被安全规范化。
 
 ## 使用说明
 
@@ -66,6 +70,8 @@ npm run build
 2. 选择 HTTP 方法。
 3. 在“请求参数”“请求头”“请求验证”中补充配置；非 GET/HEAD 请求可在“请求体”中选择发送格式。
 4. 点击“发送请求”，在下方查看内容、响应头、耗时和大小。
+
+网页代理页位于 `/web/browser`：输入完整 HTTP(S) URL 后默认在无 opener 的新标签页打开。高级设置可以为当前 Browser Session 关闭 HTML/CSS Rewrite、Cookie Jar 或 Compatibility Headers，但不能打开后端全局禁用的能力。Runtime Bridge 会明确显示为尚未实现。嵌入预览只有在 Browser Proxy 与管理 UI 不同 Origin 时可选，并可能受第三方 Cookie、目标站 CSP/防嵌入策略和浏览器隐私设置影响。
 
 手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值。发送时该值会放入 `X-ProxyWeb-Upstream-Authorization`，不会进入代理 URL；其他自定义 Header 直接作为到 proxyWeb 的 HTTP Header 发送。带自定义 Header 或上游认证的媒体请求会回退到 Axios Blob，只有无额外 Header 时才使用原生媒体 URL 流式加载。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
 
@@ -81,7 +87,7 @@ npm run build
 
 后端仍兼容旧代理 URL 的 `headers` 查询参数，但会返回弃用提示；新版前端不再生成它。清理旧数据时可在“历史”页面点击“清空所有”，也可清除该站点的浏览器存储。
 
-Cookie 输入目前尝试写入 proxyWeb 当前域名的 `document.cookie`，并不等价于独立的上游 Cookie Jar；复杂登录站点不能依赖该功能。
+API 请求页的手工 Cookie 输入仍属于旧兼容行为，不等价于 Browser Cookie Jar。网页代理页使用后端按 Session 隔离的 upstream Cookie Jar，但服务端 Jar 无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
 
 ## 构建与部署
 
@@ -104,6 +110,8 @@ vue-request-app/
 ├── src/
 │   ├── components/
 │   │   ├── Index.vue        # 请求编排
+│   │   ├── BrowserProxy.vue # 网页代理启动与兼容设置
+│   │   ├── ModeSwitcher.vue # API/网页代理模式切换
 │   │   ├── ActionButtons.vue
 │   │   ├── RequestBody.vue
 │   │   ├── ResponseViewer.vue
@@ -115,6 +123,7 @@ vue-request-app/
 │   ├── config.js
 │   ├── App.vue
 │   └── main.js
+├── tests/                   # Header 与 Browser URL 零依赖测试
 ├── package.json
 ├── package-lock.json
 └── vue.config.js
@@ -122,10 +131,10 @@ vue-request-app/
 
 ## 当前限制
 
-- 已有零依赖 Node Test 覆盖敏感 Header 分类、分享过滤和安全代理传输；完整组件/E2E 测试仍待补充。
+- 已有 7 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、Browser URL/偏好构造和 iframe Origin 边界；完整组件/E2E 测试在 3.8 阶段补充。
 - Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
-- HTML 响应只作为文本或新页面内容处理，不会重写其中的相对 URL、CSS、脚本或表单。
+- API 请求页仍把 HTML 响应作为文本或 Blob 处理；只有独立网页代理页会进入后端 HTML/CSS/Location Rewrite。
 - 分享链接解析缺少面向恶意/损坏 JSON 参数的错误隔离。
 - 项目只包含 Node.js 后端，没有 Python 后端。
 
