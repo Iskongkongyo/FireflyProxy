@@ -72,4 +72,4 @@ JSON、Raw、URL 编码和 multipart 会分别导出为 `--data-raw` 或 `--form
 - POSIX 单引号转义与 Export → Import 往返；
 - 敏感 Header/Auth 二次确认判定。
 
-5.1 完成时的仓库级门禁为后端 201/201、前端 23/23。5.2 扩展 Redirect flags 后，当前门禁为后端 209/209、前端 27/27、lint/build，以及 Browser Core、Runtime/WebSocket 和 Origin Isolation 的真实 Edge 150 E2E；P0 5/5、P1 2/2、P2 3/3 全部通过。生产构建只保留既有的 3 条 bundle 体积 warning。
+5.1 完成时的仓库级门禁为后端 201/201、前端 23/23；5.2 扩展 Redirect flags 后为后端 209/209、前端 27/27。当前 5.3 门禁继续保持后端 209/209，前端增至 33/33，并在 Browser Core、Runtime/WebSocket、Origin Isolation 之外追加 Workspace Edge E2E。P0 5/5、P1 2/2、P2 3/3、P3 2/2 全部通过；生产构建只保留既有的 3 条 bundle 体积 warning。

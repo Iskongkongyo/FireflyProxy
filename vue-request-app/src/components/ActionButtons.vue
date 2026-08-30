@@ -47,6 +47,10 @@
 
 		<!-- 操作按钮组 -->
 		<div class="action-group">
+			<el-button type="success" plain @click="$emit('workspace')" class="action-btn" size="default">
+				<el-icon><FolderOpened /></el-icon>
+				<span class="btn-text-full">工作区{{ environmentName ? ` · ${environmentName}` : '' }}</span>
+			</el-button>
 			<el-button type="primary" plain @click="$emit('import-curl')" class="action-btn" size="default">
 				<span class="btn-text-full">Import cURL</span>
 			</el-button>
@@ -89,9 +93,10 @@ export default {
 	props: {
 		method: { type: String, default: 'GET' },
 		activeTab: { type: String, default: 'params' },
+		environmentName: { type: String, default: '' },
 		showDownload: { type: Boolean, default: false }
 	},
-	emits: ['switch-tab', 'add-row', 'import-curl', 'copy-curl', 'copy-page', 'copy-api', 'download', 'history'],
+	emits: ['switch-tab', 'add-row', 'workspace', 'import-curl', 'copy-curl', 'copy-page', 'copy-api', 'download', 'history'],
 	setup() {
 		return {
 			VideoPlay: shallowRef(VideoPlay),

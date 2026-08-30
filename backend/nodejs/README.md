@@ -349,6 +349,7 @@ location /__proxyweb/ {
 | `npm run test:websocket` | 运行 WebSocket URL、安全握手、双向消息及资源上限专项测试 |
 | `npm run test:runtime:e2e` | 使用本机 Chromium 验证动态 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History |
 | `npm run test:isolation:e2e` | 使用本机 Chromium 验证多 upstream Origin、Storage、SOP 与跨源 Runtime CORS |
+| `npm run test:workspace:e2e` | 重新构建前端并验证 Environment、Session Secret、Folder 与 IndexedDB Saved Request |
 | `npm run lint` | 检查生产入口与测试辅助脚本语法 |
 | `npm run verify:p0` | 运行前后端完整 P0 门禁（复用已安装依赖） |
 | `npm run verify:p0:ci` | 先执行两端 `npm ci`，再运行完整 P0 门禁 |
@@ -356,9 +357,11 @@ location /__proxyweb/ {
 | `npm run verify:p1:ci` | 从两端 `npm ci` 开始运行完整 P1 门禁 |
 | `npm run verify:p2` | 运行 P1 回归与 Runtime Bridge E2E |
 | `npm run verify:p2:ci` | 从两端 `npm ci` 开始运行当前完整 P2 门禁 |
+| `npm run verify:p3` | 运行完整 P2 回归与 Environment/Collections Edge E2E |
+| `npm run verify:p3:ci` | 从两端 `npm ci` 开始运行完整 P3 门禁 |
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射、Runtime Bridge、WebSocket Upgrade 与 Origin Isolation Host 双绑定，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE、脚本动态 URL、WebSocket、独立 Origin/Storage 与 SOP 边界。
 
 后端当前 209 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
-路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.4 的 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)、[P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md)、[P2 Runtime/WebSocket/Origin Isolation 自动化验收矩阵](../../docs/p2-runtime-verification-matrix.md) 与 [Origin Isolation 威胁模型](../../docs/origin-isolation-threat-model.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。
+路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.4 的 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E；路线图 5.3 的 P3 门禁继续复用 P2，并追加本地工作区 IndexedDB E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)、[P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md)、[P2 Runtime/WebSocket/Origin Isolation 自动化验收矩阵](../../docs/p2-runtime-verification-matrix.md)、[工作区契约](../../docs/workspace-environment-collections-contract.md) 与 [Origin Isolation 威胁模型](../../docs/origin-isolation-threat-model.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

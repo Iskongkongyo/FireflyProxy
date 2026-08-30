@@ -16,6 +16,8 @@
     "test:e2e": "node tests/e2e/browser-core.e2e.js",
     "test:runtime:e2e": "node tests/e2e/runtime-bridge.e2e.js",
     "test:isolation:e2e": "node tests/e2e/origin-isolation.e2e.js",
+    "pretest:workspace:e2e": "npm --prefix ../../vue-request-app run build",
+    "test:workspace:e2e": "node tests/e2e/workspace-ui.e2e.js",
     "test:streaming": "node --test --test-concurrency=1 tests/unit/response-pipeline.test.js tests/unit/streaming-policy.test.js tests/integration/streaming-contract.test.js",
     "test:runtime": "node --test --test-concurrency=1 tests/unit/browser-preferences.test.js tests/unit/html-rewriter.test.js tests/unit/runtime-bridge.test.js tests/integration/runtime-bridge-contract.test.js",
     "test:websocket": "node --test --test-concurrency=1 tests/unit/websocket-url.test.js tests/unit/websocket-proxy.test.js tests/integration/websocket-contract.test.js",
@@ -26,7 +28,9 @@
     "verify:p1:ci": "node ../../scripts/p1-gate.js --install",
     "verify:p2": "node ../../scripts/p2-gate.js",
     "verify:p2:ci": "node ../../scripts/p2-gate.js --install",
-    "prelint": "node --check api-proxy/requestControls.js && node --check api-proxy/responseDiagnostics.js",
+    "verify:p3": "node ../../scripts/p3-gate.js",
+    "verify:p3:ci": "node ../../scripts/p3-gate.js --install",
+    "prelint": "node --check api-proxy/requestControls.js && node --check api-proxy/responseDiagnostics.js && node --check tests/e2e/workspace-ui.e2e.js && node --check ../../scripts/p3-gate.js",
     "lint": "node --check main.js && node --check app.js && node --check config/defaults.js && node --check config/schema.js && node --check config/loader.js && node --check api-proxy/policy.js && node --check api-proxy/router.js && node --check browser-proxy/cssRewriter.js && node --check browser-proxy/htmlRewriter.js && node --check browser-proxy/policy.js && node --check browser-proxy/preferences.js && node --check browser-proxy/router.js && node --check browser-proxy/runtimeBridge.js && node --check browser-proxy/sessionStateStore.js && node --check browser-proxy/webSocketProxy.js && node --check browser-proxy/webSocketUrl.js && node --check core/deprecation.js && node --check core/redact.js && node --check core/logger.js && node --check core/headers.js && node --check core/errors.js && node --check core/dnsResolver.js && node --check core/originIsolation.js && node --check core/pinnedConnection.js && node --check core/processLifecycle.js && node --check core/proxyExecutor.js && node --check core/requestResources.js && node --check core/responsePipeline.js && node --check core/safeRedirect.js && node --check core/streamingPolicy.js && node --check core/targetValidator.js && node --check core/urlMapper.js && node --check middleware/auth.js && node --check middleware/cors.js && node --check middleware/legacyAdapter.js && node --check middleware/requestLogger.js && node --check tests/e2e/browser-core.e2e.js && node --check tests/e2e/runtime-bridge.e2e.js && node --check tests/e2e/origin-isolation.e2e.js && node --check tests/fixtures/browser-e2e-site.js && node --check tests/fixtures/upstream-server.js && node --check tests/helpers/browser-executable.js && node --check tests/helpers/fixture-dns-preload.js && node --check tests/helpers/proxy-process.js && node --check tests/helpers/proxy-server.js"
   },
   "dependencies": {

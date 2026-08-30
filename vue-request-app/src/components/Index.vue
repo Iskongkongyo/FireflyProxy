@@ -61,13 +61,15 @@
 					<ActionButtons
 						:method="method"
 						:activeTab="activeTab"
+						:environmentName="activeEnvironment?.name || ''"
 						:showDownload="!!downloadUrl"
 						@switch-tab="activeTab = $event"
 						@add-row="addRow(activeTab)"
+						@workspace="openWorkspace"
 						@import-curl="openCurlImport"
 						@copy-curl="copyAsCurl"
 						@copy-page="copy(0)"
-						@copy-api="copy(1)"
+						@copy-api="copyApi"
 						@download="downloadResponse"
 						@history="historyRecords"
 					/>
@@ -79,7 +81,7 @@
 				<RequestBody v-show="activeTab === 'body'" @submit-payload="onReceiveBody" ref="body" />
 
 				<!-- 用户验证 -->
-				<UserAuth v-show="activeTab === 'auth'" @userAuth="handleAuth" ref="userAuth" />
+				<UserAuth v-show="activeTab === 'auth'" ref="userAuth" />
 
 				<div v-show="activeTab === 'redirect'" class="redirect-settings">
 					<el-form label-width="150px">
@@ -135,6 +137,9 @@
 				</template>
 			</el-dialog>
 
+			<WorkspacePanel ref="workspace" @load-request="applySavedRequest"
+				@environment-change="activeEnvironment = $event" />
+
 			<!-- 响应内容 -->
 			<ResponseViewer
 				:type="getViewerType()"
@@ -188,10 +193,12 @@
 		appendQueryRows,
 		createEditorRow,
 		editorRowsToHeaders,
+		normalizeEditorRows,
 		parseEditorRows,
 		serializeEditorRows
 	} from '../utils/requestEditor.mjs';
 	import { exportCurl, parseCurl, requestContainsSecrets, supportsRequestBody } from '../utils/curl.mjs';
+	import { buildRequestBody } from '../utils/requestBody.mjs';
 	import {
 		applyRedirectSettings,
 		elapsedMilliseconds,
@@ -199,12 +206,18 @@
 		parseResponseDiagnostics,
 		responseByteLength
 	} from '../utils/responseDiagnostics.mjs';
+	import {
+		buildAuthorizationHeader,
+		requestUsesSecretVariables,
+		resolveRequestDraft
+	} from '../utils/workspaceModel.mjs';
 
 	import UserAuth from './UserAuth.vue';
 	import RequestBody from './RequestBody.vue';
 	import ActionButtons from './ActionButtons.vue';
 	import ResponseViewer from './ResponseViewer.vue';
 	import ModeSwitcher from './ModeSwitcher.vue';
+	import WorkspacePanel from './WorkspacePanel.vue';
 	export default {
 		name: 'RequestForm',
 		components: {
@@ -212,7 +225,8 @@
 			RequestBody,
 			ActionButtons,
 			ResponseViewer,
-			ModeSwitcher
+			ModeSwitcher,
+			WorkspacePanel
 		},
 		data() {
 			return {
@@ -222,6 +236,7 @@
 				isShow: false, //是否显示
 				activeTab: 'params',
 				redirectSettings: { followRedirects: true, maxRedirects: 5 },
+				activeEnvironment: null,
 				curlDialogVisible: false,
 				curlInput: '',
 				queryParams: {}, // 存储查询参数的对象
@@ -268,7 +283,6 @@
 					headers: [createEditorRow()],
 					params: [createEditorRow()],
 				},
-				auth: '',
 				response: '',
 				contentType: '',
 				resHead: '',
@@ -382,10 +396,11 @@
 					ElMessage.error(error.message);
 				}
 			},
-			getRequestDraft() {
+			getEditorDraft() {
 				return {
 					method: this.method,
-					url: appendQueryRows(this.url, this.tableData.params),
+					url: this.url,
+					params: this.tableData.params,
 					headers: this.tableData.headers,
 					auth: this.$refs.userAuth?.getDraft() || { type: 'none' },
 					redirect: { ...this.redirectSettings },
@@ -394,14 +409,32 @@
 						: { type: 'none' }
 				};
 			},
+			getResolvedRequestDraft() {
+				const draft = resolveRequestDraft(this.getEditorDraft(), this.activeEnvironment);
+				return { ...draft, url: appendQueryRows(draft.url, draft.params) };
+			},
+			openWorkspace() {
+				this.$refs.workspace?.open(this.getEditorDraft());
+			},
+			applySavedRequest(request) {
+				this.method = request.method;
+				this.url = request.url;
+				this.tableData.params = normalizeEditorRows(request.params);
+				this.tableData.headers = normalizeEditorRows(request.headers);
+				this.redirectSettings = normalizeRedirectSettings(request.redirect);
+				this.$refs.userAuth?.applyDraft(request.auth);
+				this.$refs.body?.applyDraft(request.body);
+				this.activeTab = request.body?.type && request.body.type !== 'none' ? 'body' : 'params';
+			},
 			async copyAsCurl() {
 				try {
-					if (!this.patt.test(this.url)) throw new Error('请先输入有效的请求 URL。');
-					const draft = this.getRequestDraft();
+					const editorDraft = this.getEditorDraft();
+					const draft = this.getResolvedRequestDraft();
+					if (!this.patt.test(draft.url)) throw new Error('请先输入可解析为 HTTP(S) 的请求 URL。');
 					const command = exportCurl(draft);
-					if (requestContainsSecrets(draft)) {
+					if (requestContainsSecrets(draft) || requestUsesSecretVariables(editorDraft, this.activeEnvironment)) {
 						await ElMessageBox.confirm(
-							'生成的 cURL 包含认证信息或敏感请求头，复制后请按密码对待。是否继续？',
+							'生成的 cURL 包含认证信息、敏感请求头或已解析的 Secret 环境变量，复制后请按密码对待。是否继续？',
 							'敏感信息提醒',
 							{ type: 'warning', confirmButtonText: '继续复制', cancelButtonText: '取消' }
 						);
@@ -413,28 +446,40 @@
 					ElMessage.error(`复制 cURL 失败：${error.message || error}`);
 				}
 			},
-			copy(patt) {
-
-				if (!this.patt.test(this.url)) {
-					return ElMessage.error('请检查请求URL是否为空或格式有误！');
-				}
-
-				const that = this;
-				if (!this.display && this.$refs.userAuth) {
-					this.$refs.userAuth.handle();
-				}
-				if (patt == 1) {
-					// 复制API接口
+			async copyApi() {
+				try {
+					const editorDraft = this.getEditorDraft();
+					const resolvedDraft = this.getResolvedRequestDraft();
+					if (!this.patt.test(resolvedDraft.url)) throw new Error('解析后的 URL 不是有效 HTTP(S) 地址。');
+					if (requestUsesSecretVariables({
+						url: editorDraft.url,
+						params: editorDraft.params
+					}, this.activeEnvironment)) {
+						await ElMessageBox.confirm(
+							'API 链接会包含已展开的 Secret URL/Params 变量，并可能进入剪贴板或浏览器历史。是否继续？',
+							'Secret URL 提醒',
+							{ type: 'warning', confirmButtonText: '继续复制', cancelButtonText: '取消' }
+						);
+					}
 					const apiUrl = new URL(location.origin);
-					apiUrl.searchParams.append('url', appendQueryRows(that.url, that.tableData.params));
-					apiUrl.searchParams.append('method', that.method);
+					apiUrl.searchParams.append('url', resolvedDraft.url);
+					apiUrl.searchParams.append('method', this.method);
 					apiUrl.searchParams.append('followRedirects', String(this.redirectSettings.followRedirects));
 					apiUrl.searchParams.append('maxRedirects', String(this.redirectSettings.maxRedirects));
-
-					return that.copyLinkToClipboard(
-						apiUrl.href,
-						'API 链接已复制；请求头因安全原因未写入链接。'
-					);
+					await this.copyLinkToClipboard(apiUrl.href, 'API 链接已复制；请求头因安全原因未写入链接。');
+				} catch (error) {
+					if (error === 'cancel' || error === 'close') return;
+					ElMessage.error(error.message || String(error));
+				}
+			},
+			copy(patt) {
+				let resolvedDraft;
+				try {
+					resolvedDraft = this.getResolvedRequestDraft();
+					if (!this.patt.test(resolvedDraft.url)) throw new Error('解析后的 URL 不是有效 HTTP(S) 地址。');
+				} catch (error) {
+					if (patt !== 2) ElMessage.error(error.message || '请检查请求 URL 和环境变量。');
+					return '';
 				}
 
 				// 下面为复制页面链接
@@ -454,9 +499,6 @@
 					return url.href;
 				}
 				this.copyLinkToClipboard(url.href, '当前配置页面链接已复制到剪切板！');
-			},
-			handleAuth(value) {
-				this.auth = value;
 			},
 			historyRecords() {
 				this.$emit('update-message', false);
@@ -523,8 +565,8 @@
 				return null;
 			},
 			// 流媒体请求 - 直接设置src让浏览器处理流式加载
-			streamRequest(proxyUrl) {
-				const mediaType = this.getMediaType(this.url);
+			streamRequest(proxyUrl, targetUrl) {
+				const mediaType = this.getMediaType(targetUrl);
 				if (mediaType === 'video') {
 					this.responseType = 'video';
 					this.responseUrl = proxyUrl;
@@ -567,28 +609,25 @@
 			},
 			async sendRequest() {
 				const display = this.display; //数据展示方式，0为响应内容部分展示，1为跳转新页面展示
-
-				if (!this.patt.test(this.url)) {
-					return ElMessage.error('请检查请求URL格式是否有误！');
+				let resolvedDraft;
+				let requestUrl;
+				try {
+					resolvedDraft = this.getResolvedRequestDraft();
+					requestUrl = resolvedDraft.url;
+					if (!this.patt.test(requestUrl)) throw new Error('解析后的 URL 不是有效 HTTP(S) 地址。');
+					this.latest = supportsRequestBody(resolvedDraft.method)
+						? buildRequestBody(resolvedDraft.body)
+						: { body: null, contentType: '', mode: 'none' };
+				} catch (error) {
+					return ElMessage.error(error.message || '请检查请求 URL、Body 和环境变量。');
 				}
-				if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(this.method.toUpperCase())) {
-					this.latest = null;
-					if (this.$refs.body && !this.$refs.body.buildAndEmit()) return;
-				}
 
-				const requestUrl = appendQueryRows(this.url, this.tableData.params);
 				let headers = [];
-				let upstreamAuthorization = '';
-
-				// 处理子组件Auth请求头内容
-				if (!display && this.$refs.userAuth) {
-					this.$refs.userAuth.handle();
-					upstreamAuthorization = this.auth || '';
-				}
+				let upstreamAuthorization = display ? '' : buildAuthorizationHeader(resolvedDraft.auth);
 
 
 				// 处理自定义Cookie，因Cookie无法手动修改，通过document.cookie将Cookie写入客户端
-				for (let obj of activeEditorRows(this.tableData.headers)) {
+				for (let obj of activeEditorRows(resolvedDraft.headers)) {
 					// 末尾添加“;domain=;path=/;”使得Cookie在当前域名和根目录下生效
 					if (obj && obj.key) { // 确保 obj 和 obj.key 存在
 						if (obj.key.toLowerCase() === 'authorization') {
@@ -617,7 +656,7 @@
 					finHeaders,
 					upstreamAuthorization
 				);
-				const finReqUrl = applyRedirectSettings(proxyTransport.url, this.redirectSettings);
+				const finReqUrl = applyRedirectSettings(proxyTransport.url, resolvedDraft.redirect);
 
 				const records = JSON.parse(localStorage.getItem('history') || "[]");
 				const date = new Date();
@@ -651,9 +690,9 @@
 
 				// 🎬 流媒体模式：对于视频/音频，直接设置src让浏览器流式加载
 				this.resetResponseDiagnostics();
-				if (this.method.toUpperCase() === 'GET' && this.isMediaUrl(this.url) && Object.keys(config.headers).length === 0) {
+				if (this.method.toUpperCase() === 'GET' && this.isMediaUrl(requestUrl) && Object.keys(config.headers).length === 0) {
 					console.log('[Streaming] 检测到流媒体URL，启用流媒体模式');
-					this.streamRequest(finReqUrl);
+					this.streamRequest(finReqUrl, requestUrl);
 					return;
 				}
 
@@ -765,7 +804,7 @@
 					display && display != '0' ? location.href = objectUrl : true;
 					this.responseUrl = objectUrl;
 					this.downloadUrl = objectUrl; // 设置为可下载 URL
-					this.responseFile = 'file.' + this.getFileExtension(this.url); //设置下载文件名
+					this.responseFile = 'file.' + this.getFileExtension(this.responseFinalUrl || this.url); //设置下载文件名
 				} else if (contentType.includes('application/json')) {
 					this.responseType = 'json';
 					this.reader(response.data);

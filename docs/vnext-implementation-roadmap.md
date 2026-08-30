@@ -52,7 +52,7 @@
 | 4.4 | Origin Isolation | 多目标隔离增强 | 4.3 | ✅ |
 | 5.1 | 请求编辑增强 | Params、Body、cURL | 2.8，可并行于 P1 后执行 | ✅ |
 | 5.2 | 响应诊断 | Redirect Chain、Timing | 5.1 | ✅ |
-| 5.3 | Environment 与 Collections | 可复用请求资产 | 5.2 | ⬜ |
+| 5.3 | Environment 与 Collections | 可复用请求资产 | 5.2 | ✅ |
 
 依赖主线：
 
@@ -738,3 +738,17 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 新增 [`api-response-diagnostics-contract.md`](./api-response-diagnostics-contract.md)，并增加参数、安全、链路、Header 防伪/截断、cURL 与前端指标纯函数测试。后端全量 209/209、前端 27/27、lint 与生产构建通过；P0 Gate 5/5、P1 Gate 2/2、P2 Gate 3/3 全部 PASS，Edge 150 三组真实浏览器 E2E 保持通过。生产构建仍只有既有的 3 条 bundle 体积 warning。
 
 下一阶段为 5.3 Environment 与 Collections。
+
+### 第二十七轮执行记录
+
+2026-08-31 已完成 5.3：
+
+- 新增受限 `{{name}}` Environment 模型，可解析 URL、Params、Headers、Body 与 Auth；变量支持递归引用但不执行表达式。非法名称、重复启用项、缺失变量、未闭合模板和循环引用在请求前失败。
+- Environment 可选择 IndexedDB 持久化或仅本标签会话的 Session Storage；活动环境刷新后恢复。Secret 标记只负责遮罩、引用传播与风险确认，不宣称加密；持久化 Secret 前明确提示同源脚本、扩展和本机资料访问风险。
+- 新增工作区抽屉、Folder 与 Saved Request 的创建、加载、覆盖和删除。请求保存 Method、URL、Params、Headers、Body、Auth 与 Redirect；删除 Folder 会把请求移到未分类而不级联删除。
+- Collections 使用 `proxyweb-workspace` IndexedDB v1 的 `environments`、`folders`、`requests`、`meta` Object Store，并为 Saved Request 建立 `folderId` 索引。损坏记录安全忽略，存储不可用时显示受控错误，不回退到 URL 或历史。
+- multipart 只保存文件名占位并剥离 `File` 能力，加载后必须重新选择文件。页面分享与历史保留模板、不保存活动环境或展开后的 Secret；实际发送与 Copy API/cURL 才解析当前环境，cURL 展开 Secret 前继续二次确认。
+- 新增 [`workspace-environment-collections-contract.md`](./workspace-environment-collections-contract.md)、6 项前端模型/存储测试和独立 Edge Workspace E2E；同时建立 `scripts/p3-gate.js`，完整复用 P2 后再验证 Session Environment/Secret、刷新恢复、Folder、IndexedDB 保存与加载。
+- 最终门禁为后端 209/209、前端 33/33、P0 5/5、P1 2/2、P2 3/3、P3 2/2 全部 PASS；Edge 150 的 Browser Core、Runtime/WebSocket、Origin Isolation 与 Workspace 四组真实浏览器流程均通过。生产构建仅保留既有的 3 条 bundle 体积 warning。
+
+Milestone 5 Postman Lite 主线已完成；高级 Worker/Service Worker 兼容仍作为独立后续增强。

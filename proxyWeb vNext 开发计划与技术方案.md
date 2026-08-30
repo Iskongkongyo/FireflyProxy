@@ -6,7 +6,7 @@
 > 基线复核：2026-08-28
 
 > [!IMPORTANT]
-> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8、P2 路线图 4.1–4.4 与 P3 路线图 5.1 已通过自动化验收；P3 其余部分与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
+> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8、P2 路线图 4.1–4.4 与 P3 路线图 5.1–5.3 已通过自动化验收；未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
 
 > 可执行的小阶段、依赖关系和逐阶段完成条件见 [`docs/vnext-implementation-roadmap.md`](./docs/vnext-implementation-roadmap.md)。
 
@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1–4.4 已完成 SSE/Range/Media、最小 Runtime Bridge、安全 WebSocket Proxy 与可选 Origin Isolation，并通过独立 Edge E2E；P3 路线图 5.1–5.2 已完成请求编辑、安全 cURL Import/Export、逐请求 Redirect 控制与响应诊断。高级 Worker/Service Worker 兼容和 Collections 尚未完成。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1–4.4 已完成 SSE/Range/Media、最小 Runtime Bridge、安全 WebSocket Proxy 与可选 Origin Isolation，并通过独立 Edge E2E；P3 路线图 5.1–5.3 已完成请求编辑、安全 cURL Import/Export、逐请求 Redirect 控制、响应诊断、Environment 与 Collections，并通过独立 Workspace Edge E2E。高级 Worker/Service Worker 兼容仍作为独立后续增强。
 
 当前前端主要结构：
 
@@ -1964,6 +1964,8 @@ total
 
 # 48. Environment Variables
 
+> 状态：✅ 已于 2026-08-31 完成路线图 5.3。API 工作台支持受限 `{{name}}` 替换、递归变量、启停与 Secret 标记；缺失、重复、非法和循环引用均在请求前失败。环境可存入 IndexedDB 或仅保留在 Session Storage，持久化 Secret 前有明确未加密风险确认。详细契约见 [`docs/workspace-environment-collections-contract.md`](./docs/workspace-environment-collections-contract.md)。
+
 后续支持：
 
 ```text
@@ -1991,6 +1993,8 @@ Token 默认只存 Local Storage 时需要给出明确提示。
 ---
 
 # 49. Collections
+
+> 状态：✅ 已于 2026-08-31 完成路线图 5.3。IndexedDB v1 保存 Folder 与 Saved Request，覆盖 Name、Method、URL/Params、Headers、Body、Auth 和 Redirect；支持加载、覆盖、删除与未分类迁移。multipart 不保存 `File` 能力，含凭据请求保存前二次确认；本阶段不提供账户或云同步。
 
 暂不复刻 Postman 全部 Collection 功能。
 
@@ -2577,6 +2581,8 @@ SPA Compatibility
 ---
 
 ## Milestone 5 — Postman Lite
+
+> 状态：✅ 已于 2026-08-31 完成路线图 5.1–5.3。请求编辑、Body Types、安全 cURL Import/Export、Redirect/Timing、Environment 与 IndexedDB Collections 已纳入 P3 门禁；详细边界见三份 P3 契约文档。
 
 完成：
 

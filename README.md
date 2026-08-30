@@ -5,7 +5,7 @@
 ![界面预览](./vue-request-app/review.png)
 
 > [!WARNING]
-> P0 网络安全、P1 Browser Core 与 P2 Runtime/WebSocket/Origin Isolation 门禁已通过，但进程内 Session Store、旧查询兼容面和可选隔离部署仍有限制，**不要直接暴露为生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
+> P0 网络安全、P1 Browser Core、P2 Runtime/WebSocket/Origin Isolation 与 P3 本地工作区门禁已通过，但进程内 Session Store、旧查询兼容面和可选隔离部署仍有限制，**不要直接暴露为生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
 
 ## 当前能力
 
@@ -15,7 +15,7 @@
 | 请求体 | none、Raw、JSON、URL 编码表单、逐字段 multipart 文本/文件 |
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | HTTP Status、Final URL、Redirect Chain、可靠 total、实际数据大小、Content-Type、JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
-| 本地功能 | API/网页代理模式切换、独立 Browser 启动页、响应式界面、分享链接、浏览器本地历史记录 |
+| 本地功能 | `{{name}}` Environment、Session/持久化变量、IndexedDB Folder/Saved Request、API/网页代理模式切换、分享链接与本地历史 |
 | 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、Runtime/WebSocket、可选 Origin Isolation、SSE 提前 flush、Range/Media 元数据保持、受限响应变换、流式转发、共享安全网络内核与限流 |
 
 当前 Browser Route 与独立 `/web/browser` 页面已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar、Origin/Referer 映射和可折叠兼容设置；静态/SSR、跨 CDN、表单、302 登录、Cookie、Range、下载、SSE、常见 SPA 动态请求和 WebSocket 已进入真实浏览器门禁。高级 Worker/Service Worker 兼容仍属于后续 vNext 阶段。
@@ -48,8 +48,9 @@ proxyWeb/
 │   ├── origin-isolation-threat-model.md # Origin Isolation 部署与威胁模型
 │   ├── request-editor-curl-contract.md  # API 编辑器与 cURL 安全契约
 │   ├── api-response-diagnostics-contract.md # Redirect 控制与响应诊断契约
+│   ├── workspace-environment-collections-contract.md # 本地工作区与 Secret 边界
 │   └── vnext-implementation-roadmap.md  # vNext 分阶段实施路线图
-├── scripts/                             # P0/P1 一键门禁
+├── scripts/                             # P0–P3 一键门禁
 └── proxyWeb vNext 开发计划与技术方案.md
 ```
 
@@ -164,13 +165,14 @@ npm run build
 - 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
 - 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
+- Environment/Collections 只保存在浏览器 IndexedDB 或 Session Storage，没有账号同步或加密。Secret 标记只是遮罩和风险提示；页面分享/历史保留 `{{变量}}` 而不展开值，实际发送、Copy API/cURL 会解析当前环境。保存持久化 Secret 或含凭据请求前必须确认，详细边界见 [工作区契约](./docs/workspace-environment-collections-contract.md)。
 - CORS 使用显式 Origin allowlist；非法或未授权 Origin 会被拒绝，无 Origin 请求不会获得 CORS 响应头。`allowCredentials: true` 与 `allowedOrigins: ["*"]` 的组合会在配置加载时被拒绝。
 - `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
 - Express Session 与 Browser SessionStateStore 当前都使用进程内存，不适合多实例或长期生产运行；服务端 Jar 也无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
 
-P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)、[P1 Browser Core 验收矩阵](./docs/p1-verification-matrix.md) 和 [P2 验收矩阵](./docs/p2-runtime-verification-matrix.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
+P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)、[P1 Browser Core 验收矩阵](./docs/p1-verification-matrix.md) 和 [P2 验收矩阵](./docs/p2-runtime-verification-matrix.md)；P3 本地资产边界见 [工作区契约](./docs/workspace-environment-collections-contract.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
 
-## P0 / P1 / P2 自动化门禁
+## P0 / P1 / P2 / P3 自动化门禁
 
 从仓库根目录执行完整的锁文件安装与验收：
 
@@ -178,7 +180,7 @@ P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 �
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 209 项测试与语法检查、前端 27 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 209 项测试与语法检查、前端 33 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 P1 门禁是 P0 的严格超集，并追加 Playwright Core 真实浏览器验收：
 
@@ -195,6 +197,14 @@ node scripts/p2-gate.js --install
 ```
 
 专项也可在后端目录分别执行 `npm run test:runtime`、`npm run test:websocket`、`npm run test:runtime:e2e` 与 `npm run test:isolation:e2e`。
+
+P3 门禁完整复用 P2，并追加 Environment/Collections 的真实浏览器 IndexedDB 工作流：
+
+```powershell
+node scripts/p3-gate.js --install
+```
+
+工作区专项可在后端目录单独执行 `npm run test:workspace:e2e`；它会先重新构建前端，避免验证陈旧产物。
 
 SSE、Range、媒体和大附件可在后端目录单独快速复核：
 
@@ -214,6 +224,7 @@ npm run test:streaming
 - [Origin Isolation 威胁模型](./docs/origin-isolation-threat-model.md)
 - [请求编辑器与 cURL 契约](./docs/request-editor-curl-contract.md)
 - [API Redirect 与响应诊断契约](./docs/api-response-diagnostics-contract.md)
+- [Environment 与 Collections 契约](./docs/workspace-environment-collections-contract.md)
 
 ## 许可证状态
 

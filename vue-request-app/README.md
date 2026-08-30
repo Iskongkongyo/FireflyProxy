@@ -14,6 +14,7 @@
 - HTTP Status、可靠 total、实际响应大小、Content-Type、JSON/文本、响应头、图片、音视频和下载响应展示。
 - 复制页面配置链接、复制代理 API 链接。
 - 安全 Import cURL 与 POSIX Shell 格式的 Copy as cURL。
+- URL/Params/Headers/Body/Auth 的 `{{name}}` Environment，以及 IndexedDB Folder/Saved Request。
 - 使用 `localStorage` 保存请求历史。
 - PC 与移动端布局。
 - “API 请求 / 网页代理”模式切换和独立 `/web/browser` 启动页。
@@ -70,7 +71,7 @@ npm run build
 
 1. 输入包含 `http://` 或 `https://` 的完整目标 URL。
 2. 选择 HTTP 方法。
-3. 在“请求参数”“请求头”“请求验证”和“重定向”中补充配置；每行可独立启停。Redirect 设置只能关闭或收紧后端全局策略。非 GET/HEAD 请求可在“请求体”中选择 none、Raw、JSON、URL 编码或 multipart，并为 multipart 文件字段逐项选择本地文件。
+3. 在“请求参数”“请求头”“请求验证”和“重定向”中补充配置；每行可独立启停。Redirect 设置只能关闭或收紧后端全局策略。非 GET/HEAD 请求可在“请求体”中选择 none、Raw、JSON、URL 编码或 multipart，并为 multipart 文件字段逐项选择本地文件。需要复用目标或凭据时，可在“工作区”创建 Environment 并使用 `{{baseUrl}}`、`{{token}}` 等变量。
 4. 点击“发送请求”，在下方查看 Status、Final URL、Redirect Chain、Content-Type、total、实际数据大小、内容与响应头。
 
 “Import cURL”只解析静态 HTTP(S) cURL 文本，不运行 Shell、读取路径或发起请求；导入的 `@file` 必须在文件选择器中重新授权。它支持 `-L`/`--location` 与 0–20 的 `--max-redirs`。“Copy as cURL”输出 POSIX Shell 单引号转义格式，若包含 Auth 或敏感 Header 会先二次确认。PowerShell/`cmd.exe` 不能保证直接复用该格式，完整契约见 [请求编辑器与 cURL 契约](../docs/request-editor-curl-contract.md) 和 [Redirect/响应诊断契约](../docs/api-response-diagnostics-contract.md)。
@@ -95,6 +96,15 @@ Duration 使用单调时钟统计 Axios 分派至完整响应体读取的客户�
 后端仍兼容旧代理 URL 的 `headers` 查询参数，但会返回弃用提示；新版前端不再生成它。清理旧数据时可在“历史”页面点击“清空所有”，也可清除该站点的浏览器存储。
 
 API 请求页的手工 Cookie 输入仍属于旧兼容行为，不等价于 Browser Cookie Jar。网页代理页使用后端按 Session 隔离的 upstream Cookie Jar，但服务端 Jar 无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
+
+## Environment 与 Collections
+
+“工作区”抽屉支持 Environment、Folder 和 Saved Request。环境变量只进行受限文本替换，不执行 JavaScript/Shell；缺失、重复、非法、未闭合或循环变量会阻止发送。实际发送和 Copy API/cURL 使用当前环境展开，页面分享与历史只保留原始模板，不携带活动环境值。
+
+Environment 可选择 IndexedDB 持久化或仅当前标签会话的 Session Storage。Collections 使用 `proxyweb-workspace` IndexedDB 保存 Name、Method、URL/Params、Headers、Body、Auth 和 Redirect。删除 Folder 会把内部请求移到未分类；multipart 只保存文件名占位，加载后必须重新选择文件。
+
+> [!WARNING]
+> Secret 标记仅提供遮罩、风险识别与二次确认，不提供加密。IndexedDB 和 Session Storage 中的数据都可能被同源脚本、扩展或可访问浏览器资料的本机用户读取。本阶段没有账号/云同步、主密码、Keychain 或团队 Secret Vault。完整边界见 [Environment 与 Collections 契约](../docs/workspace-environment-collections-contract.md)。
 
 ## 构建与部署
 
@@ -122,6 +132,7 @@ vue-request-app/
 │   │   ├── ActionButtons.vue
 │   │   ├── RequestBody.vue
 │   │   ├── ResponseViewer.vue
+│   │   ├── WorkspacePanel.vue # Environment 与 Collections 工作区
 │   │   ├── UserAuth.vue
 │   │   └── History.vue
 │   ├── plugins/             # Element Plus 图标
@@ -138,12 +149,13 @@ vue-request-app/
 
 ## 当前限制
 
-- 已有 27 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、请求行/Body/cURL、Redirect 控制、诊断解析、UTF-8 大小/total、Browser URL/偏好构造和 iframe Origin 边界；仓库级 P1/P2 门禁已通过真实 Chromium 覆盖 Browser Core、Runtime/WebSocket 与 Origin Isolation 页面链路。Vue 组件挂载级测试仍未单独引入。
+- 已有 33 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、请求行/Body/cURL、Redirect/诊断、Environment 解析/Secret 传播、IndexedDB Schema/CRUD、Browser URL/偏好构造和 iframe Origin 边界；P3 门禁在完整 P2 回归后通过真实 Edge 验证 Session Environment、刷新恢复、Folder、IndexedDB Saved Request 与加载。Vue 组件挂载级测试仍未单独引入。
 - Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
 - 无自定义 Header 的扩展名音视频会由原生媒体元素直接流式加载，不经 Axios，因此当前不显示可靠的 Status、Final URL、Redirect Chain、Duration 或 Response Size；可使用浏览器 Network 面板诊断。
 - API 请求页仍把 HTML 响应作为文本或 Blob 处理；只有独立网页代理页会进入后端 HTML/CSS/Location Rewrite。
 - API 请求页手工 Cookie 仍是旧兼容行为，不能完整复现 cURL Cookie 语义；网页代理 Cookie 请使用后端 Session Jar。
+- 工作区没有多标签实时冲突合并、Collection 导入/导出、Runner、测试脚本、账号同步或加密；最后一次成功写入生效。
 - 项目只包含 Node.js 后端，没有 Python 后端。
 
 完整改造范围见 [vNext 开发计划](../proxyWeb%20vNext%20开发计划与技术方案.md)。
