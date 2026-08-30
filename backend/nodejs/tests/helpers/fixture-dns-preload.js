@@ -4,6 +4,12 @@ const originalLookup = dns.lookup.bind(dns);
 const dnsPromises = dns.promises;
 const originalPromisesLookup = dnsPromises.lookup.bind(dnsPromises);
 const fixtureHostname = (process.env.PROXYWEB_FIXTURE_HOST || "fixture.test").toLowerCase();
+const fixtureHostnames = new Set(
+    (process.env.PROXYWEB_FIXTURE_HOSTS || fixtureHostname)
+        .split(",")
+        .map(value => normalizeHostname(value.trim()))
+        .filter(Boolean)
+);
 const fixtureAddress = process.env.PROXYWEB_FIXTURE_ADDRESS || "127.0.0.1";
 const fixtureValidationAddress = process.env.PROXYWEB_FIXTURE_VALIDATION_ADDRESS || "93.184.216.34";
 
@@ -30,7 +36,7 @@ dns.lookup = function lookup(hostname, options, callback) {
     }
 
     const normalizedHostname = normalizeHostname(hostname);
-    if (normalizedHostname !== fixtureHostname) {
+    if (!fixtureHostnames.has(normalizedHostname)) {
         return originalLookup(hostname, options, callback);
     }
 

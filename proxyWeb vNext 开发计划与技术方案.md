@@ -6,7 +6,7 @@
 > 基线复核：2026-08-28
 
 > [!IMPORTANT]
-> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0 条目及路线图 2.8 已通过自动化验收；P1、P2、P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
+> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8 与 3.8 已通过自动化验收；P2、P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
 
 > 可执行的小阶段、依赖关系和逐阶段完成条件见 [`docs/vnext-implementation-roadmap.md`](./docs/vnext-implementation-roadmap.md)。
 
@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 已于 2026-08-29 达到 Definition of Done；P1 已完成路线图 3.1–3.7 的 Browser Core 与 Browser UI（含 HTML/CSS/Location Rewrite、Cookie Jar、Header Policy 和独立启动页），P1 E2E、WebSocket 和 Runtime Bridge 尚未完成。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E。WebSocket、Runtime Bridge、高级 SPA 和 Origin Isolation 尚未完成。
 
 当前前端主要结构：
 
@@ -1517,7 +1517,7 @@ fallback 到原 BASE_URL
 
 # 36. P1-6. API Mode 与 Browser Mode 分路由
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.7。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML/CSS/Location Rewrite、Session Cookie Jar、Origin/Referer 与安全 Header Policy、受限 Response Transform Pipeline、独立 Browser UI，以及带标准弃用响应头的 Legacy Adapter；下一步进入 P1 E2E。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.8。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML/CSS/Location Rewrite、Session Cookie Jar、Origin/Referer 与安全 Header Policy、受限 Response Transform Pipeline、独立 Browser UI，以及带标准弃用响应头的 Legacy Adapter；上述边界已进入 P1 Playwright E2E 门禁。
 
 推荐：
 
@@ -1539,6 +1539,8 @@ Legacy：
 ---
 
 # 37. P1 Definition of Done
+
+> 状态：✅ 已于 2026-08-30 通过路线图 3.8。`scripts/p1-gate.js --install` 先执行完整 P0 回归，再以 Playwright Core 驱动本机 Chromium 验证以下页面/资源场景与核心不变量；逐项证据见 [`docs/p1-verification-matrix.md`](./docs/p1-verification-matrix.md)。
 
 必须通过：
 
@@ -2514,6 +2516,8 @@ Log Redaction
 ---
 
 ## Milestone 3 — Browser Core
+
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.8，并通过 P1 Browser Core 自动化验收矩阵。此状态不包含 Runtime Bridge、WebSocket、高级 SPA 或多 upstream Origin Isolation。
 
 完成：
 

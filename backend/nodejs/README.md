@@ -3,7 +3,7 @@
 这是当前 API 代理的 Node.js 实现，基于 Express 和 Axios。`main.js` 只负责进程启动、异常记录和优雅关闭，`app.js` 通过 `createApp()` 创建可注入配置、可显式关闭的 Express runtime。API、Browser 与 Legacy Adapter 已分路由，并复用同一套 URL/DNS/Pinning/Redirect 安全执行器；各模式拥有独立 Header、响应与 CORS 策略。
 
 > [!WARNING]
-> P0 网络安全与基础架构门禁已通过，但当前实现仍以本地开发和受信网络测试为定位，**尚不适合作为生产级开放代理**。请先阅读“当前安全限制”和 [P0 验收矩阵](../../docs/p0-verification-matrix.md)。
+> P0 网络安全门禁与 P1 Browser Core E2E 门禁已通过，但当前实现仍以本地开发和受信网络测试为定位，**尚不适合作为生产级开放代理**。请先阅读“当前安全限制”、[P0 验收矩阵](../../docs/p0-verification-matrix.md) 和 [P1 验收矩阵](../../docs/p1-verification-matrix.md)。
 
 ## 运行结构
 
@@ -229,6 +229,8 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 路线图 3.7 已完成 Browser UI 与受限启动偏好：前端 `/web/browser` 默认用 `noopener,noreferrer` 新标签页打开目标，提供独立模式切换、URL 校验、可折叠兼容设置以及安全/兼容限制提示。只有 Browser Proxy 与管理 UI 不同 Origin 时才允许 sandbox iframe 预览；即使跨 Origin，iframe 仍可能受第三方 Cookie 和目标站防嵌入策略影响。`VUE_APP_PROXY_API_URL` 与 `VUE_APP_PROXY_BROWSE_URL` 可分别部署，缺省时保持旧 `VUE_APP_PROXY_URL` 回退行为。
 
+路线图 3.8 已完成 P1 Browser Core E2E：`playwright-core` 驱动本机 Edge/Chrome/Chromium，访问两个本地虚拟 upstream origin，强制验证静态/SSR 页面、多 CSS/图片、跨 CDN 图片与脚本、GET/POST 表单、302 登录、Cookie Session、字体、MP4 Range、下载和 SSE。HTML/CSS/Location 不逃回 upstream、跨 origin Token 隔离和二进制逐字节直通也属于门禁条件；失败会保留截图、HTML、浏览器错误、失败请求与代理日志。
+
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
 1. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
@@ -285,12 +287,15 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 | `npm test` | 运行全部测试，串行执行集成用例 |
 | `npm run test:unit` | 运行本地 Fixture 单元测试 |
 | `npm run test:integration` | 运行当前代理行为契约测试 |
+| `npm run test:e2e` | 使用本机 Chromium 浏览器运行 P1 Browser Core E2E |
 | `npm run lint` | 检查生产入口与测试辅助脚本语法 |
 | `npm run verify:p0` | 运行前后端完整 P0 门禁（复用已安装依赖） |
 | `npm run verify:p0:ci` | 先执行两端 `npm ci`，再运行完整 P0 门禁 |
+| `npm run verify:p1` | 运行 P0 回归与 Browser Core E2E |
+| `npm run verify:p1:ci` | 从两端 `npm ci` 开始运行完整 P1 门禁 |
 
-测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离与 Origin/Referer 映射，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。
+测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离与 Origin/Referer 映射，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载与 SSE。
 
 后端当前 166 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
-路线图 2.8 的干净安装门禁已于 2026-08-29 通过 7/7：前后端 `npm ci`、后端测试与语法检查、前端测试、lint 和生产构建全部成功。逐项 DoD 与测试位置见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。
+路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁于 2026-08-30 在完整 P0 回归后通过真实浏览器 E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md) 与 [P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

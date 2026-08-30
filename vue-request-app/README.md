@@ -131,7 +131,7 @@ vue-request-app/
 
 ## 当前限制
 
-- 已有 7 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、Browser URL/偏好构造和 iframe Origin 边界；完整组件/E2E 测试在 3.8 阶段补充。
+- 已有 7 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、Browser URL/偏好构造和 iframe Origin 边界；仓库级 P1 门禁已通过真实 Chromium 覆盖 Browser Core 页面链路。Vue 组件挂载级测试仍未单独引入。
 - Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
 - API 请求页仍把 HTML 响应作为文本或 Blob 处理；只有独立网页代理页会进入后端 HTML/CSS/Location Rewrite。

@@ -5,7 +5,7 @@
 ![界面预览](./vue-request-app/review.png)
 
 > [!WARNING]
-> P0 网络安全与基础架构门禁已通过，但进程内 Session Store、旧查询兼容面和后续 Browser 隔离仍有限制，**不要直接暴露为生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
+> P0 网络安全门禁和 P1 Browser Core E2E 门禁已通过，但进程内 Session Store、旧查询兼容面和后续 Browser 隔离仍有限制，**不要直接暴露为生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
 
 ## 当前能力
 
@@ -18,7 +18,7 @@
 | 本地功能 | API/网页代理模式切换、独立 Browser 启动页、响应式界面、分享链接、浏览器本地历史记录 |
 | 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、受限响应变换、流式转发、共享安全网络内核与限流 |
 
-当前 Browser Route 与独立 `/web/browser` 页面已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar、Origin/Referer 映射和可折叠兼容设置，但还没有完整的网页反向代理能力；WebSocket 和 SPA 动态请求兼容仍属于后续 vNext 阶段。
+当前 Browser Route 与独立 `/web/browser` 页面已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar、Origin/Referer 映射和可折叠兼容设置；静态/SSR、跨 CDN、表单、302 登录、Cookie、Range、下载和 SSE 已进入真实浏览器门禁。WebSocket 和 SPA 动态请求兼容仍属于后续 vNext 阶段。
 
 ## 目录结构
 
@@ -42,7 +42,10 @@ proxyWeb/
 │   ├── package.json
 │   └── README.md                # 前端说明
 ├── docs/
+│   ├── p0-verification-matrix.md        # P0 安全门禁证据
+│   ├── p1-verification-matrix.md        # P1 Browser Core E2E 证据
 │   └── vnext-implementation-roadmap.md  # vNext 分阶段实施路线图
+├── scripts/                             # P0/P1 一键门禁
 └── proxyWeb vNext 开发计划与技术方案.md
 ```
 
@@ -152,9 +155,9 @@ npm run build
 - `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
 - Express Session 与 Browser SessionStateStore 当前都使用进程内存，不适合多实例或长期生产运行；服务端 Jar 也无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
 
-P0 的逐项证据见 [自动化验收矩阵](./docs/p0-verification-matrix.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
+P0 与 P1 的逐项证据分别见 [P0 自动化验收矩阵](./docs/p0-verification-matrix.md) 和 [P1 Browser Core 验收矩阵](./docs/p1-verification-matrix.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
 
-## P0 自动化门禁
+## P0 / P1 自动化门禁
 
 从仓库根目录执行完整的锁文件安装与验收：
 
@@ -164,6 +167,14 @@ node scripts/p0-gate.js --install
 
 已完成依赖安装时可省略 `--install`。当前门禁会执行后端 166 项测试与语法检查、前端 7 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
+P1 门禁是 P0 的严格超集，并追加 Playwright Core 真实浏览器验收：
+
+```powershell
+node scripts/p1-gate.js --install
+```
+
+Playwright Core 不自动下载浏览器；门禁会寻找本机 Edge、Chrome 或 Chromium，也可通过 `PROXYWEB_E2E_BROWSER_PATH` 指定。找不到浏览器会失败而不是跳过，详细场景与失败诊断见 [P1 验收矩阵](./docs/p1-verification-matrix.md)。
+
 ## 文档索引
 
 - [前端 README](./vue-request-app/README.md)
@@ -171,6 +182,7 @@ node scripts/p0-gate.js --install
 - [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)
 - [vNext 分阶段实施路线图](./docs/vnext-implementation-roadmap.md)
 - [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)
+- [P1 Browser Core 自动化验收矩阵](./docs/p1-verification-matrix.md)
 
 ## 许可证状态
 

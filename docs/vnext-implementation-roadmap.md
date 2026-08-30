@@ -45,7 +45,7 @@
 | 3.5 | CSS 与 Location Rewrite | 样式资源和跳转可用 | 3.4 | ✅ |
 | 3.6 | Cookie Jar 与 Header Policy | 会话及上游语义映射 | 3.5 | ✅ |
 | 3.7 | Browser UI | 独立入口与兼容设置 | 3.6 | ✅ |
-| 3.8 | P1 E2E 门禁 | Browser Core 可验收 | 3.7 | ⬜ |
+| 3.8 | P1 E2E 门禁 | Browser Core 可验收 | 3.7 | ✅ |
 | 4.1 | SSE 与 Range/Media | 实时流与媒体拖动可靠 | 3.8 | ⬜ |
 | 4.2 | Runtime Bridge | 常见 SPA 动态请求可映射 | 4.1 | ⬜ |
 | 4.3 | WebSocket | WS/WSS 安全代理 | 4.2 | ⬜ |
@@ -643,3 +643,18 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 新增前端 Browser URL/偏好/iframe Origin 工具测试，以及后端偏好解析、全局上限和真实 Session 路由测试；后端 166 项、前端 7 项测试通过，lint 和生产构建继续纳入统一门禁。
 
 下一阶段为 3.8 P1 E2E 门禁。
+
+### 第二十轮执行记录
+
+2026-08-30 已完成 3.8：
+
+- 新增本地 `browser-e2e-site.js`，以动态端口同时承载 `fixture.test` 与 `cdn.test` 两个虚拟 upstream origin；测试 DNS 预加载器支持显式多 hostname 连接映射，验证阶段仍返回独立公网地址记录，不访问公网或修改系统 hosts。
+- 新增基于 `playwright-core` 的 `browser-core.e2e.js`，自动查找 Edge、Chrome 或 Chromium，也允许通过 `PROXYWEB_E2E_BROWSER_PATH` 指定；缺少浏览器时稳定失败，不以 skip 伪装通过。
+- 真实浏览器场景覆盖普通静态页、SSR、多 CSS/图片、跨 CDN 图片与脚本、链接、GET/POST 表单、302 登录页、Cookie Session、图片、字体、MP4 Range、下载和 SSE；登录后 reload 继续命中服务端 upstream Cookie Jar。
+- 强制遍历 HTML URL 属性并校验不包含 upstream host，检查 CSS 计算样式的 Canonical URL、Location 跳转全程留在 Browser Route、跨 origin Token 不复用，以及 PNG/WOFF2/Range/附件逐字节不变。
+- E2E 失败会在系统临时目录保留页面截图、HTML、console/page error、失败请求和代理日志；成功后安全清理临时目录。`playwright-core` 不下载浏览器，避免将浏览器二进制隐式加入 npm 安装。
+- 新增 `scripts/p1-gate.js`。P1 门禁先完整执行 P0 回归，再执行 Browser Core E2E；支持带两端 `npm ci` 的 `--install` 模式，后端提供 `test:e2e`、`verify:p1` 与 `verify:p1:ci` 等价入口。
+- 新增 [`docs/p1-verification-matrix.md`](./p1-verification-matrix.md)，逐项映射总体方案第 37 节的 15 类页面/资源场景与 6 项核心不变量。
+- 后端 166 项、前端 7 项回归继续通过，P0 Gate 5/5、P1 Gate 2/2 与 Edge 真实浏览器场景全部 PASS；两端生产依赖经 npm 官方安全公告库审计均为 0 个已知漏洞。前端生产构建仍只有既有的 3 条 bundle 体积 warning。
+
+下一阶段为 4.1 SSE 与 Range/Media 专项可靠性。

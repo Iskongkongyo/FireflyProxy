@@ -124,6 +124,7 @@ async function startProxy(overrides = {}, options = {}) {
         env: {
             ...process.env,
             PROXYWEB_FIXTURE_HOST: "fixture.test",
+            PROXYWEB_FIXTURE_HOSTS: (options.fixtureHosts || ["fixture.test"]).join(","),
             PROXYWEB_FIXTURE_ADDRESS: "127.0.0.1",
             PROXYWEB_FIXTURE_VALIDATION_ADDRESS: "93.184.216.34",
             PROXYWEB_VALIDATION_DNS_RECORDS: JSON.stringify(options.dnsRecords || {})
