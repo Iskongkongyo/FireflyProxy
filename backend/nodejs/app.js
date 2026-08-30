@@ -12,6 +12,7 @@ const chokidar = require("chokidar");
 const session = require("express-session");
 const { createApiRouter } = require("./api-proxy/router");
 const { createBrowserRouter } = require("./browser-proxy/router");
+const { RUNTIME_BRIDGE_PATH, createRuntimeBridgeHandler } = require("./browser-proxy/runtimeBridge");
 const { createSessionStateStore } = require("./browser-proxy/sessionStateStore");
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
@@ -173,7 +174,8 @@ app.use(session({
 const corsMiddleware = createCorsMiddleware({ getConfig: () => config });
 app.use((req, res, next) => {
     const browserRoute = req.path === "/__proxyweb/browser"
-        || req.path.startsWith("/__proxyweb/browser/");
+        || req.path.startsWith("/__proxyweb/browser/")
+        || req.path === RUNTIME_BRIDGE_PATH;
     if (browserRoute) return next();
     return corsMiddleware(req, res, next);
 });
@@ -213,6 +215,7 @@ const proxyExecutor = createProxyExecutor({
 });
 
 app.use("/__proxyweb/api", createApiRouter({ proxyExecutor }));
+app.get(RUNTIME_BRIDGE_PATH, createRuntimeBridgeHandler({ getConfig: () => config }));
 app.use("/__proxyweb/browser", createBrowserRouter({
     proxyExecutor,
     getConfig: () => config,

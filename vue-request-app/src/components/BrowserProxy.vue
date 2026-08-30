@@ -79,12 +79,12 @@
                                 </div>
                                 <el-switch v-model="preferences.compatHeaders" />
                             </div>
-                            <div class="setting-row disabled-setting">
+                            <div class="setting-row">
                                 <div>
                                     <strong>Runtime Bridge</strong>
-                                    <span>尚未实现，将在 P2 阶段提供</span>
+                                    <span>映射 fetch、XHR、EventSource、window.open 与 History 动态 URL</span>
                                 </div>
-                                <el-switch :model-value="false" disabled />
+                                <el-switch v-model="preferences.runtimeBridge" />
                             </div>
                             <el-alert
                                 title="这些开关只能关闭服务器已允许的能力，不能绕过后端全局配置。最近一次启动设置会应用到同一 Browser Session。"
@@ -235,10 +235,6 @@ header p {
 .setting-row span {
     color: #909399;
     font-size: 13px;
-}
-
-.disabled-setting {
-    opacity: 0.65;
 }
 
 .preview-shell {

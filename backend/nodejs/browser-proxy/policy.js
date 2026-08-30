@@ -110,9 +110,14 @@ const browserPolicy = Object.freeze({
         );
     },
     filterResponseHeaders: filterBrowserResponseHeaders,
-    transformResponseText({ text, mediaType, targetUrl }) {
+    transformResponseText({ text, mediaType, targetUrl, config }) {
         if (mediaType === "text/html" || mediaType === "application/xhtml+xml") {
-            return rewriteHtml({ html: text, documentUrl: targetUrl, mediaType });
+            return rewriteHtml({
+                html: text,
+                documentUrl: targetUrl,
+                mediaType,
+                runtimeBridge: config.browser.runtimeBridge
+            });
         }
         if (mediaType === "text/css") {
             return rewriteCss({ css: text, stylesheetUrl: targetUrl });

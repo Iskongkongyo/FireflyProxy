@@ -87,7 +87,7 @@ npm start
 }
 ```
 
-完整模板还包含 `browser` 段。`browser.enabled`、`browser.headerPolicy`、`browser.cookieJar`、`rewriteHtml` 与 `rewriteCss` 已用于 Browser Route；两个 Rewrite 开关分别控制 HTML 与 CSS URL 重写。`browser.maxRedirects` 为旧 Browser 服务端跟随行为兼容保留；当前 Browser 3xx 只验证并改写 Location，由客户端逐跳处理。Runtime Bridge 字段仍是预留，不能据此认为对应功能已经实现。`security.blockedHostnames` 已用于目标主机校验；任何模式都不能绕过现有安全检查。
+完整模板还包含 `browser` 段。`browser.enabled`、`browser.headerPolicy`、`browser.cookieJar`、`rewriteHtml`、`rewriteCss` 与 `runtimeBridge` 已用于 Browser Route；Runtime Bridge 默认关闭且依赖 HTML Rewrite。`browser.maxRedirects` 为旧 Browser 服务端跟随行为兼容保留；当前 Browser 3xx 只验证并改写 Location，由客户端逐跳处理。`security.blockedHostnames` 已用于目标主机校验；任何模式和动态请求都不能绕过现有安全检查。
 
 | 字段 | 类型/单位 | 当前行为 |
 | --- | --- | --- |
@@ -117,6 +117,7 @@ npm start
 | `browser.headerPolicy` | `compat` / `preserve` / `strict` | `compat` 移除不兼容的安全策略头；`preserve` 保留；`strict` 是保留策略兼容值；可热加载 |
 | `browser.rewriteHtml` | Boolean | 是否启用 HTML/XHTML URL 重写；关闭时保持原始流式响应；可热加载 |
 | `browser.rewriteCss` | Boolean | 是否启用 CSS `url()` 与 `@import` AST 重写；关闭时保持原始流式响应；可热加载 |
+| `browser.runtimeBridge` | Boolean | 是否注入动态 URL Bridge；默认 `false`，仅在有效 HTML Rewrite 下生效；可热加载 |
 
 ### 旧配置迁移
 
@@ -188,9 +189,9 @@ ANY /__proxyweb/browser?url=<percent-encoded-target>
 
 Canonical 子路径可逆映射到唯一 upstream origin；不同 origin 的资源使用不同 Token，不依赖或修改 Legacy Session。Token 只是路由标识，不是凭据，也不是 SSRF allowlist：每次 Canonical 请求仍会重新执行 URL、DNS Pinning、资源限制和 Redirect 安全内核。畸形、非规范或非 HTTP(S) Token 返回 400 `PROXY_BROWSER_URL_INVALID`，Canonical 路径会规范化 dot segment，并保持 percent-encoded path、查询参数和客户端 Fragment 映射。
 
-Browser Canonical 查询字符串全部属于上游，即使字段名为 `method` 或 `headers` 也不会触发 API/Legacy 查询控制功能。Browser Mode 不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除 CSP/CSP-Report-Only、X-Frame-Options、CORP/COOP/COEP 与 Clear-Site-Data，`preserve` 会保留，`strict` 保持原有的保留语义。开启 `rewriteHtml` 时，Cheerio 会解析 HTML/XHTML，并把 allowlist 属性、`srcset`、第一个 `<base>` 的有效 HTTP(S) 地址、Meta Refresh、style 属性和 `<style>` CSS 映射到 Canonical Browser URL。开启 `rewriteCss` 时，PostCSS AST 会重写样式表声明中的 `url()` 与 `@import`，相对地址基于 CSS 文件自身 URL。Browser 301/302/303/307/308 不在服务端继续请求：目标先经过 URL/SSRF/DNS 校验，再把 Location 映射成 Canonical URL 交由浏览器处理。开启 Cookie Jar 时，上游 Cookie 按 proxyWeb Session 与 upstream Domain/Path/Secure/Expiry 隔离；上游 `Set-Cookie` 不会泄露到 proxyWeb 域。Canonical Origin/Referer 会映射回来源 upstream，跨 CDN 请求仍保留页面源站语义。WebSocket 和脚本产生的动态请求尚未实现，因此仍不能作为完整网页代理使用。
+Browser Canonical 查询字符串全部属于上游，即使字段名为 `method` 或 `headers` 也不会触发 API/Legacy 查询控制功能。Browser Mode 不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除 CSP/CSP-Report-Only、X-Frame-Options、CORP/COOP/COEP 与 Clear-Site-Data，`preserve` 会保留，`strict` 保持原有的保留语义。开启 `rewriteHtml` 时，Cheerio 会解析 HTML/XHTML，并把 allowlist 属性、`srcset`、第一个 `<base>` 的有效 HTTP(S) 地址、Meta Refresh、style 属性和 `<style>` CSS 映射到 Canonical Browser URL。开启 `rewriteCss` 时，PostCSS AST 会重写样式表声明中的 `url()` 与 `@import`，相对地址基于 CSS 文件自身 URL。开启 `runtimeBridge` 时，HTML `<head>` 最前方注入 `/__proxyweb/runtime.js`，映射 Request/fetch、XHR、EventSource、window.open 和 History 动态 URL；WebSocket Upgrade 尚未实现。Browser 301/302/303/307/308 不在服务端继续请求：目标先经过 URL/SSRF/DNS 校验，再把 Location 映射成 Canonical URL 交由浏览器处理。开启 Cookie Jar 时，上游 Cookie 按 proxyWeb Session 与 upstream Domain/Path/Secure/Expiry 隔离；上游 `Set-Cookie` 不会泄露到 proxyWeb 域。Canonical Origin/Referer 会映射回来源 upstream，跨 CDN 请求仍保留页面源站语义。
 
-Browser UI 可在入口请求中发送 `rewriteHtml`、`rewriteCss`、`cookieJar` 与 `compatHeaders` 布尔偏好。偏好保存在签名后的当前 Browser Session 中，最近一次入口启动对该 Session 的后续 Canonical/跨 origin 子请求生效。所有偏好都只能收紧全局配置：无法启用服务器关闭的 Rewrite/Cookie Jar，也无法把全局 `preserve`/`strict` 降级成 `compat`；重复值或非 `true`/`false` 参数返回 400 `PROXY_BROWSER_URL_INVALID`。不带偏好的入口会清除旧偏好并恢复服务器配置。
+Browser UI 可在入口请求中发送 `rewriteHtml`、`rewriteCss`、`runtimeBridge`、`cookieJar` 与 `compatHeaders` 布尔偏好。偏好保存在签名后的当前 Browser Session 中，最近一次入口启动对该 Session 的后续 Canonical/跨 origin 子请求生效。所有偏好都只能收紧全局配置：无法启用服务器关闭的 Rewrite/Runtime Bridge/Cookie Jar，也无法把全局 `preserve`/`strict` 降级成 `compat`；重复值或非 `true`/`false` 参数返回 400 `PROXY_BROWSER_URL_INVALID`。不带偏好的入口会清除旧偏好并恢复服务器配置。
 
 ### Legacy Adapter（已弃用）
 
@@ -232,6 +233,8 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 路线图 3.8 已完成 P1 Browser Core E2E：`playwright-core` 驱动本机 Edge/Chrome/Chromium，访问两个本地虚拟 upstream origin，强制验证静态/SSR 页面、多 CSS/图片、跨 CDN 图片与脚本、GET/POST 表单、302 登录、Cookie Session、字体、MP4 Range、下载和 SSE。HTML/CSS/Location 不逃回 upstream、跨 origin Token 隔离和二进制逐字节直通也属于门禁条件；失败会保留截图、HTML、浏览器错误、失败请求与代理日志。
 
 路线图 4.1 已完成 SSE 与 Range/Media 专项可靠性：SSE 在首个事件前显式 flush 下游响应头并设置 `X-Accel-Buffering: no`；API/Legacy/Browser 的未变换响应均保留合法 Content-Length。开放/后缀 Range、2 MiB 媒体、512 KiB HTML 附件和分块时序已在仅 32 字节 Rewrite 上限下验证，证明 206、媒体与附件不会进入文本 Buffer。
+
+路线图 4.2 已完成最小 Runtime Bridge：脚本端点受既有认证、限流、全局配置与 Session 偏好约束，使用 `no-store` 和 `nosniff`；注入带 `data-proxyweb-runtime` 标记并避免重复。Bridge 保留原函数 `this`、prototype/static、Promise 和错误行为，按 upstream 文档 URL 及有效 `<base>` 解析动态 HTTP(S) URL。`Request` 在构造时只替换 URL，不读取或重建 Body；所有映射请求仍通过 Canonical Route 的 URL/DNS/Pinning 与资源限制。配置关闭、Session 关闭或 HTML Rewrite 关闭时脚本端点稳定返回 404；已经加载 Bridge 的旧页面需刷新后才会解除 patch。
 
 ### 反向代理与 SSE
 
@@ -306,14 +309,18 @@ location /__proxyweb/ {
 | `npm run test:integration` | 运行当前代理行为契约测试 |
 | `npm run test:e2e` | 使用本机 Chromium 浏览器运行 P1 Browser Core E2E |
 | `npm run test:streaming` | 运行 SSE、Range/Media、附件与 Response Pipeline 专项门禁 |
+| `npm run test:runtime` | 运行 Runtime Bridge 注入、配置和端点契约专项测试 |
+| `npm run test:runtime:e2e` | 使用本机 Chromium 验证动态 Request/fetch、XHR、EventSource、window.open 与 History |
 | `npm run lint` | 检查生产入口与测试辅助脚本语法 |
 | `npm run verify:p0` | 运行前后端完整 P0 门禁（复用已安装依赖） |
 | `npm run verify:p0:ci` | 先执行两端 `npm ci`，再运行完整 P0 门禁 |
 | `npm run verify:p1` | 运行 P0 回归与 Browser Core E2E |
 | `npm run verify:p1:ci` | 从两端 `npm ci` 开始运行完整 P1 门禁 |
+| `npm run verify:p2` | 运行 P1 回归与 Runtime Bridge E2E |
+| `npm run verify:p2:ci` | 从两端 `npm ci` 开始运行当前完整 P2 门禁 |
 
-测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离与 Origin/Referer 映射，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载与 SSE。
+测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射与 Runtime Bridge 开关，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE 及脚本动态 URL。
 
-后端当前 172 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 178 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
-路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁于 2026-08-30 在完整 P0 回归后通过真实浏览器 E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md) 与 [P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。
+路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2 的当前 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)、[P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md) 与 [P2 Runtime Bridge 自动化验收矩阵](../../docs/p2-runtime-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

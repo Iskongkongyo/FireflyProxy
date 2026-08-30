@@ -89,10 +89,115 @@ function pageHtml(port) {
 </html>`;
 }
 
+function runtimePageHtml(port) {
+    return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><base href="/runtime/base/"><title>proxyWeb Runtime Bridge fixture</title></head>
+<body>
+    <main id="runtime-page">Runtime Bridge fixture</main>
+    <button id="runtime-popup" type="button">open popup</button>
+    <script>
+        window.__runtimeResults = { events: [] };
+        window.__runtimeDone = (async () => {
+            const results = window.__runtimeResults;
+            results.markerCount = document.querySelectorAll("script[data-proxyweb-runtime]").length;
+            results.fetchPrototypeName = Object.getPrototypeOf(window.fetch).name;
+            results.fetchName = window.fetch.name;
+            results.fetchLength = window.fetch.length;
+            results.requestName = window.Request.name;
+            results.eventSourcePrototypeName = Object.getPrototypeOf(window.EventSource).name;
+            results.eventSourceName = window.EventSource.name;
+            results.xhrOpenName = window.XMLHttpRequest.prototype.open.name;
+            results.historyPushStateName = window.history.pushState.name;
+
+            const fetchPromise = fetch("/runtime/api?via=fetch");
+            results.fetchReturnsPromise = fetchPromise instanceof Promise;
+            results.fetch = await (await fetchPromise).json();
+
+            const request = new Request(location.origin + "/runtime/request", {
+                method: "POST",
+                headers: { "content-type": "text/plain" },
+                body: "runtime-request-body"
+            });
+            results.request = await (await fetch(request)).json();
+
+            results.xhr = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("GET", "/runtime/api?via=xhr");
+                xhr.responseType = "json";
+                xhr.onload = () => resolve(xhr.response);
+                xhr.onerror = () => reject(new Error("XHR failed"));
+                xhr.send();
+            });
+
+            results.cdn = await (await fetch("http://cdn.test:${port}/runtime/api?via=cdn")).json();
+            results.data = await (await fetch("data:text/plain,runtime-data")).text();
+
+            results.events = await new Promise((resolve, reject) => {
+                const values = [];
+                const source = new EventSource("/runtime/events");
+                source.onmessage = event => {
+                    values.push(event.data);
+                    if (values.length === 2) {
+                        source.close();
+                        resolve(values);
+                    }
+                };
+                source.onerror = () => reject(new Error("EventSource failed"));
+            });
+
+            history.pushState({ runtime: true }, "", "/runtime/virtual?step=1#view");
+            results.historyUrl = location.href;
+            results.relative = await (await fetch("relative.json?via=history")).json();
+            try {
+                history.pushState({}, "", "http://cdn.test:${port}/runtime/cross-origin-history");
+                results.historySecurity = "missing";
+            } catch (error) {
+                results.historySecurity = error.name;
+            }
+
+            document.querySelector("#runtime-popup").addEventListener("click", () => {
+                window.open("/runtime/popup", "_blank");
+            });
+            return true;
+        })().catch(error => {
+            window.__runtimeError = error.stack || error.message;
+            return false;
+        });
+    </script>
+</body>
+</html>`;
+}
+
 async function handleRequest(request, response, port) {
     const url = new URL(request.url, `http://${request.headers.host || "fixture.test"}`);
 
     if (url.pathname === "/site") return sendHtml(response, pageHtml(port));
+    if (url.pathname === "/runtime") return sendHtml(response, runtimePageHtml(port));
+    if (["/runtime/api", "/runtime/request", "/runtime/base/relative.json"].includes(url.pathname)) {
+        const body = await readBody(request);
+        return send(response, 200, JSON.stringify({
+            body: body.toString("utf8"),
+            host: request.headers.host,
+            method: request.method,
+            origin: request.headers.origin || "",
+            pathname: url.pathname,
+            query: Object.fromEntries(url.searchParams),
+            referer: request.headers.referer || ""
+        }), { "content-type": "application/json; charset=utf-8" });
+    }
+    if (url.pathname === "/runtime/events") {
+        response.writeHead(200, {
+            "content-type": "text/event-stream; charset=utf-8",
+            "cache-control": "no-cache",
+            connection: "keep-alive"
+        });
+        response.write("data: runtime-first\n\n");
+        return setTimeout(() => response.end("data: runtime-second\n\n"), 30);
+    }
+    if (url.pathname === "/runtime/popup") {
+        return sendHtml(response, "<!doctype html><html><body><output id=\"runtime-popup-result\">runtime-popup-ok</output></body></html>");
+    }
     if (url.pathname === "/ssr") {
         return sendHtml(response, `<!doctype html><html><body><output id="ssr-result">SSR:${url.searchParams.get("name") || "guest"}</output></body></html>`);
     }

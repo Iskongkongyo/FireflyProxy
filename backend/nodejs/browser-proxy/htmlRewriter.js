@@ -1,6 +1,7 @@
 const cheerio = require("cheerio");
 const { resolveTargetUrl, toProxyUrl } = require("../core/urlMapper");
 const { rewriteCss, rewriteCssValue } = require("./cssRewriter");
+const { RUNTIME_BRIDGE_PATH } = require("./runtimeBridge");
 
 const URL_ATTRIBUTES = Object.freeze([
     ["a[href]", "href"],
@@ -133,14 +134,27 @@ function rewriteAttributeSet($, selector, attribute, baseUrl) {
     });
 }
 
-function rewriteHtml({ html, documentUrl, mediaType = "text/html" }) {
+function injectRuntimeBridge($, documentUrl, baseUrl = null) {
+    if ($("script[data-proxyweb-runtime]").length > 0) return false;
+    const script = $("<script></script>")
+        .attr("src", RUNTIME_BRIDGE_PATH)
+        .attr("data-proxyweb-runtime", documentUrl);
+    if (baseUrl) script.attr("data-proxyweb-base-url", baseUrl);
+    const head = $("head").first();
+    if (head.length > 0) head.prepend(script);
+    else $.root().prepend(script);
+    return true;
+}
+
+function rewriteHtml({ html, documentUrl, mediaType = "text/html", runtimeBridge = false }) {
     const xmlMode = mediaType === "application/xhtml+xml";
     const $ = cheerio.load(String(html || ""), xmlMode ? { xml: true } : undefined);
     const firstBase = $("base[href]").first();
     const firstBaseHref = firstBase.attr("href");
-    const effectiveBaseUrl = typeof firstBaseHref === "string"
-        ? resolveTargetUrl(firstBaseHref, documentUrl) || documentUrl
-        : documentUrl;
+    const resolvedBaseUrl = typeof firstBaseHref === "string"
+        ? resolveTargetUrl(firstBaseHref, documentUrl)
+        : null;
+    const effectiveBaseUrl = resolvedBaseUrl || documentUrl;
 
     for (const [selector, attribute] of URL_ATTRIBUTES) {
         rewriteAttributeSet($, selector, attribute, effectiveBaseUrl);
@@ -178,10 +192,17 @@ function rewriteHtml({ html, documentUrl, mediaType = "text/html" }) {
         if (typeof current === "string") $(element).attr("href", rewriteUrlValue(current, documentUrl));
     });
 
+    if (runtimeBridge) injectRuntimeBridge(
+        $,
+        documentUrl,
+        resolvedBaseUrl
+    );
+
     return xmlMode ? $.xml() : $.html();
 }
 
 module.exports = {
+    injectRuntimeBridge,
     parseSrcset,
     rewriteHtml,
     rewriteInlineStyle,

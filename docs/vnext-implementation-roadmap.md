@@ -47,7 +47,7 @@
 | 3.7 | Browser UI | 独立入口与兼容设置 | 3.6 | ✅ |
 | 3.8 | P1 E2E 门禁 | Browser Core 可验收 | 3.7 | ✅ |
 | 4.1 | SSE 与 Range/Media | 实时流与媒体拖动可靠 | 3.8 | ✅ |
-| 4.2 | Runtime Bridge | 常见 SPA 动态请求可映射 | 4.1 | ⬜ |
+| 4.2 | Runtime Bridge | 常见 SPA 动态请求可映射 | 4.1 | ✅ |
 | 4.3 | WebSocket | WS/WSS 安全代理 | 4.2 | ⬜ |
 | 4.4 | Origin Isolation | 多目标隔离增强 | 4.3 | ⬜ |
 | 5.1 | 请求编辑增强 | Params、Body、cURL | 2.8，可并行于 P1 后执行 | ⬜ |
@@ -672,3 +672,18 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端全量 172/172 与专项 12/12 已通过，P0 Gate 5/5、P1 Gate 2/2 和 Edge Browser Core E2E 全部 PASS；前端生产构建仍只有既有的 3 条 bundle 体积 warning。Nginx 部署说明明确要求 SSE 路由关闭响应缓冲，并说明 proxyWeb 已发送 `X-Accel-Buffering: no`，但外层代理仍需正确配置。
 
 下一阶段为 4.2 Runtime Bridge。
+
+### 第二十二轮执行记录
+
+2026-08-30 已完成 4.2：
+
+- 新增 `browser-proxy/runtimeBridge.js` 与受保护的 `/__proxyweb/runtime.js` 端点。脚本仅在 `browser.enabled`、`browser.runtimeBridge` 和有效 HTML Rewrite 同时开启时提供，使用 `Cache-Control: no-store` 与 `X-Content-Type-Options: nosniff`；全局或 Session 关闭时稳定返回 404。
+- HTML Rewrite 在 upstream 脚本前注入唯一 `data-proxyweb-runtime` 标记，携带 upstream 文档 URL 与有效 `<base>`；重复 Rewrite 不会二次注入。Bridge 默认关闭，已加载页面需要刷新后才会应用关闭状态。
+- Runtime Bridge 映射 `Request`/`fetch`、XHR、EventSource、`window.open`、`history.pushState` 与 `replaceState`，并在 popstate/hashchange 后同步 upstream URL。相对 URL 遵循有效 upstream `<base>`；History 保持 upstream 同源限制，跨 upstream origin 的 History 写入抛出 `SecurityError`。
+- 包装器保留原函数 `this`、prototype/static、Promise 与错误行为。`Request` 在构造阶段只替换 URL，不读取、缓冲或记录 Body；真实 POST Body 未出现在代理日志。动态请求仍进入 Canonical Route，逐次执行 URL、DNS SSRF、Pinning、Header/Cookie 与资源限制。
+- Browser UI 已启用受限 Runtime Bridge 开关，入口偏好只能关闭服务器已允许的能力，不能从前端开启全局禁用功能。WebSocket 构造器未在 4.2 提前包装，待 4.3 与安全 Upgrade 代理一并实现。
+- 新增 13 项 `npm run test:runtime` 专项契约与独立 Edge Runtime E2E，覆盖普通/Request POST fetch、XHR、SSE EventSource、data URL、跨 upstream origin Token、window.open、History、`<base>` 和日志不含 Body。后端全量测试由 172 项增至 178 项。
+- 新增 `scripts/p2-gate.js`、`verify:p2` 与 `verify:p2:ci`，完整复用 P1 回归后追加 Runtime Bridge Playwright E2E；逐项证据见 `docs/p2-runtime-verification-matrix.md`。
+- 后端 178/178、Runtime 专项 13/13、前端 7/7、P0 Gate 5/5、P1 Gate 2/2 与当前 P2 Gate 2/2 全部 PASS；两个真实浏览器阶段均使用 Edge 150。前端生产构建仍只有既有的 3 条 bundle 体积 warning。
+
+下一阶段为 4.3 WebSocket。

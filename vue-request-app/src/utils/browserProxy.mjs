@@ -2,6 +2,7 @@ export const DEFAULT_BROWSER_PREFERENCES = Object.freeze({
     rewriteHtml: true,
     rewriteCss: true,
     cookieJar: true,
+    runtimeBridge: true,
     compatHeaders: true
 });
 

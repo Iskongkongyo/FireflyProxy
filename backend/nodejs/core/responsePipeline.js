@@ -214,7 +214,8 @@ async function prepareResponse(options) {
             text,
             mediaType: classification.mediaType,
             targetUrl,
-            headers: responseHeaders
+            headers: responseHeaders,
+            config
         });
         if (typeof transformedText !== "string") {
             throw new TypeError("Response transformer must return a string");

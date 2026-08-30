@@ -24,6 +24,7 @@ test('Browser entry URL keeps preferences explicit and target credentials out of
             rewriteHtml: false,
             rewriteCss: true,
             cookieJar: false,
+            runtimeBridge: false,
             compatHeaders: true
         }
     ));
@@ -34,8 +35,8 @@ test('Browser entry URL keeps preferences explicit and target credentials out of
     assert.equal(result.searchParams.get('rewriteHtml'), 'false');
     assert.equal(result.searchParams.get('rewriteCss'), 'true');
     assert.equal(result.searchParams.get('cookieJar'), 'false');
+    assert.equal(result.searchParams.get('runtimeBridge'), 'false');
     assert.equal(result.searchParams.get('compatHeaders'), 'true');
-    assert.equal(result.searchParams.has('runtimeBridge'), false);
     assert.throws(
         () => buildBrowserEntryUrl('javascript:alert(1)', 'https://example.test/'),
         /base URL/

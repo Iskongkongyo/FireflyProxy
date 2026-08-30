@@ -4,6 +4,7 @@ const BOOLEAN_PREFERENCE_KEYS = Object.freeze([
     "rewriteHtml",
     "rewriteCss",
     "cookieJar",
+    "runtimeBridge",
     "compatHeaders"
 ]);
 
@@ -45,11 +46,15 @@ function applyBrowserPreferences(config, storedPreferences) {
     const headerPolicy = configuredHeaderPolicy === "compat" && preferences.compatHeaders !== false
         ? "compat"
         : configuredHeaderPolicy === "strict" ? "strict" : "preserve";
+    const rewriteHtml = config.browser.rewriteHtml && preferences.rewriteHtml !== false;
     const browser = Object.freeze({
         ...config.browser,
-        rewriteHtml: config.browser.rewriteHtml && preferences.rewriteHtml !== false,
+        rewriteHtml,
         rewriteCss: config.browser.rewriteCss && preferences.rewriteCss !== false,
         cookieJar: config.browser.cookieJar && preferences.cookieJar !== false,
+        runtimeBridge: config.browser.runtimeBridge
+            && rewriteHtml
+            && preferences.runtimeBridge !== false,
         headerPolicy
     });
     return Object.freeze({ ...config, browser });

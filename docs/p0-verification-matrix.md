@@ -53,5 +53,5 @@ P0 门禁通过只表示网络安全与基础架构达到了当前自动化验�
 
 - `headers` 查询参数仍处于兼容弃用期，旧客户端可能把凭据暴露给浏览器历史或中间访问日志。
 - Session Store 仍是进程内存实现，不适合多实例和长期生产部署。
-- Browser Core、HTML/CSS Rewrite 与 Cookie Jar 已在后续 P1 门禁完成；WebSocket、Runtime Bridge 与完整 SPA 兼容仍属于后续里程碑。
+- Browser Core、HTML/CSS Rewrite 与 Cookie Jar 已在后续 P1 门禁完成，Runtime Bridge 已在后续 P2 4.2 完成；WebSocket 与完整 SPA 隔离仍属于后续里程碑。
 - 仓库尚无正式 `LICENSE` 文件。

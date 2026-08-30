@@ -71,7 +71,7 @@ npm run build
 3. 在“请求参数”“请求头”“请求验证”中补充配置；非 GET/HEAD 请求可在“请求体”中选择发送格式。
 4. 点击“发送请求”，在下方查看内容、响应头、耗时和大小。
 
-网页代理页位于 `/web/browser`：输入完整 HTTP(S) URL 后默认在无 opener 的新标签页打开。高级设置可以为当前 Browser Session 关闭 HTML/CSS Rewrite、Cookie Jar 或 Compatibility Headers，但不能打开后端全局禁用的能力。Runtime Bridge 会明确显示为尚未实现。嵌入预览只有在 Browser Proxy 与管理 UI 不同 Origin 时可选，并可能受第三方 Cookie、目标站 CSP/防嵌入策略和浏览器隐私设置影响。
+网页代理页位于 `/web/browser`：输入完整 HTTP(S) URL 后默认在无 opener 的新标签页打开。高级设置可以为当前 Browser Session 关闭 HTML/CSS Rewrite、Runtime Bridge、Cookie Jar 或 Compatibility Headers，但不能打开后端全局禁用的能力。Runtime Bridge 映射 Request/fetch、XHR、EventSource、window.open 与 History 动态 URL；后端默认关闭，需显式启用，且 WebSocket 仍留待下一阶段。嵌入预览只有在 Browser Proxy 与管理 UI 不同 Origin 时可选，并可能受第三方 Cookie、目标站 CSP/防嵌入策略和浏览器隐私设置影响。
 
 手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值。发送时该值会放入 `X-ProxyWeb-Upstream-Authorization`，不会进入代理 URL；其他自定义 Header 直接作为到 proxyWeb 的 HTTP Header 发送。带自定义 Header 或上游认证的媒体请求会回退到 Axios Blob，只有无额外 Header 时才使用原生媒体 URL 流式加载。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
 
@@ -131,7 +131,7 @@ vue-request-app/
 
 ## 当前限制
 
-- 已有 7 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、Browser URL/偏好构造和 iframe Origin 边界；仓库级 P1 门禁已通过真实 Chromium 覆盖 Browser Core 页面链路。Vue 组件挂载级测试仍未单独引入。
+- 已有 7 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、Browser URL/偏好构造和 iframe Origin 边界；仓库级 P1/P2 门禁已通过真实 Chromium 覆盖 Browser Core 与 Runtime Bridge 页面链路。Vue 组件挂载级测试仍未单独引入。
 - Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
 - API 请求页仍把 HTML 响应作为文本或 Blob 处理；只有独立网页代理页会进入后端 HTML/CSS/Location Rewrite。

@@ -119,3 +119,31 @@ test("XHTML is parsed and serialized in XML mode", () => {
     assert.match(output, /<\?xml version="1\.0"\?>/);
     assert.match(output, new RegExp(mapped("https://site.test/docs/asset.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
+
+test("Runtime Bridge is injected first exactly once with the upstream document URL", () => {
+    const output = rewriteHtml({
+        html: "<!doctype html><html><head><script id='upstream'>window.started = true</script></head><body></body></html>",
+        documentUrl,
+        runtimeBridge: true
+    });
+    const $ = cheerio.load(output);
+    const scripts = $("head script");
+
+    assert.equal(scripts.length, 2);
+    assert.equal(scripts.first().attr("src"), "/__proxyweb/runtime.js");
+    assert.equal(scripts.first().attr("data-proxyweb-runtime"), documentUrl);
+    assert.equal(scripts.last().attr("id"), "upstream");
+
+    const repeated = rewriteHtml({ html: output, documentUrl, runtimeBridge: true });
+    assert.equal(cheerio.load(repeated)("script[data-proxyweb-runtime]").length, 1);
+
+    const based = cheerio.load(rewriteHtml({
+        html: "<!doctype html><html><head><base href='../assets/'></head><body></body></html>",
+        documentUrl,
+        runtimeBridge: true
+    }));
+    assert.equal(
+        based("script[data-proxyweb-runtime]").attr("data-proxyweb-base-url"),
+        "https://site.test/assets/"
+    );
+});
