@@ -74,6 +74,10 @@ const browserSchema = z.object({
     rewriteCss: z.boolean(),
     cookieJar: z.boolean(),
     runtimeBridge: z.boolean(),
+    webSocket: z.boolean(),
+    webSocketMaxPayloadBytes: z.number().int().positive().max(16777216),
+    webSocketIdleTimeoutMs: z.number().int().positive().max(3600000),
+    webSocketMaxConnections: z.number().int().positive().max(10000),
     headerPolicy: z.enum(["strict", "preserve", "compat"])
 }).strict();
 

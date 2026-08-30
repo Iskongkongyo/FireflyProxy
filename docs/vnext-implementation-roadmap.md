@@ -48,7 +48,7 @@
 | 3.8 | P1 E2E 门禁 | Browser Core 可验收 | 3.7 | ✅ |
 | 4.1 | SSE 与 Range/Media | 实时流与媒体拖动可靠 | 3.8 | ✅ |
 | 4.2 | Runtime Bridge | 常见 SPA 动态请求可映射 | 4.1 | ✅ |
-| 4.3 | WebSocket | WS/WSS 安全代理 | 4.2 | ⬜ |
+| 4.3 | WebSocket | WS/WSS 安全代理 | 4.2 | ✅ |
 | 4.4 | Origin Isolation | 多目标隔离增强 | 4.3 | ⬜ |
 | 5.1 | 请求编辑增强 | Params、Body、cURL | 2.8，可并行于 P1 后执行 | ⬜ |
 | 5.2 | 响应诊断 | Redirect Chain、Timing | 5.1 | ⬜ |
@@ -687,3 +687,16 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端 178/178、Runtime 专项 13/13、前端 7/7、P0 Gate 5/5、P1 Gate 2/2 与当前 P2 Gate 2/2 全部 PASS；两个真实浏览器阶段均使用 Edge 150。前端生产构建仍只有既有的 3 条 bundle 体积 warning。
 
 下一阶段为 4.3 WebSocket。
+
+### 第二十三轮执行记录
+
+2026-08-30 已完成 4.3：
+
+- 新增 `browser-proxy/webSocketProxy.js` 与 `webSocketUrl.js`，使用锁定的 `ws@8.21.3` 接管 HTTP Server Upgrade。ws/wss 继续复用 HTTP(S) Canonical origin Token，并在每次握手重新执行 URL 规范化、DNS SSRF、请求级 Pinning、TLS 校验与远端地址复核。
+- Upgrade 路径独立接回 Basic Auth、Express Session 和 SessionStateStore；只向上游发送 allowlist Header 与 Cookie Jar 中匹配目标 URL 的 Cookie。浏览器 Origin 必须严格命中当前 proxy Host，Runtime 注入的 upstream 来源 Origin 使用 HMAC 签名子协议标记传递，代理验证后移除，保留应用自身子协议。
+- 下游 101 仅在上游握手及 Pinning 成功后完成。文本、二进制、应用子协议与合法关闭码双向透传；ping/pong 在两条连接上本地应答。每条消息发送期间暂停来源读取，以 `ws.send` 完成回调恢复，形成有界 backpressure。
+- 新增默认关闭的 `browser.webSocket`，以及 `webSocketMaxPayloadBytes`（默认 1 MiB、Schema 最大 16 MiB）、`webSocketIdleTimeoutMs`（默认 60 秒）和 `webSocketMaxConnections`（默认 64）。配置和 Session UI 偏好只能收紧能力；超限、空闲、shutdown 与握手失败均会关闭相关 socket/Agent。
+- Runtime Bridge 仅在 WebSocket 能力有效时包装原生 `WebSocket`，映射相对及 ws/wss URL，保留 constructor/prototype/static 元数据；Browser UI 已增加独立 WebSocket Proxy 开关。真实 Edge 已验证 Origin、子协议、文本/二进制与自定义关闭码完整往返。
+- 新增 `npm run test:websocket`，覆盖 Canonical 映射、签名防篡改、Upgrade Header、Header allowlist、Basic Auth 隔离、Cookie/Origin、子协议、文本/二进制、关闭码、SSRF/Origin 拒绝、连接数、payload 与 idle 上限。后端全量 191/191、WebSocket 专项 11/11、Runtime 专项 14/14、前端 7/7、lint、生产构建与 Edge Runtime E2E 均通过；npm 官方安全公告库审计为 0 个已知漏洞。前端生产构建仍只有既有的 3 条 bundle 体积 warning。
+
+下一阶段为 4.4 Origin Isolation。

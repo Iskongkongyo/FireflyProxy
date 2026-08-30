@@ -56,7 +56,9 @@ function createFixtureConnection(target) {
 
 const runtime = createApp({ connectionFactory: createFixtureConnection });
 const config = runtime.getConfig();
-const server = runtime.app.listen(config.port, () => {
+const server = http.createServer(runtime.app);
+runtime.attachServer(server);
+server.listen(config.port, () => {
     runtime.logger.info(`[Server] Contract proxy running on port ${config.port}`);
 });
 

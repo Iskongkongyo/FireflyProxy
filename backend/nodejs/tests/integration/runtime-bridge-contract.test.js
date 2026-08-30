@@ -45,6 +45,25 @@ test("enabled Runtime Bridge injects before upstream scripts and is served with 
     }
 });
 
+test("effective WebSocket support injects only a signed source context marker", async () => {
+    const proxy = await startProxy({
+        session: { secret: "runtime-websocket-test-secret" },
+        browser: { enabled: true, runtimeBridge: true, webSocket: true }
+    });
+    try {
+        const response = await fetch(new URL(toProxyUrl(`${fixture.origin}/html-relative`), proxy.origin));
+        const $ = cheerio.load(await response.text());
+        const script = $("script[data-proxyweb-runtime]").first();
+        assert.equal(script.attr("data-proxyweb-websocket"), "true");
+        assert.match(
+            script.attr("data-proxyweb-origin-context"),
+            /^proxyweb-origin\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+        );
+    } finally {
+        await proxy.close();
+    }
+});
+
 test("Runtime Bridge preference can disable injection and script delivery but cannot enable a global restriction", async () => {
     for (const globalRuntimeBridge of [true, false]) {
         const proxy = await startProxy({

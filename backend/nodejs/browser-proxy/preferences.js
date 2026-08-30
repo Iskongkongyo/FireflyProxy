@@ -5,6 +5,7 @@ const BOOLEAN_PREFERENCE_KEYS = Object.freeze([
     "rewriteCss",
     "cookieJar",
     "runtimeBridge",
+    "webSocket",
     "compatHeaders"
 ]);
 
@@ -55,6 +56,7 @@ function applyBrowserPreferences(config, storedPreferences) {
         runtimeBridge: config.browser.runtimeBridge
             && rewriteHtml
             && preferences.runtimeBridge !== false,
+        webSocket: config.browser.webSocket && preferences.webSocket !== false,
         headerPolicy
     });
     return Object.freeze({ ...config, browser });

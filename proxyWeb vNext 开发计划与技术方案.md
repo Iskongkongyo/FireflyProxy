@@ -6,7 +6,7 @@
 > 基线复核：2026-08-28
 
 > [!IMPORTANT]
-> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8 与 P2 路线图 4.1–4.2 已通过自动化验收；P2 其余阶段、P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
+> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8 与 P2 路线图 4.1–4.3 已通过自动化验收；P2 其余阶段、P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
 
 > 可执行的小阶段、依赖关系和逐阶段完成条件见 [`docs/vnext-implementation-roadmap.md`](./docs/vnext-implementation-roadmap.md)。
 
@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1–4.2 已完成 SSE/Range/Media 与最小 Runtime Bridge，并通过独立 Edge E2E。WebSocket、高级 Worker/SPA 兼容和 Origin Isolation 尚未完成。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1–4.3 已完成 SSE/Range/Media、最小 Runtime Bridge 与安全 WebSocket Proxy，并通过独立 Edge E2E。高级 Worker/SPA 兼容和 Origin Isolation 尚未完成。
 
 当前前端主要结构：
 
@@ -655,7 +655,7 @@ Bearer [REDACTED]
 
 # 13. P0-10. 配置系统统一
 
-> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7，并于 2026-08-30 在 3.1–3.6 激活 Browser Rewrite、Cookie Jar 与 Header Policy 字段；`runtimeBridge` 字段已在 4.2 接入实际注入和 Session 收紧逻辑。Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚均已实现。
+> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7，并于 2026-08-30 在 3.1–3.6 激活 Browser Rewrite、Cookie Jar 与 Header Policy 字段；`runtimeBridge` 与 WebSocket 资源限制字段已分别在 4.2、4.3 接入实际能力和 Session 收紧逻辑。Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚均已实现。
 
 增加配置 Schema 校验。
 
@@ -733,6 +733,10 @@ cookie_max_age=86400
     "rewriteCss": true,
     "cookieJar": true,
     "runtimeBridge": true,
+    "webSocket": true,
+    "webSocketMaxPayloadBytes": 1048576,
+    "webSocketIdleTimeoutMs": 60000,
+    "webSocketMaxConnections": 64,
     "headerPolicy": "compat"
   },
 
@@ -1583,7 +1587,7 @@ P1 稳定以后实现。
 
 # 39. P2-1. Runtime Bridge
 
-> 状态：✅ 已于 2026-08-30 完成路线图 4.2。HTML `<head>` 最前方注入唯一 `data-proxyweb-runtime` 脚本，映射 Request/fetch、XHR、EventSource、window.open 与 History；相对 URL 同时遵循 upstream 文档地址和有效 `<base>`。全局、Session 或 HTML Rewrite 任一关闭都会禁止注入和脚本交付。WebSocket 构造器必须等待 4.3 的安全 Upgrade 代理，未在本阶段提前 patch。
+> 状态：✅ 已于 2026-08-30 完成路线图 4.2，并在 4.3 接入 WebSocket 包装。HTML `<head>` 最前方注入唯一 `data-proxyweb-runtime` 脚本，映射 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History；相对 URL 同时遵循 upstream 文档地址和有效 `<base>`。全局、Session 或 HTML Rewrite 任一关闭都会禁止注入和脚本交付，WebSocket 包装还要求服务端能力有效。
 
 静态 Rewrite 无法解决 JavaScript：
 
@@ -1656,6 +1660,8 @@ data-proxyweb-runtime
 ---
 
 # 41. P2-2. WebSocket Proxy
+
+> 状态：✅ 已于 2026-08-30 完成路线图 4.3。`ws@8.21.3` 接管 Upgrade；下游 101 只在上游握手、DNS SSRF、请求级 Pinning/TLS 与远端地址校验成功后完成。Runtime 使用签名且握手后移除的来源标记还原 upstream Origin，应用子协议、Cookie Jar、文本/二进制、关闭码、ping/pong、backpressure、payload/idle/连接数上限和 shutdown 回收均已接入自动化与真实 Edge 门禁。
 
 增加：
 
@@ -2043,7 +2049,7 @@ BrowserProxy.vue
 
 # 51. Browser Compatibility UI
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.7，并在 4.2 激活 Runtime Bridge 开关。HTML/CSS Rewrite、Runtime Bridge、Cookie Jar 与 Compatibility Headers 位于高级折叠面板；参数绑定 Browser Session 且只能收紧服务器全局配置，不能启用后端全局关闭的能力。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.7，并在 4.2–4.3 激活 Runtime Bridge 与 WebSocket Proxy 开关。HTML/CSS Rewrite、Runtime Bridge、WebSocket Proxy、Cookie Jar 与 Compatibility Headers 位于高级折叠面板；参数绑定 Browser Session 且只能收紧服务器全局配置，不能启用后端全局关闭的能力。
 
 允许设置：
 
@@ -2051,6 +2057,7 @@ BrowserProxy.vue
 HTML Rewrite            ON
 CSS Rewrite             ON
 Runtime Bridge          ON
+WebSocket Proxy         ON
 Cookie Jar              ON
 Compatibility Headers   ON
 ```
@@ -2551,7 +2558,7 @@ Header Rewrite
 
 ## Milestone 4 — Browser Advanced
 
-> 状态：🟨 路线图 4.1 的 SSE/Range/Media 与 4.2 的最小 Runtime Bridge 已完成；WebSocket、高级 SPA Compatibility 和 Origin Isolation 仍待后续阶段。
+> 状态：🟨 路线图 4.1 的 SSE/Range/Media、4.2 的最小 Runtime Bridge 与 4.3 的 WebSocket 已完成；高级 SPA Compatibility 和 Origin Isolation 仍待后续阶段。
 
 完成：
 

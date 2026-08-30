@@ -7,31 +7,38 @@ function clearProxyAuthorization(req) {
     }
 }
 
+function authenticateProxyRequest(req, config) {
+    const credentials = basicAuth(req);
+    clearProxyAuthorization(req);
+    if (!config.user || !config.pwd) return { ok: true, open: true };
+    if (!credentials || credentials.name !== config.user || credentials.pass !== config.pwd) {
+        return { ok: false, open: false };
+    }
+    req.proxyAuth = Object.freeze({ user: credentials.name });
+    return { ok: true, open: false };
+}
+
 function createProxyAuth(options) {
     const getConfig = options.getConfig;
     const logger = options.logger;
 
     return (req, res, next) => {
-        const credentials = basicAuth(req);
-        clearProxyAuthorization(req);
-
         const config = getConfig();
-        if (!config.user || !config.pwd) {
+        const authentication = authenticateProxyRequest(req, config);
+        if (authentication.open) {
             logger.warn("[Auth] No Basic Auth configured. Service is open!", { requestId: req.id });
             return next();
         }
-
-        if (!credentials || credentials.name !== config.user || credentials.pass !== config.pwd) {
+        if (!authentication.ok) {
             res.setHeader("WWW-Authenticate", 'Basic realm="Proxy Auth Required"');
             return res.status(401).send("Unauthorized");
         }
-
-        req.proxyAuth = Object.freeze({ user: credentials.name });
         next();
     };
 }
 
 module.exports = {
+    authenticateProxyRequest,
     clearProxyAuthorization,
     createProxyAuth
 };

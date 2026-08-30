@@ -46,6 +46,10 @@ function createDefaultConfig(env = process.env) {
             rewriteCss: true,
             cookieJar: true,
             runtimeBridge: false,
+            webSocket: false,
+            webSocketMaxPayloadBytes: 1048576,
+            webSocketIdleTimeoutMs: 60000,
+            webSocketMaxConnections: 64,
             headerPolicy: "compat"
         }
     };

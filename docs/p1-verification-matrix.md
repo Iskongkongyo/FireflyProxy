@@ -65,6 +65,6 @@ $env:PROXYWEB_E2E_BROWSER_PATH = "C:\path\to\chrome.exe"
 只有 P0 子门禁和 Browser Core E2E 都输出 PASS，才满足当前 P1 Definition of Done。通过表示静态 Rewrite 型网站的核心链路具备本地自动化证据，不代表完整 SPA 已兼容，也不取消以下限制：
 
 - P1 本身仍只判定静态 Rewrite 型页面；后续 4.2 Runtime Bridge 的动态 Request/fetch、XHR、EventSource、window.open 与 History 证据见 [P2 Runtime Bridge 验收矩阵](./p2-runtime-verification-matrix.md)。
-- WebSocket 尚未实现。
+- P1 本身不验收 WebSocket；后续 4.3 已实现并纳入 [P2 Runtime/WebSocket 验收矩阵](./p2-runtime-verification-matrix.md)。
 - 服务端 Cookie Jar 无法向目标脚本模拟 `document.cookie`。
 - 多 upstream 仍共享 Browser Proxy origin；生产部署需要后续 Origin Isolation 与共享 Session Store。

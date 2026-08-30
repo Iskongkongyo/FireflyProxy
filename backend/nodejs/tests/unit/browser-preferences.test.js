@@ -13,6 +13,7 @@ test("Browser preferences parse only explicit boolean query values", () => {
         rewriteCss: "true",
         cookieJar: false,
         runtimeBridge: "false",
+        webSocket: "false",
         compatHeaders: true,
         url: "https://example.test/"
     }), {
@@ -20,6 +21,7 @@ test("Browser preferences parse only explicit boolean query values", () => {
         rewriteCss: true,
         cookieJar: false,
         runtimeBridge: false,
+        webSocket: false,
         compatHeaders: true
     });
     assert.throws(
@@ -36,12 +38,14 @@ test("Browser preferences can only tighten configured capabilities", () => {
         rewriteCss: false,
         cookieJar: false,
         runtimeBridge: false,
+        webSocket: false,
         compatHeaders: false
     });
     assert.equal(tightened.browser.rewriteHtml, false);
     assert.equal(tightened.browser.rewriteCss, false);
     assert.equal(tightened.browser.cookieJar, false);
     assert.equal(tightened.browser.runtimeBridge, false);
+    assert.equal(tightened.browser.webSocket, false);
     assert.equal(tightened.browser.headerPolicy, "preserve");
 
     const globallyRestricted = {
@@ -52,6 +56,7 @@ test("Browser preferences can only tighten configured capabilities", () => {
             rewriteCss: false,
             cookieJar: false,
             runtimeBridge: false,
+            webSocket: false,
             headerPolicy: "strict"
         }
     };
@@ -60,12 +65,14 @@ test("Browser preferences can only tighten configured capabilities", () => {
         rewriteCss: true,
         cookieJar: true,
         runtimeBridge: true,
+        webSocket: true,
         compatHeaders: true
     });
     assert.equal(attemptedEnable.browser.rewriteHtml, false);
     assert.equal(attemptedEnable.browser.rewriteCss, false);
     assert.equal(attemptedEnable.browser.cookieJar, false);
     assert.equal(attemptedEnable.browser.runtimeBridge, false);
+    assert.equal(attemptedEnable.browser.webSocket, false);
     assert.equal(attemptedEnable.browser.headerPolicy, "strict");
 });
 
@@ -75,10 +82,12 @@ test("stored Browser preferences ignore malformed or unknown fields", () => {
         rewriteCss: "false",
         cookieJar: true,
         runtimeBridge: true,
+        webSocket: true,
         __proto__: { polluted: true }
     }), {
         rewriteHtml: false,
         cookieJar: true,
-        runtimeBridge: true
+        runtimeBridge: true,
+        webSocket: true
     });
 });

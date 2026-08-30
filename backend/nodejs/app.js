@@ -14,6 +14,7 @@ const { createApiRouter } = require("./api-proxy/router");
 const { createBrowserRouter } = require("./browser-proxy/router");
 const { RUNTIME_BRIDGE_PATH, createRuntimeBridgeHandler } = require("./browser-proxy/runtimeBridge");
 const { createSessionStateStore } = require("./browser-proxy/sessionStateStore");
+const { createWebSocketProxy } = require("./browser-proxy/webSocketProxy");
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
 const { createDnsResolver } = require("./core/dnsResolver");
@@ -38,7 +39,7 @@ const { createRequestLogger } = require("./middleware/requestLogger");
  * @param {Function} [options.requestIdFactory] injected request ID factory
  * @param {{resolve: Function}} [options.dnsResolver] injected DNS resolver
  * @param {Function} [options.connectionFactory] injected pinned connection factory
- * @returns {{app: import('express').Express, logger: import('winston').Logger, getConfig: Function, reloadConfig: Function, close: Function}}
+ * @returns {{app: import('express').Express, logger: import('winston').Logger, getConfig: Function, reloadConfig: Function, attachServer: Function, close: Function}}
  */
 function createApp(options = {}) {
 
@@ -165,11 +166,12 @@ const {
     sameSite,
     ...sessionOptions
 } = config.session;
-app.use(session({
+const sessionMiddleware = session({
     ...sessionOptions,
     cookie: { maxAge: maxAgeMs, secure, httpOnly, sameSite }
     // store: new RedisStore({ client: redisClient }), // Example for Prod
-}));
+});
+app.use(sessionMiddleware);
 
 const corsMiddleware = createCorsMiddleware({ getConfig: () => config });
 app.use((req, res, next) => {
@@ -213,6 +215,14 @@ const proxyExecutor = createProxyExecutor({
     connectionFactory,
     logger
 });
+const webSocketProxy = createWebSocketProxy({
+    getConfig: () => config,
+    dnsResolver,
+    connectionFactory,
+    sessionMiddleware,
+    sessionStateStore,
+    logger
+});
 
 app.use("/__proxyweb/api", createApiRouter({ proxyExecutor }));
 app.get(RUNTIME_BRIDGE_PATH, createRuntimeBridgeHandler({ getConfig: () => config }));
@@ -239,7 +249,12 @@ app.use(createErrorMiddleware({ logger }));
         logger,
         getConfig: () => config,
         reloadConfig: loadConfig,
+        attachServer(server) {
+            webSocketProxy.attach(server);
+            return server;
+        },
         async close() {
+            webSocketProxy.close();
             proxyExecutor.close();
             await sessionStateStore.clear?.();
             if (configWatcher) await configWatcher.close();

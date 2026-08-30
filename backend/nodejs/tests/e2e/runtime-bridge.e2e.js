@@ -37,7 +37,7 @@ async function run() {
         const browserPath = findBrowserExecutable();
         fixture = await createBrowserE2eFixture();
         proxy = await startProxy({
-            browser: { enabled: true, runtimeBridge: true }
+            browser: { enabled: true, runtimeBridge: true, webSocket: true }
         }, {
             fixtureHosts: ["fixture.test", "cdn.test"],
             dnsRecords: {
@@ -72,6 +72,8 @@ async function run() {
         assert.equal(results.requestName, "Request");
         assert.equal(results.eventSourcePrototypeName, "EventSource");
         assert.equal(results.eventSourceName, "EventSource");
+        assert.equal(results.webSocketPrototypeName, "WebSocket");
+        assert.equal(results.webSocketName, "WebSocket");
         assert.equal(results.xhrOpenName, "open");
         assert.equal(results.historyPushStateName, "pushState");
         assert.equal(results.fetch.method, "GET");
@@ -88,6 +90,16 @@ async function run() {
         assert.equal(results.cdn.query.via, "cdn");
         assert.equal(results.data, "runtime-data");
         assert.deepEqual(results.events, ["runtime-first", "runtime-second"]);
+        assert.equal(results.webSocket.code, 4002);
+        assert.equal(results.webSocket.protocol, "runtime-chat");
+        assert.equal(results.webSocket.reason, "runtime-done");
+        assert.deepEqual(JSON.parse(results.webSocket.values[0]), {
+            origin: fixture.origin,
+            protocolHeader: "runtime-chat",
+            url: "/runtime/socket?via=bridge"
+        });
+        assert.equal(results.webSocket.values[1], "runtime-text");
+        assert.deepEqual(results.webSocket.values[2], [4, 2, 1]);
         assert.equal(results.relative.pathname, "/runtime/base/relative.json");
         assert.equal(results.relative.query.via, "history");
         assert.equal(results.relative.referer, `${fixture.origin}/runtime/virtual?step=1`);
@@ -102,7 +114,7 @@ async function run() {
 
         assert.doesNotMatch(proxy.getOutput(), /runtime-request-body/);
         process.stdout.write(`[P2 Runtime E2E] Browser: ${browser.version()} (${browserPath})\n`);
-        process.stdout.write("[P2 Runtime E2E] PASS (fetch/Request, XHR, EventSource, window.open, History, cross-origin token)\n");
+        process.stdout.write("[P2 Runtime E2E] PASS (fetch/Request, XHR, EventSource, WebSocket, window.open, History, cross-origin token)\n");
         passed = true;
     } catch (error) {
         if (page && !page.isClosed()) {

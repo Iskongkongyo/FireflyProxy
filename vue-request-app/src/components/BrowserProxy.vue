@@ -86,6 +86,13 @@
                                 </div>
                                 <el-switch v-model="preferences.runtimeBridge" />
                             </div>
+                            <div class="setting-row">
+                                <div>
+                                    <strong>WebSocket Proxy</strong>
+                                    <span>映射 ws/wss，并通过受限 Upgrade 通道转发双向消息</span>
+                                </div>
+                                <el-switch v-model="preferences.webSocket" />
+                            </div>
                             <el-alert
                                 title="这些开关只能关闭服务器已允许的能力，不能绕过后端全局配置。最近一次启动设置会应用到同一 Browser Session。"
                                 type="info"

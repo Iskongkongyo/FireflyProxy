@@ -13,6 +13,7 @@ const {
 const { rewriteCss } = require("./cssRewriter");
 const { rewriteHtml } = require("./htmlRewriter");
 const { getCookieHeader, storeResponseCookies } = require("./sessionStateStore");
+const { createWebSocketOriginContext } = require("./webSocketUrl");
 
 const COMPAT_RESPONSE_HEADERS = Object.freeze([
     "content-security-policy",
@@ -116,7 +117,11 @@ const browserPolicy = Object.freeze({
                 html: text,
                 documentUrl: targetUrl,
                 mediaType,
-                runtimeBridge: config.browser.runtimeBridge
+                runtimeBridge: config.browser.runtimeBridge,
+                webSocket: config.browser.webSocket,
+                webSocketContext: config.browser.webSocket
+                    ? createWebSocketOriginContext(new URL(targetUrl).origin, config.session.secret)
+                    : null
             });
         }
         if (mediaType === "text/css") {

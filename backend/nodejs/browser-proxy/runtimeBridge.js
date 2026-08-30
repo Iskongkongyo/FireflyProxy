@@ -9,10 +9,13 @@ function runtimeBridgeBootstrap() {
     const runtimeScript = document.currentScript;
     const initialDocumentUrl = runtimeScript?.getAttribute("data-proxyweb-runtime");
     const initialBaseUrl = runtimeScript?.getAttribute("data-proxyweb-base-url");
+    const webSocketEnabled = runtimeScript?.getAttribute("data-proxyweb-websocket") === "true";
+    const webSocketOriginContext = runtimeScript?.getAttribute("data-proxyweb-origin-context");
     if (!runtimeScript || !initialDocumentUrl || runtimeScript.dataset.proxywebRuntimeActive === "true") return;
 
     const ROUTE_PREFIX = "/__proxyweb/browser";
     const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
+    const WEB_SOCKET_PROTOCOLS = new Set(["ws:", "wss:"]);
     const proxyOrigin = window.location.origin;
     let currentUpstreamUrl;
     let fixedBaseUrl;
@@ -169,6 +172,51 @@ function runtimeBridgeBootstrap() {
         preserveCallable(ProxyWebEventSource, NativeEventSource);
         ProxyWebEventSource.prototype = NativeEventSource.prototype;
         window.EventSource = ProxyWebEventSource;
+    }
+
+    const NativeWebSocket = window.WebSocket;
+    if (
+        webSocketEnabled
+        && typeof NativeWebSocket === "function"
+        && /^proxyweb-origin\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(webSocketOriginContext || "")
+    ) {
+        function mapWebSocketUrl(value) {
+            const raw = value instanceof URL ? value.href : String(value);
+            let target;
+            try {
+                target = new URL(raw, fixedBaseUrl || currentUpstreamUrl);
+            } catch {
+                return value;
+            }
+            if (HTTP_PROTOCOLS.has(target.protocol)) {
+                target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
+            }
+            if (!WEB_SOCKET_PROTOCOLS.has(target.protocol) || target.username || target.password) return value;
+
+            const httpOrigin = new URL(target.origin);
+            httpOrigin.protocol = target.protocol === "wss:" ? "https:" : "http:";
+            const proxyProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            return `${proxyProtocol}//${window.location.host}${ROUTE_PREFIX}/${encodeOrigin(httpOrigin.origin)}`
+                + `${target.pathname}${target.search}${target.hash}`;
+        }
+
+        function appendOriginContext(protocols) {
+            if (protocols === undefined) return [webSocketOriginContext];
+            if (typeof protocols === "string") return [protocols, webSocketOriginContext];
+            return [...protocols, webSocketOriginContext];
+        }
+
+        function ProxyWebWebSocket(url, protocols) {
+            const args = arguments.length > 1
+                ? [mapWebSocketUrl(url), appendOriginContext(protocols)]
+                : [mapWebSocketUrl(url), appendOriginContext(undefined)];
+            if (!new.target) return Reflect.apply(NativeWebSocket, this, args);
+            const constructorTarget = new.target === ProxyWebWebSocket ? NativeWebSocket : new.target;
+            return Reflect.construct(NativeWebSocket, args, constructorTarget);
+        }
+        preserveCallable(ProxyWebWebSocket, NativeWebSocket);
+        ProxyWebWebSocket.prototype = NativeWebSocket.prototype;
+        window.WebSocket = ProxyWebWebSocket;
     }
 
     const nativeWindowOpen = window.open;

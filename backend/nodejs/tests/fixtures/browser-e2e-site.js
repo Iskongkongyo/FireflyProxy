@@ -1,4 +1,5 @@
 const http = require("node:http");
+const { WebSocketServer } = require("ws");
 
 const PNG_BYTES = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -107,6 +108,8 @@ function runtimePageHtml(port) {
             results.requestName = window.Request.name;
             results.eventSourcePrototypeName = Object.getPrototypeOf(window.EventSource).name;
             results.eventSourceName = window.EventSource.name;
+            results.webSocketPrototypeName = Object.getPrototypeOf(window.WebSocket).name;
+            results.webSocketName = window.WebSocket.name;
             results.xhrOpenName = window.XMLHttpRequest.prototype.open.name;
             results.historyPushStateName = window.history.pushState.name;
 
@@ -144,6 +147,28 @@ function runtimePageHtml(port) {
                     }
                 };
                 source.onerror = () => reject(new Error("EventSource failed"));
+            });
+
+            results.webSocket = await new Promise((resolve, reject) => {
+                const values = [];
+                const socket = new WebSocket("/runtime/socket?via=bridge", "runtime-chat");
+                socket.binaryType = "arraybuffer";
+                socket.onopen = () => {
+                    socket.send("runtime-text");
+                    socket.send(new Uint8Array([4, 2, 1]));
+                };
+                socket.onmessage = event => {
+                    values.push(typeof event.data === "string"
+                        ? event.data
+                        : Array.from(new Uint8Array(event.data)));
+                };
+                socket.onerror = () => reject(new Error("WebSocket failed"));
+                socket.onclose = event => resolve({
+                    code: event.code,
+                    protocol: socket.protocol,
+                    reason: event.reason,
+                    values
+                });
             });
 
             history.pushState({ runtime: true }, "", "/runtime/virtual?step=1#view");
@@ -302,6 +327,30 @@ async function createBrowserE2eFixture() {
             else response.destroy(error);
         });
     });
+    const webSocketServer = new WebSocketServer({
+        noServer: true,
+        perMessageDeflate: false,
+        handleProtocols: protocols => protocols.has("runtime-chat") ? "runtime-chat" : false
+    });
+    webSocketServer.on("connection", (socket, request) => {
+        socket.send(JSON.stringify({
+            origin: request.headers.origin || "",
+            protocolHeader: request.headers["sec-websocket-protocol"] || "",
+            url: request.url
+        }));
+        let messages = 0;
+        socket.on("message", (data, isBinary) => {
+            messages += 1;
+            socket.send(data, { binary: isBinary });
+            if (messages === 2) setTimeout(() => socket.close(4002, "runtime-done"), 10);
+        });
+    });
+    server.on("upgrade", (request, socket, head) => {
+        if (!request.url.startsWith("/runtime/socket?")) return socket.destroy();
+        webSocketServer.handleUpgrade(request, socket, head, client => {
+            webSocketServer.emit("connection", client, request);
+        });
+    });
     await new Promise((resolve, reject) => {
         server.once("error", reject);
         server.listen(0, "127.0.0.1", resolve);
@@ -312,9 +361,12 @@ async function createBrowserE2eFixture() {
         port,
         origin: `http://fixture.test:${port}`,
         cdnOrigin: `http://cdn.test:${port}`,
-        close: () => new Promise((resolve, reject) => {
-            server.close(error => error ? reject(error) : resolve());
-        })
+        close: () => {
+            for (const client of webSocketServer.clients) client.terminate();
+            return new Promise((resolve, reject) => {
+                server.close(error => error ? reject(error) : resolve());
+            });
+        }
     };
 }
 

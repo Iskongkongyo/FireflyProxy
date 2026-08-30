@@ -20,6 +20,10 @@ test("default configuration uses explicit millisecond fields", () => {
     assert.equal(config.api.connectTimeoutMs, 5000);
     assert.equal(config.api.maxRequestBodyBytes, 5242880);
     assert.equal(config.api.maxConcurrentRequests, 64);
+    assert.equal(config.browser.webSocket, false);
+    assert.equal(config.browser.webSocketMaxPayloadBytes, 1048576);
+    assert.equal(config.browser.webSocketIdleTimeoutMs, 60000);
+    assert.equal(config.browser.webSocketMaxConnections, 64);
     assert.equal(config.trustProxy, false);
     assert.deepEqual(config.cors, {
         allowedOrigins: ["http://localhost:8080"],
@@ -184,4 +188,21 @@ test("Browser header policy accepts preserve while retaining strict compatibilit
     assert.equal(parseConfigObject({
         browser: { headerPolicy: "strict" }
     }).config.browser.headerPolicy, "strict");
+});
+
+test("WebSocket resource settings are bounded by the configuration schema", () => {
+    assert.throws(
+        () => parseConfigObject({
+            browser: { webSocketMaxPayloadBytes: 16777217 }
+        }),
+        error => error instanceof ConfigLoadError
+            && /browser\.webSocketMaxPayloadBytes/.test(error.message)
+    );
+    assert.throws(
+        () => parseConfigObject({
+            browser: { webSocketIdleTimeoutMs: 3600001 }
+        }),
+        error => error instanceof ConfigLoadError
+            && /browser\.webSocketIdleTimeoutMs/.test(error.message)
+    );
 });

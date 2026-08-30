@@ -3,6 +3,7 @@ export const DEFAULT_BROWSER_PREFERENCES = Object.freeze({
     rewriteCss: true,
     cookieJar: true,
     runtimeBridge: true,
+    webSocket: true,
     compatHeaders: true
 });
 

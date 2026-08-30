@@ -134,19 +134,30 @@ function rewriteAttributeSet($, selector, attribute, baseUrl) {
     });
 }
 
-function injectRuntimeBridge($, documentUrl, baseUrl = null) {
+function injectRuntimeBridge($, documentUrl, baseUrl = null, options = {}) {
     if ($("script[data-proxyweb-runtime]").length > 0) return false;
     const script = $("<script></script>")
         .attr("src", RUNTIME_BRIDGE_PATH)
         .attr("data-proxyweb-runtime", documentUrl);
     if (baseUrl) script.attr("data-proxyweb-base-url", baseUrl);
+    if (options.webSocket && options.webSocketContext) {
+        script.attr("data-proxyweb-websocket", "true");
+        script.attr("data-proxyweb-origin-context", options.webSocketContext);
+    }
     const head = $("head").first();
     if (head.length > 0) head.prepend(script);
     else $.root().prepend(script);
     return true;
 }
 
-function rewriteHtml({ html, documentUrl, mediaType = "text/html", runtimeBridge = false }) {
+function rewriteHtml({
+    html,
+    documentUrl,
+    mediaType = "text/html",
+    runtimeBridge = false,
+    webSocket = false,
+    webSocketContext = null
+}) {
     const xmlMode = mediaType === "application/xhtml+xml";
     const $ = cheerio.load(String(html || ""), xmlMode ? { xml: true } : undefined);
     const firstBase = $("base[href]").first();
@@ -195,7 +206,8 @@ function rewriteHtml({ html, documentUrl, mediaType = "text/html", runtimeBridge
     if (runtimeBridge) injectRuntimeBridge(
         $,
         documentUrl,
-        resolvedBaseUrl
+        resolvedBaseUrl,
+        { webSocket, webSocketContext }
     );
 
     return xmlMode ? $.xml() : $.html();
