@@ -201,6 +201,13 @@ async function handleRequest(request, response, port) {
     if (url.pathname === "/runtime") return sendHtml(response, runtimePageHtml(port));
     if (["/runtime/api", "/runtime/request", "/runtime/base/relative.json"].includes(url.pathname)) {
         const body = await readBody(request);
+        const corsHeaders = String(request.headers.host || "").startsWith("cdn.test:")
+            ? {
+                "access-control-allow-origin": `http://fixture.test:${port}`,
+                "access-control-allow-credentials": "true",
+                vary: "Origin"
+            }
+            : {};
         return send(response, 200, JSON.stringify({
             body: body.toString("utf8"),
             host: request.headers.host,
@@ -209,7 +216,7 @@ async function handleRequest(request, response, port) {
             pathname: url.pathname,
             query: Object.fromEntries(url.searchParams),
             referer: request.headers.referer || ""
-        }), { "content-type": "application/json; charset=utf-8" });
+        }), { "content-type": "application/json; charset=utf-8", ...corsHeaders });
     }
     if (url.pathname === "/runtime/events") {
         response.writeHead(200, {

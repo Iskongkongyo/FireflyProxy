@@ -14,6 +14,10 @@ const { rewriteCss } = require("./cssRewriter");
 const { rewriteHtml } = require("./htmlRewriter");
 const { getCookieHeader, storeResponseCookies } = require("./sessionStateStore");
 const { createWebSocketOriginContext } = require("./webSocketUrl");
+const {
+    isolatedProxyOrigin,
+    originIsolationConfig
+} = require("../core/originIsolation");
 
 const COMPAT_RESPONSE_HEADERS = Object.freeze([
     "content-security-policy",
@@ -43,16 +47,31 @@ function requestProxyOrigin(request) {
     }
 }
 
-function mapBrowserReferer(value, proxyOrigin) {
+function mapperOptions(config) {
+    return { originIsolation: config?.browser?.originIsolation };
+}
+
+function mapBrowserReferer(value, proxyOrigin, config, originIsolationRegistry) {
     if (typeof value !== "string" || !proxyOrigin) return null;
     try {
         const referer = new URL(value);
-        if (referer.origin !== proxyOrigin || !referer.pathname.startsWith(`${BROWSER_ROUTE_PREFIX}/`)) {
+        if (originIsolationConfig(config) && referer.pathname === "/" && !referer.search) {
+            const sourceOrigin = originIsolationRegistry?.resolve(
+                referer.origin,
+                config.browser.originIsolation
+            );
+            return sourceOrigin ? `${sourceOrigin}/` : null;
+        }
+        if (!referer.pathname.startsWith(`${BROWSER_ROUTE_PREFIX}/`)) {
             return null;
         }
         const requestUrl = `${referer.pathname.slice(BROWSER_ROUTE_PREFIX.length)}${referer.search}`;
         const targetUrl = fromProxyRequest({ url: requestUrl });
-        return toProxyUrl(targetUrl) === `${referer.pathname}${referer.search}` ? targetUrl : null;
+        const canonical = new URL(toProxyUrl(targetUrl, mapperOptions(config)), proxyOrigin);
+        return canonical.origin === referer.origin
+            && `${canonical.pathname}${canonical.search}` === `${referer.pathname}${referer.search}`
+            ? targetUrl
+            : null;
     } catch {
         return null;
     }
@@ -60,13 +79,38 @@ function mapBrowserReferer(value, proxyOrigin) {
 
 function applyBrowserSourceHeaders(headers, inboundHeaders, context) {
     const proxyOrigin = requestProxyOrigin(context.request);
-    const sourceUrl = mapBrowserReferer(getHeader(inboundHeaders, "referer"), proxyOrigin);
+    const refererValue = getHeader(inboundHeaders, "referer");
+    const sourceUrl = mapBrowserReferer(
+        refererValue,
+        proxyOrigin,
+        context.config,
+        context.originIsolationRegistry
+    );
+    let sourceProxyOrigin = null;
+    try {
+        sourceProxyOrigin = sourceUrl ? new URL(refererValue).origin : null;
+    } catch {
+        sourceProxyOrigin = null;
+    }
     const inboundOrigin = getHeader(inboundHeaders, "origin");
+    const registeredSourceOrigin = originIsolationConfig(context.config)
+        ? context.originIsolationRegistry?.resolve(
+            inboundOrigin,
+            context.config.browser.originIsolation
+        )
+        : null;
 
     if (sourceUrl) replaceHeader(headers, "referer", sourceUrl);
     if (inboundOrigin === "null") {
         replaceHeader(headers, "origin", "null");
-    } else if (inboundOrigin === proxyOrigin) {
+    } else if (registeredSourceOrigin) {
+        replaceHeader(headers, "origin", registeredSourceOrigin);
+    } else if (inboundOrigin === sourceProxyOrigin) {
+        replaceHeader(headers, "origin", sourceUrl ? new URL(sourceUrl).origin : "null");
+    } else if (originIsolationConfig(context.config)
+        && inboundOrigin === isolatedProxyOrigin(new URL(context.targetUrl).origin, context.config.browser.originIsolation)) {
+        replaceHeader(headers, "origin", new URL(context.targetUrl).origin);
+    } else if (inboundOrigin === proxyOrigin && !originIsolationConfig(context.config)) {
         replaceHeader(headers, "origin", sourceUrl ? new URL(sourceUrl).origin : "null");
     }
     return headers;
@@ -81,7 +125,20 @@ function filterBrowserResponseHeaders(upstreamHeaders, config, context = {}) {
         headers = omitHeaders(headers, COMPAT_RESPONSE_HEADERS);
     }
     if (context.redirectTargetUrl && getHeader(headers, "location")) {
-        replaceHeader(headers, "location", toProxyUrl(context.redirectTargetUrl));
+        replaceHeader(headers, "location", toProxyUrl(context.redirectTargetUrl, mapperOptions(config)));
+    }
+    if (originIsolationConfig(config)) {
+        const inboundOrigin = getHeader(context.request?.headers, "origin");
+        const upstreamAllowedOrigin = getHeader(headers, "access-control-allow-origin");
+        if (inboundOrigin && upstreamAllowedOrigin && upstreamAllowedOrigin !== "*") {
+            const mappedSourceOrigin = context.originIsolationRegistry?.resolve(
+                inboundOrigin,
+                config.browser.originIsolation
+            );
+            if (mappedSourceOrigin && upstreamAllowedOrigin === mappedSourceOrigin) {
+                replaceHeader(headers, "access-control-allow-origin", inboundOrigin);
+            }
+        }
     }
     return headers;
 }
@@ -94,7 +151,7 @@ const browserPolicy = Object.freeze({
         const browserHeaders = applyBrowserSourceHeaders({
             ...omitHeaders(headers, ["accept-encoding"]),
             "accept-encoding": "identity"
-        }, inboundHeaders, context);
+        }, inboundHeaders, { ...context, config });
         if (config.browser.cookieJar && context.sessionState) {
             const cookie = await getCookieHeader(context.sessionState, context.targetUrl);
             if (cookie) replaceHeader(browserHeaders, "cookie", cookie);
@@ -121,11 +178,12 @@ const browserPolicy = Object.freeze({
                 webSocket: config.browser.webSocket,
                 webSocketContext: config.browser.webSocket
                     ? createWebSocketOriginContext(new URL(targetUrl).origin, config.session.secret)
-                    : null
+                    : null,
+                mapperOptions: mapperOptions(config)
             });
         }
         if (mediaType === "text/css") {
-            return rewriteCss({ css: text, stylesheetUrl: targetUrl });
+            return rewriteCss({ css: text, stylesheetUrl: targetUrl, mapperOptions: mapperOptions(config) });
         }
         return text;
     },

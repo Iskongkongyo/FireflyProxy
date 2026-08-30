@@ -24,9 +24,9 @@ const URL_ATTRIBUTES = Object.freeze([
     ["embed[src]", "src"]
 ]);
 
-function rewriteUrlValue(value, baseUrl) {
+function rewriteUrlValue(value, baseUrl, mapperOptions) {
     const resolved = resolveTargetUrl(value, baseUrl);
-    return resolved ? toProxyUrl(resolved) : value;
+    return resolved ? toProxyUrl(resolved, mapperOptions) : value;
 }
 
 function parseSrcset(value) {
@@ -83,22 +83,22 @@ function parseSrcset(value) {
     return candidates;
 }
 
-function rewriteSrcset(value, baseUrl) {
+function rewriteSrcset(value, baseUrl, mapperOptions) {
     const candidates = parseSrcset(value);
     if (candidates.length === 0) return value;
     return candidates
         .map(({ url, descriptor }) => {
-            const rewritten = rewriteUrlValue(url, baseUrl);
+            const rewritten = rewriteUrlValue(url, baseUrl, mapperOptions);
             return descriptor ? `${rewritten} ${descriptor}` : rewritten;
         })
         .join(", ");
 }
 
-function rewriteInlineStyle(value, baseUrl) {
-    return rewriteCssValue(value, baseUrl);
+function rewriteInlineStyle(value, baseUrl, mapperOptions) {
+    return rewriteCssValue(value, baseUrl, mapperOptions);
 }
 
-function rewriteMetaRefresh(value, baseUrl) {
+function rewriteMetaRefresh(value, baseUrl, mapperOptions) {
     const match = /^(\s*(?:\d+(?:\.\d*)?|\.\d+)\s*;\s*url\s*=\s*)([\s\S]*)$/i.exec(String(value || ""));
     if (!match) return value;
 
@@ -120,17 +120,17 @@ function rewriteMetaRefresh(value, baseUrl) {
         ? candidate[0]
         : "";
     const rawUrl = quote ? candidate.slice(1, -1) : candidate;
-    const rewritten = rewriteUrlValue(rawUrl, baseUrl);
+    const rewritten = rewriteUrlValue(rawUrl, baseUrl, mapperOptions);
     if (rewritten === rawUrl) return value;
 
     return `${match[1]}${leadingWhitespace}${quote}${rewritten}${quote}${trailingWhitespace}`;
 }
 
-function rewriteAttributeSet($, selector, attribute, baseUrl) {
+function rewriteAttributeSet($, selector, attribute, baseUrl, mapperOptions) {
     $(selector).each((index, element) => {
         const current = $(element).attr(attribute);
         if (typeof current !== "string") return;
-        $(element).attr(attribute, rewriteUrlValue(current, baseUrl));
+        $(element).attr(attribute, rewriteUrlValue(current, baseUrl, mapperOptions));
     });
 }
 
@@ -144,6 +144,9 @@ function injectRuntimeBridge($, documentUrl, baseUrl = null, options = {}) {
         script.attr("data-proxyweb-websocket", "true");
         script.attr("data-proxyweb-origin-context", options.webSocketContext);
     }
+    if (options.originIsolation?.enabled) {
+        script.attr("data-proxyweb-isolation-base-origin", options.originIsolation.baseOrigin);
+    }
     const head = $("head").first();
     if (head.length > 0) head.prepend(script);
     else $.root().prepend(script);
@@ -156,7 +159,8 @@ function rewriteHtml({
     mediaType = "text/html",
     runtimeBridge = false,
     webSocket = false,
-    webSocketContext = null
+    webSocketContext = null,
+    mapperOptions
 }) {
     const xmlMode = mediaType === "application/xhtml+xml";
     const $ = cheerio.load(String(html || ""), xmlMode ? { xml: true } : undefined);
@@ -168,17 +172,17 @@ function rewriteHtml({
     const effectiveBaseUrl = resolvedBaseUrl || documentUrl;
 
     for (const [selector, attribute] of URL_ATTRIBUTES) {
-        rewriteAttributeSet($, selector, attribute, effectiveBaseUrl);
+        rewriteAttributeSet($, selector, attribute, effectiveBaseUrl, mapperOptions);
     }
 
     $("img[srcset], source[srcset]").each((index, element) => {
         const current = $(element).attr("srcset");
-        if (typeof current === "string") $(element).attr("srcset", rewriteSrcset(current, effectiveBaseUrl));
+        if (typeof current === "string") $(element).attr("srcset", rewriteSrcset(current, effectiveBaseUrl, mapperOptions));
     });
 
     $("[style]").each((index, element) => {
         const current = $(element).attr("style");
-        if (typeof current === "string") $(element).attr("style", rewriteInlineStyle(current, effectiveBaseUrl));
+        if (typeof current === "string") $(element).attr("style", rewriteInlineStyle(current, effectiveBaseUrl, mapperOptions));
     });
 
     $("style").each((index, element) => {
@@ -187,7 +191,7 @@ function rewriteHtml({
         if (type !== "text/css") return;
         const current = style.html();
         if (typeof current === "string") {
-            style.text(rewriteCss({ css: current, stylesheetUrl: effectiveBaseUrl }));
+            style.text(rewriteCss({ css: current, stylesheetUrl: effectiveBaseUrl, mapperOptions }));
         }
     });
 
@@ -195,19 +199,23 @@ function rewriteHtml({
         const meta = $(element);
         if (String(meta.attr("http-equiv") || "").trim().toLowerCase() !== "refresh") return;
         const current = meta.attr("content");
-        if (typeof current === "string") meta.attr("content", rewriteMetaRefresh(current, effectiveBaseUrl));
+        if (typeof current === "string") meta.attr("content", rewriteMetaRefresh(current, effectiveBaseUrl, mapperOptions));
     });
 
     $("base[href]").each((index, element) => {
         const current = $(element).attr("href");
-        if (typeof current === "string") $(element).attr("href", rewriteUrlValue(current, documentUrl));
+        if (typeof current === "string") $(element).attr("href", rewriteUrlValue(current, documentUrl, mapperOptions));
     });
 
     if (runtimeBridge) injectRuntimeBridge(
         $,
         documentUrl,
         resolvedBaseUrl,
-        { webSocket, webSocketContext }
+        {
+            webSocket,
+            webSocketContext,
+            originIsolation: mapperOptions?.originIsolation
+        }
     );
 
     return xmlMode ? $.xml() : $.html();

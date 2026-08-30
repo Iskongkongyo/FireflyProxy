@@ -22,6 +22,11 @@ const { ERROR_CODES, ProxyError, createErrorMiddleware } = require("./core/error
 const { createLogger } = require("./core/logger");
 const { createPinnedConnection } = require("./core/pinnedConnection");
 const { createProxyExecutor } = require("./core/proxyExecutor");
+const {
+    createOriginIsolationMiddleware,
+    createOriginIsolationRegistry,
+    createSharedSessionDomainMiddleware
+} = require("./core/originIsolation");
 const { createProxyAuth } = require("./middleware/auth");
 const { createCorsMiddleware } = require("./middleware/cors");
 const { createLegacyAdapter, createLegacyReadiness } = require("./middleware/legacyAdapter");
@@ -54,6 +59,7 @@ if (typeof connectionFactory !== "function") {
     throw new TypeError("connectionFactory must be a function");
 }
 const sessionStateStore = options.sessionStateStore || createSessionStateStore();
+const originIsolationRegistry = options.originIsolationRegistry || createOriginIsolationRegistry();
 if (
     !sessionStateStore
     || typeof sessionStateStore.get !== "function"
@@ -156,6 +162,7 @@ const configWatcher = options.watchConfig === false
 // ---------------------------
 
 app.use(createRequestLogger({ logger, requestIdFactory: options.requestIdFactory }));
+app.use(createOriginIsolationMiddleware({ getConfig: () => config }));
 
 // Session 配置
 // ⚠️ 生产环境建议替换为 RedisStore，避免内存泄漏
@@ -172,6 +179,7 @@ const sessionMiddleware = session({
     // store: new RedisStore({ client: redisClient }), // Example for Prod
 });
 app.use(sessionMiddleware);
+app.use(createSharedSessionDomainMiddleware({ getConfig: () => config }));
 
 const corsMiddleware = createCorsMiddleware({ getConfig: () => config });
 app.use((req, res, next) => {
@@ -229,7 +237,8 @@ app.get(RUNTIME_BRIDGE_PATH, createRuntimeBridgeHandler({ getConfig: () => confi
 app.use("/__proxyweb/browser", createBrowserRouter({
     proxyExecutor,
     getConfig: () => config,
-    sessionStateStore
+    sessionStateStore,
+    originIsolationRegistry
 }));
 app.use("/__proxyweb", (req, res, next) => next(new ProxyError(
     ERROR_CODES.ROUTE_NOT_FOUND,
@@ -257,6 +266,7 @@ app.use(createErrorMiddleware({ logger }));
             webSocketProxy.close();
             proxyExecutor.close();
             await sessionStateStore.clear?.();
+            originIsolationRegistry.clear?.();
             if (configWatcher) await configWatcher.close();
             if (ownsLogger) logger.close();
         }

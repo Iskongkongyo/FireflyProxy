@@ -7,8 +7,13 @@ const {
 } = require("../core/urlMapper");
 const { browserPolicy } = require("./policy");
 const { applyBrowserPreferences, parseBrowserPreferences } = require("./preferences");
+const { validateTargetProxyOrigin } = require("../core/originIsolation");
 
-function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
+function mapperOptions(config) {
+    return { originIsolation: config.browser.originIsolation };
+}
+
+function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore, originIsolationRegistry }) {
     const router = express.Router();
 
     router.all("/", async (req, res, next) => {
@@ -19,6 +24,12 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
                     statusCode: 404
                 });
             }
+            if (requestConfig.browser.originIsolation.enabled
+                && req.proxyWebOriginIsolation?.scope !== "base") {
+                throw new ProxyError(ERROR_CODES.ORIGIN_ISOLATION_DENIED, "Browser entry requires the configured base origin", {
+                    statusCode: 421
+                });
+            }
             const target = await proxyExecutor.resolveTarget(req.query.url, requestConfig);
             const preferences = parseBrowserPreferences(req.query);
             if (Object.keys(preferences).length > 0) {
@@ -26,7 +37,7 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
             } else if (req.session.proxyWebBrowserPreferences) {
                 delete req.session.proxyWebBrowserPreferences;
             }
-            return res.redirect(302, toProxyUrl(target.url));
+            return res.redirect(302, toProxyUrl(target.url, mapperOptions(requestConfig)));
         } catch (error) {
             next(error);
         }
@@ -46,9 +57,23 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
             );
 
             const targetValue = fromProxyRequest(req);
-            const canonicalUrl = toProxyUrl(targetValue);
+            const targetOrigin = new URL(targetValue).origin;
+            const isolationResult = validateTargetProxyOrigin(
+                req,
+                targetOrigin,
+                requestConfig.browser.originIsolation
+            );
+            if (requestConfig.browser.originIsolation.enabled) {
+                originIsolationRegistry.register(targetOrigin);
+                req.session.proxyWebOriginIsolation = true;
+            }
+            const canonicalUrl = toProxyUrl(targetValue, mapperOptions(requestConfig));
             const currentUrl = `${BROWSER_ROUTE_PREFIX}${req.url}`;
-            if (currentUrl !== canonicalUrl) return res.redirect(308, canonicalUrl);
+            if (isolationResult.redirect) return res.redirect(308, canonicalUrl);
+            const canonicalPath = new URL(canonicalUrl, "http://proxyweb.invalid");
+            if (currentUrl !== `${canonicalPath.pathname}${canonicalPath.search}`) {
+                return res.redirect(308, canonicalUrl);
+            }
 
             let sessionState;
             if (requestConfig.browser.cookieJar) {
@@ -63,6 +88,7 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore }) {
                 policy: browserPolicy,
                 requestConfig,
                 sessionState,
+                originIsolationRegistry,
                 allowQueryControls: false
             });
         } catch (error) {

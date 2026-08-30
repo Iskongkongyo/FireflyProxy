@@ -98,6 +98,7 @@ function createProxyExecutor(options) {
             }
             const policyContext = {
                 request: req,
+                originIsolationRegistry: options.originIsolationRegistry,
                 sessionState: options.sessionState,
                 targetUrl: target.url
             };
@@ -200,6 +201,8 @@ function createProxyExecutor(options) {
                 requestConfig,
                 {
                     ...preparedResponse,
+                    request: req,
+                    originIsolationRegistry: options.originIsolationRegistry,
                     status: response.status,
                     targetUrl: finalTarget.url,
                     redirectTargetUrl: redirectTarget?.url

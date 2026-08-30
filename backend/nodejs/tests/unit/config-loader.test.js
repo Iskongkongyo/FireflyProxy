@@ -24,6 +24,10 @@ test("default configuration uses explicit millisecond fields", () => {
     assert.equal(config.browser.webSocketMaxPayloadBytes, 1048576);
     assert.equal(config.browser.webSocketIdleTimeoutMs, 60000);
     assert.equal(config.browser.webSocketMaxConnections, 64);
+    assert.deepEqual(config.browser.originIsolation, {
+        enabled: false,
+        baseOrigin: "https://browse.example.com"
+    });
     assert.equal(config.trustProxy, false);
     assert.deepEqual(config.cors, {
         allowedOrigins: ["http://localhost:8080"],
@@ -204,5 +208,43 @@ test("WebSocket resource settings are bounded by the configuration schema", () =
         }),
         error => error instanceof ConfigLoadError
             && /browser\.webSocketIdleTimeoutMs/.test(error.message)
+    );
+});
+
+test("Origin isolation requires an owned HTTPS namespace and Secure control session", () => {
+    const enabled = parseConfigObject({
+        session: { secure: true },
+        browser: {
+            originIsolation: { enabled: true, baseOrigin: "https://browse.proxy.test" }
+        }
+    });
+    assert.equal(enabled.config.browser.originIsolation.enabled, true);
+
+    for (const browser of [
+        { originIsolation: { enabled: true, baseOrigin: "https://example.com" } },
+        { originIsolation: { enabled: true, baseOrigin: "https://example.co.uk" } },
+        { originIsolation: { enabled: true, baseOrigin: "http://browse.example.com" } }
+    ]) {
+        assert.throws(
+            () => parseConfigObject({ browser }),
+            error => error instanceof ConfigLoadError && /originIsolation\.baseOrigin/.test(error.message)
+        );
+    }
+    assert.throws(
+        () => parseConfigObject({
+            browser: {
+                originIsolation: { enabled: true, baseOrigin: "https://browse.proxy.test" }
+            }
+        }),
+        error => error instanceof ConfigLoadError && /session\.secure/.test(error.message)
+    );
+    assert.throws(
+        () => parseConfigObject({
+            session: { secure: true, httpOnly: false },
+            browser: {
+                originIsolation: { enabled: true, baseOrigin: "https://browse.proxy.test" }
+            }
+        }),
+        error => error instanceof ConfigLoadError && /session\.httpOnly/.test(error.message)
     );
 });

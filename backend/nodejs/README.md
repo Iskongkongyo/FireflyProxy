@@ -87,7 +87,7 @@ npm start
 }
 ```
 
-完整模板还包含 `browser` 段。`browser.enabled`、`browser.headerPolicy`、`browser.cookieJar`、`rewriteHtml`、`rewriteCss`、`runtimeBridge` 与 WebSocket 字段已用于 Browser Route；Runtime Bridge 和 WebSocket 默认关闭，自动 ws/wss 映射依赖有效的 Runtime Bridge 注入。`browser.maxRedirects` 为旧 Browser 服务端跟随行为兼容保留；当前 Browser 3xx 只验证并改写 Location，由客户端逐跳处理。`security.blockedHostnames` 已用于目标主机校验；任何模式和动态请求都不能绕过现有安全检查。
+完整模板还包含 `browser` 段。`browser.enabled`、`browser.headerPolicy`、`browser.cookieJar`、`rewriteHtml`、`rewriteCss`、`runtimeBridge`、WebSocket 与 `originIsolation` 字段已用于 Browser Route；Runtime Bridge、WebSocket 和 Origin Isolation 默认关闭。`browser.maxRedirects` 为旧 Browser 服务端跟随行为兼容保留；当前 Browser 3xx 只验证并改写 Location，由客户端逐跳处理。`security.blockedHostnames` 已用于目标主机校验；任何模式和动态请求都不能绕过现有安全检查。
 
 | 字段 | 类型/单位 | 当前行为 |
 | --- | --- | --- |
@@ -122,6 +122,8 @@ npm start
 | `browser.webSocketMaxPayloadBytes` | Number，字节 | 单条上行或下行 WebSocket 消息上限；默认 1 MiB，Schema 最大 16 MiB；新连接读取新值 |
 | `browser.webSocketIdleTimeoutMs` | Number，毫秒 | 无 message/ping/pong 活动后的关闭时间；默认 60 秒；新连接读取新值 |
 | `browser.webSocketMaxConnections` | Number | 进行中握手与已建立 WebSocket 总上限；默认 64；可热加载 |
+| `browser.originIsolation.enabled` | Boolean | 启用每 upstream 独立子域；默认 `false`；部署级开关，修改后需重启 |
+| `browser.originIsolation.baseOrigin` | HTTP(S) Origin | 专用 Browser DNS namespace，例如 `https://browse.example.com`；需匹配 DNS/TLS/Session 部署并重启 |
 
 ### 旧配置迁移
 
@@ -197,9 +199,29 @@ Browser Canonical 查询字符串全部属于上游，即使字段名为 `method
 
 Browser UI 可在入口请求中发送 `rewriteHtml`、`rewriteCss`、`runtimeBridge`、`webSocket`、`cookieJar` 与 `compatHeaders` 布尔偏好。偏好保存在签名后的当前 Browser Session 中，最近一次入口启动对该 Session 的后续 Canonical/跨 origin 子请求及 Upgrade 生效。所有偏好都只能收紧全局配置：无法启用服务器关闭的 Rewrite/Runtime Bridge/WebSocket/Cookie Jar，也无法把全局 `preserve`/`strict` 降级成 `compat`；重复值或非 `true`/`false` 参数返回 400 `PROXY_BROWSER_URL_INVALID`。不带偏好的入口会清除旧偏好并恢复服务器配置。
 
+### Origin Isolation
+
+默认 path 模式会让多个 upstream 共用一个 proxyWeb origin。需要浏览器级 DOM、Storage、Worker scope 与权限隔离时，可配置：
+
+```json
+{
+  "session": { "secure": true },
+  "browser": {
+    "originIsolation": {
+      "enabled": true,
+      "baseOrigin": "https://browse.example.com"
+    }
+  }
+}
+```
+
+启用后入口仍为精确的 `https://browse.example.com/__proxyweb/browser?url=...`，Canonical URL 变为 `https://o-<sha256>.browse.example.com/__proxyweb/browser/<origin-token>/...`。host label 与可逆 path token 每次双重校验；错误 Host、错误 label、隔离 host 上的 API/UI 路径均返回 421 `PROXY_ORIGIN_ISOLATION_DENIED`。通配 DNS/TLS 只负责把规范子域送到应用，不构成 Host 信任或 SSRF allowlist。
+
+生产必须提供专用的至少三级 DNS namespace、`*.browse.example.com` DNS 与 TLS 证书、HTTPS 和 `session.secure: true`。proxyWeb 的 HttpOnly 控制 Session 会绑定精确 base hostname 的 Domain，以在隔离子域间共享启动偏好和服务端 Cookie Jar；页面 DOM/Storage 仍按子域隔离，但这不等于每 upstream 独立 proxyWeb 登录会话。详细边界、反向代理要求和多实例限制见 [Origin Isolation 威胁模型](../../docs/origin-isolation-threat-model.md)。
+
 ### WebSocket Upgrade
 
-开启 `browser.enabled` 与 `browser.webSocket` 后，HTTP Server 会接管 `/__proxyweb/browser/<origin-token>/...` 的 ws/wss Upgrade。Runtime Bridge 把 upstream WebSocket URL 映射到当前 proxy Host，并附加 HMAC 签名的来源 Origin 上下文；代理验证并移除该保留子协议后，只把应用声明的子协议发给上游。没有有效来源上下文时，上游 Origin 安全降级为 `null`，不会伪装成目标同源。
+开启 `browser.enabled` 与 `browser.webSocket` 后，HTTP Server 会接管 `/__proxyweb/browser/<origin-token>/...` 的 ws/wss Upgrade。Runtime Bridge 把 upstream WebSocket URL 映射到 path 模式的当前 proxy Host，或 Origin Isolation 模式下的目标派生 Host，并附加 HMAC 签名的来源 Origin 上下文；代理验证并移除该保留子协议后，只把应用声明的子协议发给上游。没有有效来源上下文时，上游 Origin 安全降级为 `null`，不会伪装成目标同源。
 
 Upgrade 会在返回下游 101 前完成 Basic Auth、Session 偏好、Canonical URL、DNS SSRF、请求级 Pinning、TLS 和远端地址校验。上游仅收到 allowlist Header、映射后的 Origin 和 Cookie Jar 中匹配目标 URL 的 Cookie；proxyWeb Session Cookie、普通 Authorization 与签名来源标记不会泄露。文本、二进制、应用子协议和合法关闭码双向透传；ping/pong 在两条连接上分别应答。转发通过暂停来源读取直至目标 `send` 完成施加 backpressure，并同时受 payload、idle 和总连接数限制。ws/wss Redirect 不跟随，配置关闭和进程 shutdown 会终止相关握手及连接。
 
@@ -276,7 +298,7 @@ location /__proxyweb/ {
 - API Mode 保留上游安全响应头；Browser `preserve`/`strict` 保留，只有显式 `compat` 会移除列出的 CSP、嵌入和跨源策略头；Legacy Adapter 为保持旧行为仍移除 X-Frame-Options/CSP。
 - Range 请求头随普通请求头转发；自动化契约覆盖 API/Legacy/Browser 的 206、`Content-Range`、`Accept-Ranges`、正确 `Content-Length`、开放/后缀范围和响应片段。
 - Browser Cookie Jar 已实现：客户端 proxyWeb Cookie 会先删除，只按目标 URL 注入 Session Jar 中的 upstream Cookie；上游 `Set-Cookie` 不向下游透传。API/Legacy 行为不变。
-- HTML/CSS 静态 URL、Browser Location、Cookie、来源 Header、脚本动态请求与 WebSocket 已实现；SSE 已有直通集成测试。高级 Worker/Service Worker 兼容与多 upstream Origin Isolation 尚未实现。
+- HTML/CSS 静态 URL、Browser Location、Cookie、来源 Header、脚本动态请求、WebSocket 与可选多 upstream Origin Isolation 已实现；SSE 已有直通集成测试。高级 Worker/Service Worker 兼容尚未实现。
 
 ## 日志与排错
 
@@ -322,6 +344,7 @@ location /__proxyweb/ {
 | `npm run test:runtime` | 运行 Runtime Bridge 注入、配置和端点契约专项测试 |
 | `npm run test:websocket` | 运行 WebSocket URL、安全握手、双向消息及资源上限专项测试 |
 | `npm run test:runtime:e2e` | 使用本机 Chromium 验证动态 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History |
+| `npm run test:isolation:e2e` | 使用本机 Chromium 验证多 upstream Origin、Storage、SOP 与跨源 Runtime CORS |
 | `npm run lint` | 检查生产入口与测试辅助脚本语法 |
 | `npm run verify:p0` | 运行前后端完整 P0 门禁（复用已安装依赖） |
 | `npm run verify:p0:ci` | 先执行两端 `npm ci`，再运行完整 P0 门禁 |
@@ -330,8 +353,8 @@ location /__proxyweb/ {
 | `npm run verify:p2` | 运行 P1 回归与 Runtime Bridge E2E |
 | `npm run verify:p2:ci` | 从两端 `npm ci` 开始运行当前完整 P2 门禁 |
 
-测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射、Runtime Bridge 与 WebSocket Upgrade，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE、脚本动态 URL 与 WebSocket 文本/二进制/子协议/关闭码。
+测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射、Runtime Bridge、WebSocket Upgrade 与 Origin Isolation Host 双绑定，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE、脚本动态 URL、WebSocket、独立 Origin/Storage 与 SOP 边界。
 
-后端当前 191 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket 握手/双向流/资源上限、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 201 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
-路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.3 的当前 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)、[P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md) 与 [P2 Runtime/WebSocket 自动化验收矩阵](../../docs/p2-runtime-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。
+路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.4 的 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)、[P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md)、[P2 Runtime/WebSocket/Origin Isolation 自动化验收矩阵](../../docs/p2-runtime-verification-matrix.md) 与 [Origin Isolation 威胁模型](../../docs/origin-isolation-threat-model.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

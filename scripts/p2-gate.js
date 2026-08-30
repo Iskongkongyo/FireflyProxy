@@ -16,6 +16,7 @@ function npmInvocation(args) {
 
 const p1Args = [p1GatePath, ...(installDependencies ? ["--install"] : [])];
 const runtimeInvocation = npmInvocation(["run", "test:runtime:e2e"]);
+const isolationInvocation = npmInvocation(["run", "test:isolation:e2e"]);
 const steps = [
     {
         label: "P1 regression gate",
@@ -27,6 +28,12 @@ const steps = [
         label: "Runtime Bridge Playwright E2E",
         command: runtimeInvocation.command,
         args: runtimeInvocation.args,
+        cwd: backendDirectory
+    },
+    {
+        label: "Origin Isolation Playwright E2E",
+        command: isolationInvocation.command,
+        args: isolationInvocation.args,
         cwd: backendDirectory
     }
 ];

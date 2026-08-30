@@ -101,7 +101,9 @@ async function removeTestDirectory(tempDir) {
 }
 
 async function startProxy(overrides = {}, options = {}) {
-    const port = overrides.port || await getFreePort();
+    const requestedPort = typeof overrides === "function" ? null : overrides.port;
+    const port = requestedPort || await getFreePort();
+    if (typeof overrides === "function") overrides = await overrides(port);
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "proxyweb-contract-"));
     const configPath = path.join(tempDir, "main.json");
     const config = {

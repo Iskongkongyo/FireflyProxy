@@ -1,4 +1,5 @@
 const { z } = require("zod");
+const { getPublicSuffix } = require("tough-cookie");
 const { normalizeHostnameRule } = require("../core/targetValidator");
 
 const originSchema = z.string().refine(value => {
@@ -78,6 +79,10 @@ const browserSchema = z.object({
     webSocketMaxPayloadBytes: z.number().int().positive().max(16777216),
     webSocketIdleTimeoutMs: z.number().int().positive().max(3600000),
     webSocketMaxConnections: z.number().int().positive().max(10000),
+    originIsolation: z.object({
+        enabled: z.boolean(),
+        baseOrigin: originSchema.refine(value => value !== "*", "Expected an exact HTTP(S) origin")
+    }).strict(),
     headerPolicy: z.enum(["strict", "preserve", "compat"])
 }).strict();
 
@@ -94,7 +99,49 @@ const configSchema = z.object({
     security: securitySchema,
     api: apiSchema,
     browser: browserSchema
-}).strict();
+}).strict().superRefine((value, context) => {
+    if (!value.browser.originIsolation.enabled) return;
+    const base = new URL(value.browser.originIsolation.baseOrigin);
+    const labels = base.hostname.split(".");
+    let registrableDomain = null;
+    try {
+        registrableDomain = getPublicSuffix(base.hostname, { allowSpecialUseDomain: true });
+    } catch {
+        registrableDomain = null;
+    }
+    if (
+        labels.length < 3
+        || base.hostname === registrableDomain
+        || labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))
+    ) {
+        context.addIssue({
+            code: "custom",
+            path: ["browser", "originIsolation", "baseOrigin"],
+            message: "Origin isolation requires a dedicated DNS namespace with at least three hostname labels"
+        });
+    }
+    if (base.protocol === "http:" && !base.hostname.endsWith(".test")) {
+        context.addIssue({
+            code: "custom",
+            path: ["browser", "originIsolation", "baseOrigin"],
+            message: "Origin isolation requires HTTPS outside reserved .test environments"
+        });
+    }
+    if (base.protocol === "https:" && !value.session.secure) {
+        context.addIssue({
+            code: "custom",
+            path: ["session", "secure"],
+            message: "HTTPS origin isolation requires a Secure session cookie"
+        });
+    }
+    if (!value.session.httpOnly) {
+        context.addIssue({
+            code: "custom",
+            path: ["session", "httpOnly"],
+            message: "Origin isolation requires an HttpOnly control session cookie"
+        });
+    }
+});
 
 function formatConfigIssues(error) {
     return error.issues.map(issue => {

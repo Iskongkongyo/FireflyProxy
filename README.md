@@ -142,6 +142,8 @@ npm run build
 | `browser.webSocketMaxPayloadBytes` | 单条 WebSocket 消息上限，默认 1 MiB | 新连接 |
 | `browser.webSocketIdleTimeoutMs` | WebSocket 空闲关闭时间，默认 60 秒 | 新连接 |
 | `browser.webSocketMaxConnections` | 进行中握手与已建立连接总上限，默认 64 | 是 |
+| `browser.originIsolation.enabled` | 是否为每个 upstream 使用独立 proxy 子域；默认关闭 | 否，部署变更需重启 |
+| `browser.originIsolation.baseOrigin` | 专用 Browser DNS namespace，例如 `https://browse.example.com` | 否，需同步 DNS/TLS/Session 并重启 |
 
 旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin`、`blacklist` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins`、`security.blockedHostnames` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；旧黑名单值按精确主机或前导通配子域规则校验，不再作为正则执行。迁移会记录弃用警告，建议按模板尽快更新。
 
@@ -153,6 +155,7 @@ npm run build
 - Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。HTML 使用 Parser 重写 allowlist 属性、`srcset`、`<base>`、Meta Refresh 与内联 CSS，独立 CSS 使用 AST 重写 `url()`/`@import`；相对 CSS URL 基于样式表自身地址。Browser 301/302/303/307/308 会先验证 Location，再返回 Canonical Location 交由浏览器处理，不在服务端吞掉跳转。实际子请求与跳转目标仍执行完整 SSRF/DNS/Pinning 校验。SSE 会提前发送响应头并携带 `X-Accel-Buffering: no`；206、附件、`no-transform`、音视频、PDF 和二进制保持流式，未变换响应保留合法 Content-Length。
 - Browser Cookie Jar 仅由服务端按 proxyWeb Session 保存，并按 upstream Domain、Path、Secure 与 Expiry 匹配；入站 proxyWeb Cookie 不会直接转发，上游 `Set-Cookie` 也不会设置到 proxyWeb 域名。Canonical Referer 会映射回完整 upstream URL，Origin 只取已验证的来源页面 origin；来源未知时使用 `null`，不会把跨站请求伪装成与目标同源。
 - Runtime Bridge 默认关闭；开启后在 upstream 脚本前注入 `no-store` 脚本，映射 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History URL，并保持 Promise、prototype、this 和错误行为。Bridge 不读取或记录 Body/Token，动态目标仍逐次经过 Canonical Route 的 SSRF/DNS/Pinning 校验。WebSocket 还需独立开启 `browser.webSocket`；握手在下游 101 前执行 Basic Auth、Session、Origin、DNS SSRF、Pinning/TLS 和远端地址校验，并受 payload、idle、总连接数及 backpressure 限制。
+- Origin Isolation 默认关闭；启用后以 SHA-256 派生的规范子域和可逆 path token 双重绑定 upstream，错误/未知 Host 及隔离 host 上的 API/UI 路由返回 421。不同 upstream 的 DOM、Storage 与权限 Origin 已由真实 Edge 验证隔离；精确 base Domain 下的 HttpOnly 控制 Session 仍共享，因此管理 UI 必须部署到不同站点。生产需要专用 wildcard DNS/TLS、HTTPS、Secure Session 与正确保留 Host 的反向代理，详见 [威胁模型](./docs/origin-isolation-threat-model.md)。
 - Browser UI 的兼容参数绑定当前 Browser Session，只能关闭服务器已经允许的 Rewrite、Runtime Bridge、WebSocket、Cookie Jar 或兼容 Header，不能从前端开启全局禁用能力，也不能把 `preserve/strict` 降级为 `compat`。默认使用 `noopener` 新标签页；同源部署时禁用 iframe 预览，并持续建议把不可信 Browser Proxy 与管理 UI 分离到不同 Origin。
 - 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
@@ -161,7 +164,7 @@ npm run build
 - `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
 - Express Session 与 Browser SessionStateStore 当前都使用进程内存，不适合多实例或长期生产运行；服务端 Jar 也无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
 
-P0、P1 与当前 P2 Runtime/WebSocket 的逐项证据分别见 [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)、[P1 Browser Core 验收矩阵](./docs/p1-verification-matrix.md) 和 [P2 Runtime/WebSocket 验收矩阵](./docs/p2-runtime-verification-matrix.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
+P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)、[P1 Browser Core 验收矩阵](./docs/p1-verification-matrix.md) 和 [P2 验收矩阵](./docs/p2-runtime-verification-matrix.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
 
 ## P0 / P1 / P2 自动化门禁
 
@@ -171,7 +174,7 @@ P0、P1 与当前 P2 Runtime/WebSocket 的逐项证据分别见 [P0 自动化验
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 191 项测试与语法检查、前端 7 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 201 项测试与语法检查、前端 7 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 P1 门禁是 P0 的严格超集，并追加 Playwright Core 真实浏览器验收：
 
@@ -181,13 +184,13 @@ node scripts/p1-gate.js --install
 
 Playwright Core 不自动下载浏览器；门禁会寻找本机 Edge、Chrome 或 Chromium，也可通过 `PROXYWEB_E2E_BROWSER_PATH` 指定。找不到浏览器会失败而不是跳过，详细场景与失败诊断见 [P1 验收矩阵](./docs/p1-verification-matrix.md)。
 
-P2 门禁继续完整复用 P1，并追加 Runtime Bridge 与 WebSocket 真实浏览器场景：
+P2 门禁继续完整复用 P1，并追加 Runtime Bridge/WebSocket 与 Origin Isolation 两组真实浏览器场景：
 
 ```powershell
 node scripts/p2-gate.js --install
 ```
 
-Runtime/WebSocket 专项也可在后端目录分别执行 `npm run test:runtime`、`npm run test:websocket` 与 `npm run test:runtime:e2e`。
+专项也可在后端目录分别执行 `npm run test:runtime`、`npm run test:websocket`、`npm run test:runtime:e2e` 与 `npm run test:isolation:e2e`。
 
 SSE、Range、媒体和大附件可在后端目录单独快速复核：
 
@@ -203,7 +206,8 @@ npm run test:streaming
 - [vNext 分阶段实施路线图](./docs/vnext-implementation-roadmap.md)
 - [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)
 - [P1 Browser Core 自动化验收矩阵](./docs/p1-verification-matrix.md)
-- [P2 Runtime Bridge 与 WebSocket 自动化验收矩阵](./docs/p2-runtime-verification-matrix.md)
+- [P2 Runtime Bridge、WebSocket 与 Origin Isolation 自动化验收矩阵](./docs/p2-runtime-verification-matrix.md)
+- [Origin Isolation 威胁模型](./docs/origin-isolation-threat-model.md)
 
 ## 许可证状态
 

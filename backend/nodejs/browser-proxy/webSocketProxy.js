@@ -3,6 +3,12 @@ const { STATUS_CODES } = require("node:http");
 const { WebSocket, WebSocketServer } = require("ws");
 const { ERROR_CODES, ProxyError, errorPayload, normalizeProxyError } = require("../core/errors");
 const { validateTarget } = require("../core/targetValidator");
+const {
+    isolatedProxyOrigin,
+    originIsolationConfig,
+    requestOrigin,
+    validateTargetProxyOrigin
+} = require("../core/originIsolation");
 const { authenticateProxyRequest } = require("../middleware/auth");
 const { applyBrowserPreferences } = require("./preferences");
 const { getCookieHeader, storeResponseCookies } = require("./sessionStateStore");
@@ -100,7 +106,7 @@ function parseSourceOrigin(protocols, secret) {
     };
 }
 
-function validateInboundOrigin(req) {
+function validateInboundOrigin(req, sourceOrigin = null, config = null) {
     const value = req.headers.origin;
     if (typeof value !== "string" || !value || value.includes(",")) {
         throw new ProxyError(ERROR_CODES.WEBSOCKET_ORIGIN_DENIED, "WebSocket Origin is not allowed", {
@@ -115,8 +121,15 @@ function validateInboundOrigin(req) {
             statusCode: 403
         });
     }
+    const isolation = originIsolationConfig(config);
+    const expected = isolation && sourceOrigin && sourceOrigin !== "null"
+        ? isolatedProxyOrigin(sourceOrigin, config.browser.originIsolation)
+        : null;
     const host = String(req.headers.host || "").toLowerCase();
-    if (!["http:", "https:"].includes(origin.protocol) || origin.origin !== value || origin.host.toLowerCase() !== host) {
+    const allowed = isolation
+        ? origin.origin === expected
+        : origin.host.toLowerCase() === host;
+    if (!["http:", "https:"].includes(origin.protocol) || origin.origin !== value || !allowed) {
         throw new ProxyError(ERROR_CODES.WEBSOCKET_ORIGIN_DENIED, "WebSocket Origin is not allowed", {
             statusCode: 403
         });
@@ -283,6 +296,11 @@ function createWebSocketProxy(options) {
                     statusCode: 404
                 });
             }
+            if (configuredRequest.browser.originIsolation.enabled) {
+                req.proxyWebExternalProtocol = new URL(
+                    configuredRequest.browser.originIsolation.baseOrigin
+                ).protocol.slice(0, -1);
+            }
             validateUpgradeHeaders(req);
             if (connections.size >= configuredRequest.browser.webSocketMaxConnections) {
                 throw new ProxyError(ERROR_CODES.CONCURRENCY_LIMIT, "WebSocket connection limit reached", {
@@ -299,7 +317,6 @@ function createWebSocketProxy(options) {
                 error.upgradeHeaders = { "WWW-Authenticate": 'Basic realm="Proxy Auth Required"' };
                 throw error;
             }
-            validateInboundOrigin(req);
             await parseSession(sessionMiddleware, req);
             const requestConfig = applyBrowserPreferences(
                 configuredRequest,
@@ -313,8 +330,10 @@ function createWebSocketProxy(options) {
 
             const requestedProtocols = parseProtocols(req.headers["sec-websocket-protocol"]);
             const source = parseSourceOrigin(requestedProtocols, requestConfig.session.secret);
+            validateInboundOrigin(req, source.origin, requestConfig);
             const webSocketUrl = fromWebSocketProxyRequest(req);
             const targetHttpUrl = toHttpUrl(webSocketUrl);
+            validateTargetProxyOrigin(req, targetHttpUrl.origin, requestConfig.browser.originIsolation);
             const target = await validateTarget(targetHttpUrl.href, {
                 blockedHostnames: requestConfig.security.blockedHostnames,
                 resolveHostname: hostname => dnsResolver.resolve(hostname)

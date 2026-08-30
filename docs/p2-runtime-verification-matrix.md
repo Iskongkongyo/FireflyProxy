@@ -1,8 +1,8 @@
-# P2 Runtime Bridge 与 WebSocket 自动化验收矩阵
+# P2 Runtime Bridge、WebSocket 与 Origin Isolation 自动化验收矩阵
 
-> 总体规格：[P2-1 Runtime Bridge](../proxyWeb%20vNext%20开发计划与技术方案.md#39-p2-1-runtime-bridge)；执行入口：`node scripts/p2-gate.js --install`；最近复核：2026-08-30
+> 总体规格：[P2-1 Runtime Bridge](../proxyWeb%20vNext%20开发计划与技术方案.md#39-p2-1-runtime-bridge)、[P2-5 Origin Isolation](../proxyWeb%20vNext%20开发计划与技术方案.md#44-p2-5-origin-isolation-future-mode)；执行入口：`node scripts/p2-gate.js --install`；最近复核：2026-08-31
 
-当前 P2 门禁是 P1 的严格超集：先执行全部 P0/P1 测试（包含 WebSocket 安全握手与资源限制契约）、lint、生产构建和 Browser Core E2E，再用 Playwright Core 驱动本机 Chromium 运行 Runtime Bridge 与原生 WebSocket 专项页面。upstream、跨 origin DNS 与真实连接均由本地动态端口 Fixture 提供，不访问公网或修改系统 hosts。
+当前 P2 门禁是 P1 的严格超集：先执行全部 P0/P1 测试（包含 WebSocket 与 Origin Isolation 安全契约）、lint、生产构建和 Browser Core E2E，再用 Playwright Core 驱动本机 Chromium 依次运行 Runtime Bridge/WebSocket 与 Origin Isolation 专项页面。upstream、跨 origin DNS 与真实连接均由本地动态端口 Fixture 提供，不访问公网或修改系统 hosts。
 
 ## 一键门禁
 
@@ -25,13 +25,14 @@ npm run verify:p2:ci
 npm run test:runtime
 npm run test:websocket
 npm run test:runtime:e2e
+npm run test:isolation:e2e
 ```
 
 真实浏览器查找、`PROXYWEB_E2E_BROWSER_PATH` 和失败诊断规则与 P1 一致。Runtime E2E 失败时会在系统临时目录保留截图、HTML、console/page error、失败请求与代理日志；通过后自动清理。
 
 ## 规格映射
 
-| 4.2–4.3 条件 | 自动化证据 |
+| 4.2–4.4 条件 | 自动化证据 |
 | --- | --- |
 | 可配置关闭 | 全局 `runtimeBridge=false`、Session `runtimeBridge=false` 或 `rewriteHtml=false` 时不注入，脚本端点返回 404 |
 | 避免重复注入 | Parser 单元测试对二次 Rewrite 强制断言仅一个 `script[data-proxyweb-runtime]` |
@@ -46,6 +47,10 @@ npm run test:runtime:e2e
 | 原生语义 | 包装器保留 `this`、prototype/static、constructor 与 Promise/error 行为；Edge 真实执行无 page error |
 | Body/Token 不被捕获 | Bridge 不使用 console/localStorage/sessionStorage，不读取 Request Body；代理诊断日志强制不含 POST Fixture Body |
 | 安全内核不旁路 | HTTP(S) 与 ws/wss 映射结果均进入 Canonical 边界，继续执行 URL、DNS SSRF、Pinning、Header/Cookie 与资源限制；Upgrade 在安全上游握手完成前不发送下游 101 |
+| Host/Token 双绑定 | base host 仅作为入口；派生 `o-<sha256>` label 必须与可逆 path token 指向同一 upstream，错误 Host 或隔离 host API/UI 返回 421 |
+| 浏览器 Origin 隔离 | Edge 中两个 upstream 的 `location.origin` 不同，同名 localStorage 不串值，跨窗口 DOM 读取抛 `SecurityError` |
+| 跨 Origin Runtime/CORS | Runtime 同步派生目标子域；来源标签经有界注册表复核，upstream Origin 与 ACAO 双向映射后跨 upstream fetch 成功 |
+| 部署失败关闭 | Schema 要求专用至少三级 namespace；生产强制 HTTPS + Secure Session，不接受 wildcard 字符串、IP、localhost 或任意 Host |
 
 ## 当前边界
 
@@ -53,8 +58,9 @@ npm run test:runtime:e2e
 - 配置或 Session 开关控制后续注入和脚本交付；已经加载并完成 patch 的页面必须刷新才能解除。
 - Bridge 不修改第三方 JavaScript 源码，不承担 WAF、CAPTCHA、DRM 或反自动化绕过。
 - WebSocket 默认关闭；生产启用需额外设置 `browser.webSocket: true`，并根据业务调整 payload、idle 与总连接数上限。已经加载的页面仍需刷新才能应用开关变化。
-- 服务端 Cookie Jar 仍不能模拟 `document.cookie`；多个 upstream 仍共享 Browser Proxy origin，Origin Isolation 留待 4.4。
+- 服务端 Cookie Jar 仍不能模拟 upstream `document.cookie`。Origin Isolation 会拆分页面 Origin，但精确 base Domain 的 HttpOnly proxyWeb 控制 Session 仍由子域共享；这不是每 upstream 独立代理登录会话。
+- Origin Isolation 默认关闭，并依赖 wildcard DNS/TLS、正确 Host 转发及部署级重启；多实例需要 sticky routing 或共享 Session/来源标签注册实现。完整边界见 [威胁模型](./origin-isolation-threat-model.md)。
 
 ## 发布判定
 
-只有 P1 子门禁、WebSocket 契约和 Runtime/WebSocket Playwright E2E 均输出 PASS，才满足当前 4.2–4.3 验收。该结果证明常见 SPA 动态 HTTP/SSE/ws/wss URL 可映射，不代表高级 Service Worker/Worker、CSP 特例或完整浏览器隔离已经完成。
+只有 P1 子门禁、WebSocket/Origin Isolation 契约和两组 P2 Playwright E2E 均输出 PASS，才满足 4.2–4.4 验收。该结果证明常见 SPA 动态 HTTP/SSE/ws/wss URL 可映射，且 upstream DOM/Storage Origin 已隔离；不代表高级 Service Worker/Worker、CSP 特例或每 upstream 独立 proxyWeb 认证会话已经完成。

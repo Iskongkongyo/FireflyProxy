@@ -1,4 +1,5 @@
 const { ERROR_CODES, ProxyError } = require("./errors");
+const { isolatedProxyOrigin } = require("./originIsolation");
 
 const BROWSER_ROUTE_PREFIX = "/__proxyweb/browser";
 const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
@@ -66,10 +67,12 @@ function decodeOrigin(token) {
     return origin;
 }
 
-function toProxyUrl(targetUrl) {
+function toProxyUrl(targetUrl, options = {}) {
     const url = parseHttpUrl(targetUrl);
     const token = encodeOrigin(url.origin);
-    return `${BROWSER_ROUTE_PREFIX}/${token}${url.pathname}${url.search}${url.hash}`;
+    const path = `${BROWSER_ROUTE_PREFIX}/${token}${url.pathname}${url.search}${url.hash}`;
+    const proxyOrigin = isolatedProxyOrigin(url.origin, options.originIsolation);
+    return proxyOrigin ? `${proxyOrigin}${path}` : path;
 }
 
 function fromProxyRequest(req) {

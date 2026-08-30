@@ -49,7 +49,7 @@
 | 4.1 | SSE 与 Range/Media | 实时流与媒体拖动可靠 | 3.8 | ✅ |
 | 4.2 | Runtime Bridge | 常见 SPA 动态请求可映射 | 4.1 | ✅ |
 | 4.3 | WebSocket | WS/WSS 安全代理 | 4.2 | ✅ |
-| 4.4 | Origin Isolation | 多目标隔离增强 | 4.3 | ⬜ |
+| 4.4 | Origin Isolation | 多目标隔离增强 | 4.3 | ✅ |
 | 5.1 | 请求编辑增强 | Params、Body、cURL | 2.8，可并行于 P1 后执行 | ⬜ |
 | 5.2 | 响应诊断 | Redirect Chain、Timing | 5.1 | ⬜ |
 | 5.3 | Environment 与 Collections | 可复用请求资产 | 5.2 | ⬜ |
@@ -700,3 +700,17 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 新增 `npm run test:websocket`，覆盖 Canonical 映射、签名防篡改、Upgrade Header、Header allowlist、Basic Auth 隔离、Cookie/Origin、子协议、文本/二进制、关闭码、SSRF/Origin 拒绝、连接数、payload 与 idle 上限。后端全量 191/191、WebSocket 专项 11/11、Runtime 专项 14/14、前端 7/7、lint、生产构建与 Edge Runtime E2E 均通过；npm 官方安全公告库审计为 0 个已知漏洞。前端生产构建仍只有既有的 3 条 bundle 体积 warning。
 
 下一阶段为 4.4 Origin Isolation。
+
+### 第二十四轮执行记录
+
+2026-08-31 已完成 4.4：
+
+- 新增默认关闭的 `browser.originIsolation`。启用时要求专用至少三级 `baseOrigin`；生产强制 HTTPS 与 Secure Session，`.test` 仅用于本地 HTTP 自动化。每个 upstream origin 使用 SHA-256 前 128 bit 派生的 `o-<hex>` 子域，同时保留可逆 path token 作为第二绑定。
+- 新增全局 Origin scope 中间件：只接受精确 base host 或规范派生 host；base host 负责入口，隔离 host 只开放 Canonical Browser Route 与 Runtime 脚本。Host/Token 不匹配、任意 wildcard host 及隔离 host 上的 API/UI/Legacy 路由返回 421 `PROXY_ORIGIN_ISOLATION_DENIED`，不会建立 upstream 连接。
+- HTML/CSS/Location Rewrite、Runtime Bridge 与 WebSocket 已统一接入派生 Origin。Runtime 内置同步 SHA-256 映射；WebSocket 同时校验目标 Host/Token 与 HMAC 来源 Origin 子域。跨 upstream HTTP 来源通过 4096 项有界标签注册表复核，Origin/Referer 和 upstream CORS allow-origin 双向映射，未知来源安全降级而不猜目标同源。
+- proxyWeb 控制 Session 在该模式下使用精确 base hostname 的 Domain 与 HttpOnly，在隔离子域间共享启动偏好和服务端 Cookie Jar；DOM、Local/Session Storage、IndexedDB、Worker scope 与权限仍由浏览器 Origin 分区。该边界不宣称每 upstream 独立 proxyWeb 登录，管理 UI 必须位于不同站点。
+- 新增 [`origin-isolation-threat-model.md`](./origin-isolation-threat-model.md)，明确 wildcard DNS/TLS、Host 转发、Session、反向代理、多实例 sticky/shared state、Service Worker 和同站 CSRF 边界；通配 DNS 只用于部署路由，不构成应用信任或 SSRF allowlist。
+- 新增 5 项纯函数/Host 双绑定单测、4 项子进程集成契约与独立 Edge Origin Isolation E2E。真实浏览器强制验证两个 upstream 的 `location.origin` 与同名 localStorage 分离、跨窗口 DOM 读取抛 `SecurityError`，以及 Runtime 跨 upstream fetch 按上游 CORS 工作。
+- 后端全量 201/201、lint 与独立 Edge Origin Isolation E2E 已通过；P2 Gate 已扩展为 P1 回归、Runtime/WebSocket E2E、Origin Isolation E2E 三阶段。下一主线阶段为 5.1 请求编辑与 cURL；高级 Worker/Service Worker 兼容仍作为独立后续项。
+
+下一阶段为 5.1 请求编辑与 cURL。

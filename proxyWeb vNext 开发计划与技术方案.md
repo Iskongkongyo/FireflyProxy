@@ -6,7 +6,7 @@
 > 基线复核：2026-08-28
 
 > [!IMPORTANT]
-> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8 与 P2 路线图 4.1–4.3 已通过自动化验收；P2 其余阶段、P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
+> 本文是 **vNext 目标规格与任务清单**，不是当前版本的功能说明。带有“状态：✅”的 P0/P1 条目、路线图 2.8、3.8 与 P2 路线图 4.1–4.4 已通过自动化验收；P3 与未标记完成的 Milestone 条目仍应视为待实现。当前可运行方式、配置字段和已知风险以根目录 `README.md` 及模块 README 为准。
 
 > 可执行的小阶段、依赖关系和逐阶段完成条件见 [`docs/vnext-implementation-roadmap.md`](./docs/vnext-implementation-roadmap.md)。
 
@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1–4.3 已完成 SSE/Range/Media、最小 Runtime Bridge 与安全 WebSocket Proxy，并通过独立 Edge E2E。高级 Worker/SPA 兼容和 Origin Isolation 尚未完成。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 已于 2026-08-30 完成路线图 3.1–3.8，并通过本地 Playwright Browser Core E2E；P2 路线图 4.1–4.4 已完成 SSE/Range/Media、最小 Runtime Bridge、安全 WebSocket Proxy 与可选 Origin Isolation，并通过独立 Edge E2E。高级 Worker/Service Worker 兼容尚未完成。
 
 当前前端主要结构：
 
@@ -1786,6 +1786,8 @@ Content-Type
 
 # 44. P2-5. Origin Isolation Future Mode
 
+> 状态：✅ 已于 2026-08-31 完成路线图 4.4。实现采用精确 `baseOrigin`、SHA-256 派生子域与可逆 path token 双绑定；任意 wildcard Host、Host/Token mismatch 及隔离子域上的 API/UI 路由均返回 421。真实 Edge 已验证不同 upstream 的 Origin、Storage 与 DOM SOP 边界；部署与共享 HttpOnly 控制 Session 的剩余风险见 `docs/origin-isolation-threat-model.md`。
+
 后续增加可选高级部署：
 
 ```text
@@ -2558,7 +2560,7 @@ Header Rewrite
 
 ## Milestone 4 — Browser Advanced
 
-> 状态：🟨 路线图 4.1 的 SSE/Range/Media、4.2 的最小 Runtime Bridge 与 4.3 的 WebSocket 已完成；高级 SPA Compatibility 和 Origin Isolation 仍待后续阶段。
+> 状态：✅ 路线图 4.1 的 SSE/Range/Media、4.2 的最小 Runtime Bridge、4.3 的 WebSocket 与 4.4 的 Origin Isolation 已完成；高级 Worker/Service Worker Compatibility 仍作为独立后续增强，不阻塞当前 P2 门禁。
 
 完成：
 

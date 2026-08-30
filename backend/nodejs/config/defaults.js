@@ -50,6 +50,10 @@ function createDefaultConfig(env = process.env) {
             webSocketMaxPayloadBytes: 1048576,
             webSocketIdleTimeoutMs: 60000,
             webSocketMaxConnections: 64,
+            originIsolation: {
+                enabled: false,
+                baseOrigin: "https://browse.example.com"
+            },
             headerPolicy: "compat"
         }
     };
