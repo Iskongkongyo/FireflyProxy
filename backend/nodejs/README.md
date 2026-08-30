@@ -87,7 +87,7 @@ npm start
 }
 ```
 
-完整模板还包含 `browser` 段。`browser.enabled`、`browser.headerPolicy`、`rewriteHtml` 与 `rewriteCss` 已用于 Browser Route 和 Transform Pipeline；两个 Rewrite 开关分别控制已实现的 HTML 与 CSS URL 重写。`browser.maxRedirects` 为旧 Browser 服务端跟随行为兼容保留；当前 Browser 3xx 只验证并改写 Location，由客户端逐跳处理。Cookie Jar 和 Runtime Bridge 字段仍是预留，不能据此认为对应功能已经实现。`security.blockedHostnames` 已用于目标主机校验；任何模式都不能绕过现有安全检查。
+完整模板还包含 `browser` 段。`browser.enabled`、`browser.headerPolicy`、`browser.cookieJar`、`rewriteHtml` 与 `rewriteCss` 已用于 Browser Route；两个 Rewrite 开关分别控制 HTML 与 CSS URL 重写。`browser.maxRedirects` 为旧 Browser 服务端跟随行为兼容保留；当前 Browser 3xx 只验证并改写 Location，由客户端逐跳处理。Runtime Bridge 字段仍是预留，不能据此认为对应功能已经实现。`security.blockedHostnames` 已用于目标主机校验；任何模式都不能绕过现有安全检查。
 
 | 字段 | 类型/单位 | 当前行为 |
 | --- | --- | --- |
@@ -113,7 +113,8 @@ npm start
 | `api.maxConcurrentRequests` | Number | 同时执行的代理请求上限；超出返回 503；可热加载 |
 | `browser.enabled` | Boolean | 是否开放 Browser Route 骨架；默认 `false`；可热加载 |
 | `browser.maxRedirects` | Number | 兼容保留；Browser 当前不在单个服务端请求内跟随 3xx |
-| `browser.headerPolicy` | `compat` / `strict` | `compat` 移除 X-Frame-Options/CSP，`strict` 保留；可热加载 |
+| `browser.cookieJar` | Boolean | 是否启用按 proxyWeb Session 隔离的 upstream Cookie Jar；可热加载 |
+| `browser.headerPolicy` | `compat` / `preserve` / `strict` | `compat` 移除不兼容的安全策略头；`preserve` 保留；`strict` 是保留策略兼容值；可热加载 |
 | `browser.rewriteHtml` | Boolean | 是否启用 HTML/XHTML URL 重写；关闭时保持原始流式响应；可热加载 |
 | `browser.rewriteCss` | Boolean | 是否启用 CSS `url()` 与 `@import` AST 重写；关闭时保持原始流式响应；可热加载 |
 
@@ -187,7 +188,7 @@ ANY /__proxyweb/browser?url=<percent-encoded-target>
 
 Canonical 子路径可逆映射到唯一 upstream origin；不同 origin 的资源使用不同 Token，不依赖或修改 Legacy Session。Token 只是路由标识，不是凭据，也不是 SSRF allowlist：每次 Canonical 请求仍会重新执行 URL、DNS Pinning、资源限制和 Redirect 安全内核。畸形、非规范或非 HTTP(S) Token 返回 400 `PROXY_BROWSER_URL_INVALID`，Canonical 路径会规范化 dot segment，并保持 percent-encoded path、查询参数和客户端 Fragment 映射。
 
-Browser Canonical 查询字符串全部属于上游，即使字段名为 `method` 或 `headers` 也不会触发 API/Legacy 查询控制功能。Browser Mode 不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除上游 `X-Frame-Options` 与 `Content-Security-Policy`，`strict` 则保留。开启 `rewriteHtml` 时，Cheerio 会解析 HTML/XHTML，并把 allowlist 属性、`srcset`、第一个 `<base>` 的有效 HTTP(S) 地址、Meta Refresh、style 属性和 `<style>` CSS 映射到 Canonical Browser URL。开启 `rewriteCss` 时，PostCSS AST 会重写样式表声明中的 `url()` 与 `@import`，相对地址基于 CSS 文件自身 URL。Browser 301/302/303/307/308 不在服务端继续请求：目标先经过 URL/SSRF/DNS 校验，再把 Location 映射成 Canonical URL 交由浏览器处理。Cookie Jar、WebSocket 和脚本产生的动态请求尚未实现，因此仍不能作为完整网页代理使用。
+Browser Canonical 查询字符串全部属于上游，即使字段名为 `method` 或 `headers` 也不会触发 API/Legacy 查询控制功能。Browser Mode 不套用 API 的全局 CORS；`browser.headerPolicy: "compat"` 会移除 CSP/CSP-Report-Only、X-Frame-Options、CORP/COOP/COEP 与 Clear-Site-Data，`preserve` 会保留，`strict` 保持原有的保留语义。开启 `rewriteHtml` 时，Cheerio 会解析 HTML/XHTML，并把 allowlist 属性、`srcset`、第一个 `<base>` 的有效 HTTP(S) 地址、Meta Refresh、style 属性和 `<style>` CSS 映射到 Canonical Browser URL。开启 `rewriteCss` 时，PostCSS AST 会重写样式表声明中的 `url()` 与 `@import`，相对地址基于 CSS 文件自身 URL。Browser 301/302/303/307/308 不在服务端继续请求：目标先经过 URL/SSRF/DNS 校验，再把 Location 映射成 Canonical URL 交由浏览器处理。开启 Cookie Jar 时，上游 Cookie 按 proxyWeb Session 与 upstream Domain/Path/Secure/Expiry 隔离；上游 `Set-Cookie` 不会泄露到 proxyWeb 域。Canonical Origin/Referer 会映射回来源 upstream，跨 CDN 请求仍保留页面源站语义。WebSocket 和脚本产生的动态请求尚未实现，因此仍不能作为完整网页代理使用。
 
 ### Legacy Adapter（已弃用）
 
@@ -222,10 +223,13 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 路线图 3.5 已完成 CSS 与 Location Rewrite：PostCSS 只遍历声明值和 `@import` AST，value parser 只修改可安全解析的 HTTP(S) URL token，保留 media/layer 条件、data URL、Fragment 与复杂转义；HTML `<style>` 复用同一管线，非 `text/css` 预处理器块保持原样。Browser Redirect 使用 Redirect 内核的 validation-only 模式，解析相对/绝对 Location 并执行 URL、SSRF 与全部 DNS 结果校验；成功后返回独立 origin Token 的 Canonical Location，拒绝目标时回收上游流并在发送 3xx 前返回安全错误。API/Legacy 的服务端 follow、循环/次数限制与方法/Body 规则保持不变。
 
+路线图 3.6 已完成 Cookie Jar 与 Header Policy：`SessionStateStore` 为每个 proxyWeb Session 维护独立 tough-cookie Jar，并按 upstream 属性匹配，过期 Session 状态会回收。Browser 请求先移除客户端 proxyWeb Cookie，再仅注入目标 URL 可见的 upstream Cookie；响应 `Set-Cookie` 在发送下游前写入 Jar 并剥离。Origin/Referer 只接受当前 proxy origin 下可严格反解的 Canonical Referer，跨 origin 资源的 Origin 使用来源页面 origin；来源无法验证时使用 `null`，绝不猜测为目标 origin。`compat` 只在 Browser Mode 删除明确列出的安全策略头，API 和 `preserve`/`strict` 保持上游语义。
+
 以下仍是 [vNext 计划](../../proxyWeb%20vNext%20开发计划与技术方案.md) 中未完成的安全边界：
 
 1. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
-2. **进程内 Session Store。** 默认 MemoryStore 不适合生产、多进程或多实例部署。
+2. **进程内 Session Store。** 默认 Express MemoryStore 与 Browser SessionStateStore 不适合生产、多进程或多实例部署；后续需要共享存储实现。
+3. **脚本 Cookie 可见性。** 服务端 Cookie Jar 可以维持 HTTP 会话，但无法让目标页面 JavaScript 通过 `document.cookie` 读取 upstream Cookie；不能通过把上游 Cookie 设置到 proxyWeb 主域来绕过此边界。
 
 配置 `user`/`pwd` 不能消除上述问题。P0 门禁通过不等于已解决多实例 Session、完整 Browser 隔离或生产运维要求，因此仍不提供开放代理式公网生产部署步骤。
 
@@ -233,10 +237,10 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 
 - 后端对所有上游响应使用 Axios `responseType: "stream"`，并关闭 Axios 自动解压；只有选中的 Browser HTML/CSS 由受限 Pipeline 解压。
 - API/Legacy 继续移除 hop-by-hop 与 `content-length`。Browser passthrough 保留合法 `content-length`、ETag 与 Content-MD5；Transform 后移除这些已失效元数据，并把 Charset 规范为 UTF-8。
-- API Mode 保留上游 `X-Frame-Options` 和 `Content-Security-Policy`；Browser Mode 只在显式 `compat` 策略下移除，Legacy Adapter 为保持旧行为也会移除。
+- API Mode 保留上游安全响应头；Browser `preserve`/`strict` 保留，只有显式 `compat` 会移除列出的 CSP、嵌入和跨源策略头；Legacy Adapter 为保持旧行为仍移除 X-Frame-Options/CSP。
 - Range 请求头随普通请求头转发；自动化契约覆盖了 206、`Content-Range` 与响应片段。
-- 没有 Cookie Jar；客户端 Cookie 也被从上游请求头中删除。
-- HTML/CSS 静态 URL 与 Browser Location 改写已实现；Cookie、脚本动态请求与 WebSocket 尚未实现，SSE 已有直通集成测试。
+- Browser Cookie Jar 已实现：客户端 proxyWeb Cookie 会先删除，只按目标 URL 注入 Session Jar 中的 upstream Cookie；上游 `Set-Cookie` 不向下游透传。API/Legacy 行为不变。
+- HTML/CSS 静态 URL、Browser Location、Cookie 与来源 Header 映射已实现；脚本动态请求与 WebSocket 尚未实现，SSE 已有直通集成测试。
 
 ## 日志与排错
 
@@ -281,8 +285,8 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 | `npm run verify:p0` | 运行前后端完整 P0 门禁（复用已安装依赖） |
 | `npm run verify:p0:ci` | 先执行两端 `npm ci`，再运行完整 P0 门禁 |
 
-测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS 与 Location 重写，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。
+测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离与 Origin/Referer 映射，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。
 
-后端当前 152 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 161 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装门禁已于 2026-08-29 通过 7/7：前后端 `npm ci`、后端测试与语法检查、前端测试、lint 和生产构建全部成功。逐项 DoD 与测试位置见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

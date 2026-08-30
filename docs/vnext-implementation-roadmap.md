@@ -43,7 +43,7 @@
 | 3.3 | Transform Pipeline | 流式与 Rewrite 正确分流 | 3.2 | ✅ |
 | 3.4 | HTML Rewrite | 页面资源和导航留在代理内 | 3.3 | ✅ |
 | 3.5 | CSS 与 Location Rewrite | 样式资源和跳转可用 | 3.4 | ✅ |
-| 3.6 | Cookie Jar 与 Header Policy | 会话及上游语义映射 | 3.5 | ⬜ |
+| 3.6 | Cookie Jar 与 Header Policy | 会话及上游语义映射 | 3.5 | ✅ |
 | 3.7 | Browser UI | 独立入口与兼容设置 | 3.6 | ⬜ |
 | 3.8 | P1 E2E 门禁 | Browser Core 可验收 | 3.7 | ⬜ |
 | 4.1 | SSE 与 Range/Media | 实时流与媒体拖动可靠 | 3.8 | ⬜ |
@@ -617,3 +617,16 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 后端 152 项、前端 4 项测试通过，语法检查、前端 lint/build 继续纳入统一门禁。
 
 下一阶段为 3.6 Cookie Jar 与 Header Policy。
+
+### 第十八轮执行记录
+
+2026-08-30 已完成 3.6：
+
+- 新增 `browser-proxy/sessionStateStore.js`，以可替换的进程内 Store 为每个 proxyWeb Session 维护独立 `tough-cookie` Jar；Session 到期状态按 `session.maxAgeMs` 回收，runtime 关闭时清空，为后续 Redis 等共享实现保留抽象边界。
+- Browser 请求不转发客户端的 proxyWeb Cookie，只按完整 upstream URL 从 Jar 注入可见 Cookie；上游 `Set-Cookie` 在响应头发送前写入 Jar 并从下游剥离，不会把目标站 Cookie 设置到 proxyWeb 主域。
+- Cookie 匹配遵循 upstream Domain、Path、Secure、Expiry、HttpOnly 等语义；`browser.cookieJar: false` 时既不创建 Browser Session 状态，也不吸收/发送目标 Cookie。不同 proxyWeb Session 与不同 upstream host 互相隔离。
+- Browser Origin/Referer 只从当前 proxy origin 下可严格反解的 Canonical Referer 还原；跨 CDN 请求的 Origin 使用来源页面 origin，来源未知时安全降级为 `null` 而不伪装成目标同源。Host 继续由验证后的目标连接生成，hop-by-hop 与代理认证 Header 仍统一删除。
+- `browser.headerPolicy` 新增方案中的 `preserve` 值，并保留既有 `strict` 作为相同保留语义的兼容值；`compat` 只在 Browser Mode 移除 CSP/CSP-Report-Only、X-Frame-Options、CORP/COOP/COEP 与 Clear-Site-Data，API/Legacy 边界不变。
+- 新增 Cookie 属性、Session/host/path 隔离、开关关闭、Origin/Referer 跨 origin 映射、未知来源降级和完整安全响应头策略测试；后端 161 项、前端 4 项测试通过，生产依赖审计为 0 个已知漏洞。
+
+下一阶段为 3.7 Browser UI。

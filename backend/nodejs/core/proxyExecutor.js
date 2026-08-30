@@ -95,7 +95,17 @@ function createProxyExecutor(options) {
                     logger.warn("[Proxy] Failed to parse custom headers JSON", { requestId: req.id });
                 }
             }
-            const headers = policy.buildRequestHeaders(req.headers, customHeaders, requestConfig);
+            const policyContext = {
+                request: req,
+                sessionState: options.sessionState,
+                targetUrl: target.url
+            };
+            const headers = await policy.buildRequestHeaders(
+                req.headers,
+                customHeaders,
+                requestConfig,
+                policyContext
+            );
             logger.info("[Proxy] Method selected", { requestId: req.id, mode: policy.mode, method });
 
             const requestBody = hasRequestBody
@@ -147,6 +157,21 @@ function createProxyExecutor(options) {
             response.data.once("end", releaseOnce);
             response.data.once("error", releaseOnce);
             res.once("close", releaseOnce);
+
+            if (typeof policy.captureResponseHeaders === "function") {
+                try {
+                    await policy.captureResponseHeaders(response.headers, requestConfig, {
+                        ...policyContext,
+                        logger,
+                        requestId: req.id,
+                        targetUrl: finalTarget.url
+                    });
+                } catch (error) {
+                    response.data.destroy();
+                    releaseOnce();
+                    throw error;
+                }
+            }
 
             if (finalTarget.url !== target.url && typeof options.onRedirect === "function") {
                 options.onRedirect(finalTarget, target);

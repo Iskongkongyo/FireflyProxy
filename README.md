@@ -16,9 +16,9 @@
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
 | 本地功能 | 响应式界面、分享链接、浏览器本地历史记录 |
-| 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、受限响应变换、流式转发、共享安全网络内核与限流 |
+| 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、受限响应变换、流式转发、共享安全网络内核与限流 |
 
-当前 Browser Route 已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS 与安全 Location 重写，但还没有完整的网页反向代理能力；Cookie Jar、WebSocket 和 SPA 动态请求兼容仍属于后续 vNext 阶段。
+当前 Browser Route 已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar 与 Origin/Referer 映射，但还没有完整的网页反向代理能力；WebSocket 和 SPA 动态请求兼容仍属于后续 vNext 阶段。
 
 ## 目录结构
 
@@ -129,7 +129,8 @@ npm run build
 | `api.maxConcurrentRequests` | 同时执行的代理请求上限，超出返回 503 | 是 |
 | `browser.enabled` | 是否开放 Browser Route 骨架；默认关闭 | 是 |
 | `browser.maxRedirects` | 兼容保留；Browser 3xx 已改为验证并返回 Canonical Location，不在服务端逐跳跟随 | 是 |
-| `browser.headerPolicy` | `compat` 移除嵌入限制头，`strict` 保留 | 是 |
+| `browser.cookieJar` | 是否在服务端 Session 内维护 upstream Cookie；默认开启 | 是 |
+| `browser.headerPolicy` | `compat` 移除不兼容的嵌入/跨源策略头，`preserve` 保留；`strict` 为保留策略兼容值 | 是 |
 | `browser.rewriteHtml` | 是否启用 HTML 属性、`srcset`、Meta Refresh 和内联 style URL 重写 | 是 |
 | `browser.rewriteCss` | 是否启用 CSS `url()` 与 `@import` AST 重写 | 是 |
 
@@ -141,12 +142,13 @@ npm run build
 - Axios 自身固定 `maxRedirects: 0`；启用 `api.followRedirects` 时由 proxyWeb 处理 301/302/303/307/308，每一跳重新执行 URL、DNS 与 Pinning 校验。跨域跳转会删除认证、Cookie、Token、Secret 与 API Key 类 Header，循环或超限返回 508。
 - 代理请求同时受 `timeoutMs`、`api.connectTimeoutMs`、`api.maxRequestBodyBytes` 与 `api.maxConcurrentRequests` 约束；客户端断开会取消上游，异常响应流由管道边界回收。API 响应仍保持流式转发，不受 Rewrite 缓冲上限影响。
 - Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。HTML 使用 Parser 重写 allowlist 属性、`srcset`、`<base>`、Meta Refresh 与内联 CSS，独立 CSS 使用 AST 重写 `url()`/`@import`；相对 CSS URL 基于样式表自身地址。Browser 301/302/303/307/308 会先验证 Location，再返回 Canonical Location 交由浏览器处理，不在服务端吞掉跳转。实际子请求与跳转目标仍执行完整 SSRF/DNS/Pinning 校验。SSE、206、附件、`no-transform`、音视频、PDF 和二进制保持流式。
+- Browser Cookie Jar 仅由服务端按 proxyWeb Session 保存，并按 upstream Domain、Path、Secure 与 Expiry 匹配；入站 proxyWeb Cookie 不会直接转发，上游 `Set-Cookie` 也不会设置到 proxyWeb 域名。Canonical Referer 会映射回完整 upstream URL，Origin 只取已验证的来源页面 origin；来源未知时使用 `null`，不会把跨站请求伪装成与目标同源。
 - 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
 - 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
 - CORS 使用显式 Origin allowlist；非法或未授权 Origin 会被拒绝，无 Origin 请求不会获得 CORS 响应头。`allowCredentials: true` 与 `allowedOrigins: ["*"]` 的组合会在配置加载时被拒绝。
 - `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
-- Session 使用进程内存存储，不适合多实例或长期生产运行。
+- Express Session 与 Browser SessionStateStore 当前都使用进程内存，不适合多实例或长期生产运行；服务端 Jar 也无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
 
 P0 的逐项证据见 [自动化验收矩阵](./docs/p0-verification-matrix.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
 
@@ -158,7 +160,7 @@ P0 的逐项证据见 [自动化验收矩阵](./docs/p0-verification-matrix.md)�
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 152 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 161 项测试与语法检查、前端 4 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 ## 文档索引
 

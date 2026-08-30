@@ -74,7 +74,7 @@ const browserSchema = z.object({
     rewriteCss: z.boolean(),
     cookieJar: z.boolean(),
     runtimeBridge: z.boolean(),
-    headerPolicy: z.enum(["strict", "compat"])
+    headerPolicy: z.enum(["strict", "preserve", "compat"])
 }).strict();
 
 const configSchema = z.object({

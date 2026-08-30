@@ -176,3 +176,12 @@ test("committed example configuration matches the current schema", () => {
     assert.deepEqual(result.config.cors.allowedOrigins, ["http://localhost:8080"]);
     assert.deepEqual(result.warnings, []);
 });
+
+test("Browser header policy accepts preserve while retaining strict compatibility", () => {
+    assert.equal(parseConfigObject({
+        browser: { headerPolicy: "preserve" }
+    }).config.browser.headerPolicy, "preserve");
+    assert.equal(parseConfigObject({
+        browser: { headerPolicy: "strict" }
+    }).config.browser.headerPolicy, "strict");
+});

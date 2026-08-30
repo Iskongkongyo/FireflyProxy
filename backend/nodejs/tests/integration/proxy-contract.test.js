@@ -187,8 +187,13 @@ test("API and Browser modes use independent response, CORS and redirect policies
         assert.equal(browserResponse.status, 200);
         assert.equal(browserResponse.headers.get("x-frame-options"), null);
         assert.equal(browserResponse.headers.get("content-security-policy"), null);
+        assert.equal(browserResponse.headers.get("content-security-policy-report-only"), null);
+        assert.equal(browserResponse.headers.get("cross-origin-resource-policy"), null);
+        assert.equal(browserResponse.headers.get("cross-origin-opener-policy"), null);
+        assert.equal(browserResponse.headers.get("cross-origin-embedder-policy"), null);
+        assert.equal(browserResponse.headers.get("clear-site-data"), null);
         assert.equal(browserResponse.headers.get("access-control-allow-origin"), null);
-        assert.equal(browserResponse.headers.get("set-cookie"), null);
+        assert.match(browserResponse.headers.get("set-cookie"), /^proxySession=/);
 
         const apiRedirect = await fetch(modeUrl(modeProxy.origin, "api", `${fixture.origin}/redirect`));
         assert.equal(apiRedirect.status, 508);
@@ -213,8 +218,115 @@ test("strict Browser header policy preserves upstream embedding protections", as
         assert.equal(response.status, 200);
         assert.equal(response.headers.get("x-frame-options"), "DENY");
         assert.equal(response.headers.get("content-security-policy"), "default-src 'none'");
+        assert.equal(response.headers.get("content-security-policy-report-only"), "default-src 'self'");
+        assert.equal(response.headers.get("cross-origin-resource-policy"), "same-origin");
+        assert.equal(response.headers.get("cross-origin-opener-policy"), "same-origin");
+        assert.equal(response.headers.get("cross-origin-embedder-policy"), "require-corp");
+        assert.equal(response.headers.get("clear-site-data"), "\"cache\"");
     } finally {
         await strictProxy.close();
+    }
+});
+
+test("Browser Cookie Jar persists upstream cookies while isolating paths, hosts and sessions", async () => {
+    const cookieProxy = await startProxy({ browser: { enabled: true, cookieJar: true } }, {
+        dnsRecords: {
+            "other.test": [{ address: "93.184.216.35", family: 4 }]
+        }
+    });
+    try {
+        const setResponse = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/cookie/set`),
+            cookieProxy.origin
+        ));
+        assert.equal(setResponse.status, 200);
+        const downstreamSetCookie = setResponse.headers.get("set-cookie");
+        assert.match(downstreamSetCookie, /^proxySession=/);
+        assert.doesNotMatch(downstreamSetCookie, /hostOnly|scoped|secureOnly|expired/);
+        const proxySessionCookie = downstreamSetCookie.split(";", 1)[0];
+
+        const rootResponse = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/cookie/echo`),
+            cookieProxy.origin
+        ), {
+            headers: { cookie: proxySessionCookie }
+        });
+        const rootPayload = await rootResponse.json();
+        assert.equal(rootPayload.cookie, "hostOnly=alpha");
+
+        const scopedResponse = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/cookie/scoped/echo`),
+            cookieProxy.origin
+        ), {
+            headers: { cookie: proxySessionCookie }
+        });
+        const scopedPayload = await scopedResponse.json();
+        assert.match(scopedPayload.cookie, /hostOnly=alpha/);
+        assert.match(scopedPayload.cookie, /scoped=inside/);
+        assert.doesNotMatch(scopedPayload.cookie, /secureOnly|expired/);
+
+        const otherOrigin = `http://other.test:${fixture.port}`;
+        const otherResponse = await fetch(new URL(
+            toProxyUrl(`${otherOrigin}/cookie/echo`),
+            cookieProxy.origin
+        ), {
+            headers: { cookie: proxySessionCookie }
+        });
+        assert.equal((await otherResponse.json()).cookie, "");
+
+        const separateSession = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/cookie/echo`),
+            cookieProxy.origin
+        ));
+        assert.equal((await separateSession.json()).cookie, "");
+    } finally {
+        await cookieProxy.close();
+    }
+});
+
+test("Browser maps Origin and Referer from the source token across upstream origins", async () => {
+    const headerProxy = await startProxy({ browser: { enabled: true } }, {
+        dnsRecords: {
+            "other.test": [{ address: "93.184.216.35", family: 4 }]
+        }
+    });
+    try {
+        const sourceUrl = `${fixture.origin}/page?from=browser`;
+        const destinationUrl = `http://other.test:${fixture.port}/cookie/echo`;
+        const response = await fetch(new URL(toProxyUrl(destinationUrl), headerProxy.origin), {
+            headers: {
+                origin: headerProxy.origin,
+                referer: `${headerProxy.origin}${toProxyUrl(sourceUrl)}`
+            }
+        });
+        const payload = await response.json();
+        assert.equal(payload.origin, fixture.origin);
+        assert.equal(payload.referer, sourceUrl);
+        assert.equal(payload.host, `other.test:${fixture.port}`);
+    } finally {
+        await headerProxy.close();
+    }
+});
+
+test("disabling Browser Cookie Jar neither stores nor exposes upstream cookies", async () => {
+    const noCookieProxy = await startProxy({ browser: { enabled: true, cookieJar: false } });
+    try {
+        const setResponse = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/cookie/set`),
+            noCookieProxy.origin
+        ));
+        assert.equal(setResponse.headers.get("set-cookie"), null);
+
+        const echoResponse = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/cookie/echo`),
+            noCookieProxy.origin
+        ), {
+            headers: { cookie: "hostOnly=client-injected" }
+        });
+        assert.equal((await echoResponse.json()).cookie, "");
+        assert.equal(echoResponse.headers.get("set-cookie"), null);
+    } finally {
+        await noCookieProxy.close();
     }
 });
 

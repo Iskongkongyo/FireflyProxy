@@ -49,7 +49,32 @@ async function handleRequest(req, res) {
     if (url.pathname === "/security-headers") {
         return sendJson(res, 200, { secured: true }, {
             "x-frame-options": "DENY",
-            "content-security-policy": "default-src 'none'"
+            "content-security-policy": "default-src 'none'",
+            "content-security-policy-report-only": "default-src 'self'",
+            "cross-origin-resource-policy": "same-origin",
+            "cross-origin-opener-policy": "same-origin",
+            "cross-origin-embedder-policy": "require-corp",
+            "clear-site-data": "\"cache\""
+        });
+    }
+
+    if (url.pathname === "/cookie/set") {
+        return sendJson(res, 200, { cookiesSet: true }, {
+            "set-cookie": [
+                "hostOnly=alpha; Path=/; HttpOnly; SameSite=Lax",
+                "scoped=inside; Path=/cookie/scoped; HttpOnly",
+                "secureOnly=tls; Path=/; Secure; HttpOnly",
+                "expired=gone; Path=/; Max-Age=0"
+            ]
+        });
+    }
+
+    if (url.pathname === "/cookie/echo" || url.pathname === "/cookie/scoped/echo") {
+        return sendJson(res, 200, {
+            cookie: req.headers.cookie || "",
+            host: req.headers.host,
+            origin: req.headers.origin || "",
+            referer: req.headers.referer || ""
         });
     }
 

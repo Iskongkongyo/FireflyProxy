@@ -12,6 +12,7 @@ const chokidar = require("chokidar");
 const session = require("express-session");
 const { createApiRouter } = require("./api-proxy/router");
 const { createBrowserRouter } = require("./browser-proxy/router");
+const { createSessionStateStore } = require("./browser-proxy/sessionStateStore");
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
 const { createDnsResolver } = require("./core/dnsResolver");
@@ -49,6 +50,14 @@ if (!dnsResolver || typeof dnsResolver.resolve !== "function") {
 const connectionFactory = options.connectionFactory || createPinnedConnection;
 if (typeof connectionFactory !== "function") {
     throw new TypeError("connectionFactory must be a function");
+}
+const sessionStateStore = options.sessionStateStore || createSessionStateStore();
+if (
+    !sessionStateStore
+    || typeof sessionStateStore.get !== "function"
+    || typeof sessionStateStore.delete !== "function"
+) {
+    throw new TypeError("sessionStateStore must provide get and delete functions");
 }
 
 // ---------------------------
@@ -206,7 +215,8 @@ const proxyExecutor = createProxyExecutor({
 app.use("/__proxyweb/api", createApiRouter({ proxyExecutor }));
 app.use("/__proxyweb/browser", createBrowserRouter({
     proxyExecutor,
-    getConfig: () => config
+    getConfig: () => config,
+    sessionStateStore
 }));
 app.use("/__proxyweb", (req, res, next) => next(new ProxyError(
     ERROR_CODES.ROUTE_NOT_FOUND,
@@ -228,6 +238,7 @@ app.use(createErrorMiddleware({ logger }));
         reloadConfig: loadConfig,
         async close() {
             proxyExecutor.close();
+            await sessionStateStore.clear?.();
             if (configWatcher) await configWatcher.close();
             if (ownsLogger) logger.close();
         }

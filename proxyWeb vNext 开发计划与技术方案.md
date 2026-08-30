@@ -157,7 +157,7 @@ backend/nodejs/app.js
 - `backend/main.json.example` 是当前字段格式参考，但现有 `backend/nodejs/main.json` 仍混用了旧 Session 字段与毫秒/秒单位；
 - 前端开发与部署基址为 `/web/`；构建产物默认在 `vue-request-app/dist/`，不会自动进入后端 `webPro/`；
 - 仓库当前没有 Python 后端，也没有 `LICENSE` 文件；
-- P0 已于 2026-08-29 达到 Definition of Done；P1 尚未完成，不能将规划中的 Cookie Jar、HTML/CSS Rewrite、WebSocket 等能力写成当前已实现功能。
+- P0 已于 2026-08-29 达到 Definition of Done；P1 已完成路线图 3.1–3.6 的 Browser Core（含 HTML/CSS/Location Rewrite、Cookie Jar 与 Header Policy），Browser UI、P1 E2E、WebSocket 和 Runtime Bridge 尚未完成。
 
 当前前端主要结构：
 
@@ -655,7 +655,7 @@ Bearer [REDACTED]
 
 # 13. P0-10. 配置系统统一
 
-> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7，并于 2026-08-30 在 3.1 激活 `browser.enabled`、`browser.maxRedirects` 与 `browser.headerPolicy`。已实现 Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚；其余 Browser Rewrite/Cookie Jar/Runtime Bridge 字段仍按后续 P1 阶段实施。
+> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7，并于 2026-08-30 在 3.1–3.6 激活 Browser Rewrite、Cookie Jar 与 Header Policy 字段。已实现 Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚；Runtime Bridge 仍按后续 P2 阶段实施。
 
 增加配置 Schema 校验。
 
@@ -1228,6 +1228,8 @@ cookie
 
 # 28. P1-4. Cookie Jar
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.6。当前以 `tough-cookie` 和可替换的进程内 `SessionStateStore` 为每个 proxyWeb Session 维护独立 Jar；请求按 upstream URL 注入 Cookie，响应 `Set-Cookie` 写入 Jar 后从下游剥离。
+
 增加依赖：
 
 ```text
@@ -1280,6 +1282,8 @@ HttpOnly
 
 # 29. Cookie 隔离
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.6。Session ID 与 upstream Domain/Path/Secure/Expiry 双重隔离均有强制单元与真实路由测试；关闭 `browser.cookieJar` 时不创建、吸收或发送 Jar 状态。
+
 必须：
 
 ```text
@@ -1320,6 +1324,8 @@ Redis
 
 # 30. Cookie 限制说明
 
+> 状态：✅ 已作为 3.6 的显式兼容边界记录。服务端 Jar 维持 HTTP 会话，但不会把 upstream Cookie 设置到 proxyWeb 主域，因此依赖 `document.cookie` 读取目标 Cookie 的页面仍可能不兼容。
+
 Server-side CookieJar 无法完美模拟：
 
 ```js
@@ -1337,6 +1343,8 @@ document.cookie
 ---
 
 # 31. P1-5. Header Rewrite
+
+> 状态：✅ 已于 2026-08-30 完成路线图 3.6。共享 Header 内核继续负责 hop-by-hop、连接扩展字段和代理认证隔离；Browser Policy 在其上独立完成 Cookie、Origin/Referer 与响应安全 Header 映射，API/Legacy 行为保持隔离。
 
 建立：
 
@@ -1385,6 +1393,8 @@ Cookie
 
 # 33. Browser Origin / Referer Rewrite
 
+> 状态：✅ 已于 2026-08-30 完成路线图 3.6。只接受当前 proxy origin 下可严格反解的 Canonical Referer；跨 origin/CDN 时 Origin 使用来源页面 upstream origin，来源未知时降级为 `null`，绝不猜测为目标资源 origin。
+
 浏览器可能发送：
 
 ```http
@@ -1419,6 +1429,8 @@ Origin: https://example.com
 ---
 
 # 34. Response Security Header Policy
+
+> 状态：✅ 已于 2026-08-30 完成路线图 3.6。`preserve` 与兼容值 `strict` 保留 upstream 安全 Header；`compat` 仅在 Browser Mode 删除明确列出的 CSP、嵌入、跨源隔离与 Clear-Site-Data Header，API Mode 继续保留真实响应语义。
 
 不要在公共中间件中无条件：
 
@@ -1503,7 +1515,7 @@ fallback 到原 BASE_URL
 
 # 36. P1-6. API Mode 与 Browser Mode 分路由
 
-> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.5。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML/CSS/Location Rewrite、受限 Response Transform Pipeline 与带标准弃用响应头的 Legacy Adapter；Cookie Jar 与 Header Policy 从 3.6 继续实现。
+> 状态：✅ 已于 2026-08-30 完成路线图 3.1–3.6。当前已提供独立 API Route、默认关闭的 Browser Route、Canonical URL、HTML/CSS/Location Rewrite、Session Cookie Jar、Origin/Referer 与安全 Header Policy、受限 Response Transform Pipeline，以及带标准弃用响应头的 Legacy Adapter；下一步进入 Browser UI 与 P1 E2E。
 
 推荐：
 
