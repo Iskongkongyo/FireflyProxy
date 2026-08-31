@@ -51,6 +51,15 @@ async function run() {
         if (typeof process.getuid === "function" && process.getuid() === 0) args.push("--no-sandbox");
         browser = await chromium.launch({ executablePath: browserPath, headless: true, args });
         const page = await browser.newPage();
+        await page.addInitScript(() => {
+            window.__proxywebCopiedText = "";
+            Object.defineProperty(navigator, "clipboard", {
+                configurable: true,
+                value: {
+                    writeText: async value => { window.__proxywebCopiedText = String(value); }
+                }
+            });
+        });
         const navigation = await page.goto(`${staticServer.origin}/web/`, { waitUntil: "networkidle" });
         assert.equal(navigation.status(), 200);
 
@@ -89,6 +98,18 @@ async function run() {
         await savedRow.getByRole("button", { name: "加载" }).click();
         assert.equal(await page.locator('input[placeholder="Enter API URL"]:visible').inputValue(), "{{baseUrl}}/users");
 
+        await page.getByRole("button", { name: "复制API接口" }).click();
+        const directApiLink = new URL(await page.evaluate(() => window.__proxywebCopiedText));
+        assert.equal(directApiLink.origin, "http://localhost:8082");
+        assert.equal(directApiLink.pathname, "/__proxyweb/api");
+        assert.equal(directApiLink.searchParams.get("url"), "https://api.example.test/users");
+
+        await page.getByRole("button", { name: "复制页面链接" }).click();
+        const requestPageLink = new URL(await page.evaluate(() => window.__proxywebCopiedText));
+        assert.equal(requestPageLink.origin, staticServer.origin);
+        assert.equal(requestPageLink.pathname, "/web/");
+        assert.equal(requestPageLink.searchParams.get("url"), "{{baseUrl}}/users");
+
         const stored = await page.evaluate(async () => {
             const session = JSON.parse(sessionStorage.getItem("proxyweb.workspace.session-environments.v1") || "[]");
             const database = await new Promise((resolve, reject) => {
@@ -110,7 +131,7 @@ async function run() {
         assert.equal(stored.requests[0].url, "{{baseUrl}}/users");
 
         process.stdout.write(`[P3 Workspace E2E] Browser: ${browser.version()} (${browserPath})\n`);
-        process.stdout.write("[P3 Workspace E2E] PASS (Session Environment/Secret, Folder, IndexedDB Saved Request, load)\n");
+        process.stdout.write("[P3 Workspace E2E] PASS (Environment/Secret, Collections, direct API/page share links)\n");
     } catch (error) {
         process.stderr.write(`[P3 Workspace E2E] FAIL\n${error.stack || error.message}\n`);
         process.exitCode = 1;

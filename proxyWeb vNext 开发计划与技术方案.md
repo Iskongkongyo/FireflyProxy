@@ -1840,7 +1840,7 @@ host token
 
 Browser Mode 稳定以后增强 API 工作台。
 
-> 状态：✅ 三组已于 2026-08-31 完成路线图 5.1–5.2。Params/Headers/表单字段支持逐行启停，Body 覆盖 Raw、JSON、URL 编码与 multipart 文件；cURL Import 仅做静态文本解析并拒绝 Shell 控制语义，Copy as cURL 使用 POSIX 单引号转义且敏感凭据复制前二次确认。API 工作台现可逐请求收紧 Redirect 策略，并展示可信 Final URL、Redirect Chain、HTTP Status、可靠 total、响应大小与 Content-Type；服务端诊断头有界、防上游伪造，次数上限或循环的 508 停止链也可检查。契约与验证见 [`docs/request-editor-curl-contract.md`](./docs/request-editor-curl-contract.md) 和 [`docs/api-response-diagnostics-contract.md`](./docs/api-response-diagnostics-contract.md)。
+> 状态：✅ 三组已于 2026-08-31 完成路线图 5.1–5.2。Params/Headers/表单字段支持逐行启停，Body 覆盖 Raw、JSON、URL 编码与 multipart 文件；cURL Import 仅做静态文本解析并拒绝 Shell 控制语义，Copy as cURL 使用 POSIX 单引号转义且敏感凭据复制前二次确认。API 工作台现可逐请求收紧 Redirect 策略，并展示可信 Final URL、Redirect Chain、HTTP Status、可靠 total、响应大小与 Content-Type；服务端诊断头有界、防上游伪造，次数上限或循环的 508 停止链也可检查。“复制 API 接口”现生成后端 GET 直达链接，“复制页面链接”独立生成保留非敏感编辑器配置的 `/web/` 分享链接。契约与验证见 [`docs/request-editor-curl-contract.md`](./docs/request-editor-curl-contract.md) 和 [`docs/api-response-diagnostics-contract.md`](./docs/api-response-diagnostics-contract.md)。
 
 优先级顺序：
 

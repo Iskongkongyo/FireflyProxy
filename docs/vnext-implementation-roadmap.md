@@ -761,3 +761,12 @@ Milestone 5 Postman Lite 主线已完成；高级 Worker/Service Worker 兼容�
 - 关闭窗口限流不会放宽 URL/SSRF/DNS/Pinning、请求体、并发请求、WebSocket 连接数或超时限制；公网和多人共享部署应优先提高 `limiter.max` 而不是关闭。
 - 新增关闭与重新启用限流的真实子进程集成测试，并同步配置模板、Schema、README 和总体技术方案。
 - 后端全量 210/210、前端 33/33、lint 与生产构建通过；P0 5/5、P1 2/2、P2 3/3、P3 2/2 全部 PASS，Edge 150 四组真实浏览器 E2E 保持通过。生产构建仍只有既有的 3 条 bundle 体积 warning。
+
+### 第二十九轮执行记录
+
+2026-08-31 完成 API/页面复制链接语义拆分：
+
+- “复制 API 接口”改为基于 `VUE_APP_PROXY_API_URL` 生成后端 `/__proxyweb/api` 直达链接，包含解析后的目标 URL/Params 与 Redirect 控制，访问后直接返回 GET 响应，不再进入前端 API 请求页面。
+- 浏览器链接无法安全表达非 GET Method、Body 或 Header，因此非 GET 状态拒绝生成直达链接并提示使用 Copy as cURL；API 链接继续不携带 Header/Auth。
+- “复制页面链接”固定生成 `/web/` 编辑器链接，保留原始 URL/变量模板、Method、Params、非敏感 Headers、启停状态与 Redirect 设置；Body/Auth、敏感 Header 和活动环境值继续省略。
+- 新增 3 项纯函数测试及 Edge Workspace E2E 双按钮断言；后端 210/210、前端 36/36、lint 与生产构建通过，P0 5/5、P1 2/2、P2 3/3、P3 2/2 全部 PASS，Edge 150 四组真实浏览器 E2E 保持通过。

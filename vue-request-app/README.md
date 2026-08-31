@@ -12,7 +12,7 @@
 - URL 编码表单、multipart 文件、JSON 和纯文本请求体。
 - 逐请求 Follow Redirects/Max Redirects，以及可信 Final URL 与 Redirect Chain。
 - HTTP Status、可靠 total、实际响应大小、Content-Type、JSON/文本、响应头、图片、音视频和下载响应展示。
-- 复制页面配置链接、复制代理 API 链接。
+- 复制可直接返回 GET 响应的后端 API 链接，或复制可恢复编辑器配置的页面链接。
 - 安全 Import cURL 与 POSIX Shell 格式的 Copy as cURL。
 - URL/Params/Headers/Body/Auth 的 `{{name}}` Environment，以及 IndexedDB Folder/Saved Request。
 - 使用 `localStorage` 保存请求历史。
@@ -87,8 +87,8 @@ Duration 使用单调时钟统计 Axios 分派至完整响应体读取的客户�
 > [!CAUTION]
 > 新版前端不会把敏感请求头写入页面分享链接、复制的 API 链接或历史记录，但目标 URL 自身的查询参数仍可能包含 Token。分享前仍需检查目标 URL。
 
-- “复制页面链接”只保留方法、参数和非敏感请求头；Authorization、Cookie、Token、Secret、Password 和 API Key 类 Header 会被过滤。
-- “复制 API 接口”不再包含任何请求头，调用者需要通过实际 HTTP Header 单独设置。
+- “复制页面链接”指向 `/web/` API 请求页面，保留原始 URL/环境变量模板、Method、Params、非敏感请求头、逐行启停状态和 Redirect 设置；Authorization、Cookie、Token、Secret、Password 和 API Key 类 Header 会被过滤。
+- “复制 API 接口”使用 `VUE_APP_PROXY_API_URL` 指向后端 `/__proxyweb/api`，访问后直接返回目标 GET 响应，不再打开 API 请求页面。浏览器地址栏链接无法表达 POST/PUT/PATCH/DELETE、Body 或自定义 Header，因此非 GET 请求会拒绝生成并提示使用 Copy as cURL。
 - 历史记录保存在当前站点的 `localStorage.history` 中，其中使用同一套敏感 Header 过滤规则。
 - 页面分享与历史不会保存 Body/Auth；Copy as cURL 是显式的完整请求导出，确认后可能包含凭据，应按密码处理。
 - 旧页面链接中的 `headers` 字段仍可被读取以便迁移；重新发送时会自动走安全 Header 通道，但不应再次分享旧链接。
@@ -149,7 +149,7 @@ vue-request-app/
 
 ## 当前限制
 
-- 已有 33 项零依赖 Node Test 覆盖敏感 Header、分享过滤、安全 API 传输、请求行/Body/cURL、Redirect/诊断、Environment 解析/Secret 传播、IndexedDB Schema/CRUD、Browser URL/偏好构造和 iframe Origin 边界；P3 门禁在完整 P2 回归后通过真实 Edge 验证 Session Environment、刷新恢复、Folder、IndexedDB Saved Request 与加载。Vue 组件挂载级测试仍未单独引入。
+- 已有 36 项零依赖 Node Test 覆盖敏感 Header、分享过滤、GET 直达 API/页面链接分流、安全 API 传输、请求行/Body/cURL、Redirect/诊断、Environment 解析/Secret 传播、IndexedDB Schema/CRUD、Browser URL/偏好构造和 iframe Origin 边界；P3 门禁在完整 P2 回归后通过真实 Edge 验证 Session Environment、刷新恢复、Folder、IndexedDB Saved Request、直达 API 链接与页面分享链接。Vue 组件挂载级测试仍未单独引入。
 - Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
 - 无自定义 Header 的扩展名音视频会由原生媒体元素直接流式加载，不经 Axios，因此当前不显示可靠的 Status、Final URL、Redirect Chain、Duration 或 Response Size；可使用浏览器 Network 面板诊断。

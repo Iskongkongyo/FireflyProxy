@@ -187,15 +187,14 @@
 	import axios from 'axios';
 	import { PROXY_CONFIG, URL_PATTERN } from '../config.js';
 	import { parseError } from '../utils/errorHandler.js';
-	import { buildProxyTransport, omitSensitiveHeaderRows } from '../utils/headerSecurity.mjs';
+	import { buildProxyTransport } from '../utils/headerSecurity.mjs';
 	import {
 		activeEditorRows,
 		appendQueryRows,
 		createEditorRow,
 		editorRowsToHeaders,
 		normalizeEditorRows,
-		parseEditorRows,
-		serializeEditorRows
+		parseEditorRows
 	} from '../utils/requestEditor.mjs';
 	import { exportCurl, parseCurl, requestContainsSecrets, supportsRequestBody } from '../utils/curl.mjs';
 	import { buildRequestBody } from '../utils/requestBody.mjs';
@@ -211,6 +210,7 @@
 		requestUsesSecretVariables,
 		resolveRequestDraft
 	} from '../utils/workspaceModel.mjs';
+	import { buildDirectApiLink, buildRequestPageLink } from '../utils/shareLinks.mjs';
 
 	import UserAuth from './UserAuth.vue';
 	import RequestBody from './RequestBody.vue';
@@ -369,9 +369,6 @@
 					this.tableData[tab].splice(index, 1);
 				}
 			},
-			handleSearch(originArr) {
-				return serializeEditorRows(originArr);
-			},
 			openCurlImport() {
 				this.curlInput = '';
 				this.curlDialogVisible = true;
@@ -451,6 +448,12 @@
 					const editorDraft = this.getEditorDraft();
 					const resolvedDraft = this.getResolvedRequestDraft();
 					if (!this.patt.test(resolvedDraft.url)) throw new Error('解析后的 URL 不是有效 HTTP(S) 地址。');
+					const apiLink = buildDirectApiLink({
+						apiBaseUrl: PROXY_CONFIG.API_BASE_URL,
+						targetUrl: resolvedDraft.url,
+						method: resolvedDraft.method,
+						redirect: resolvedDraft.redirect
+					});
 					if (requestUsesSecretVariables({
 						url: editorDraft.url,
 						params: editorDraft.params
@@ -461,44 +464,27 @@
 							{ type: 'warning', confirmButtonText: '继续复制', cancelButtonText: '取消' }
 						);
 					}
-					const apiUrl = new URL(location.origin);
-					apiUrl.searchParams.append('url', resolvedDraft.url);
-					apiUrl.searchParams.append('method', this.method);
-					apiUrl.searchParams.append('followRedirects', String(this.redirectSettings.followRedirects));
-					apiUrl.searchParams.append('maxRedirects', String(this.redirectSettings.maxRedirects));
-					await this.copyLinkToClipboard(apiUrl.href, 'API 链接已复制；请求头因安全原因未写入链接。');
+					await this.copyLinkToClipboard(apiLink, '直达 API 链接已复制；访问后将直接返回 GET 响应。');
 				} catch (error) {
 					if (error === 'cancel' || error === 'close') return;
 					ElMessage.error(error.message || String(error));
 				}
 			},
 			copy(patt) {
-				let resolvedDraft;
-				try {
-					resolvedDraft = this.getResolvedRequestDraft();
-					if (!this.patt.test(resolvedDraft.url)) throw new Error('解析后的 URL 不是有效 HTTP(S) 地址。');
-				} catch (error) {
-					if (patt !== 2) ElMessage.error(error.message || '请检查请求 URL 和环境变量。');
+				const editorDraft = this.getEditorDraft();
+				if (!String(editorDraft.url || '').trim()) {
+					if (patt !== 2) ElMessage.error('请先填写需要分享的请求 URL。');
 					return '';
 				}
 
-				// 下面为复制页面链接
-				const url = new URL(location.origin + location.pathname);
-				url.searchParams.append('url', this.url);
-
-				const array = omitSensitiveHeaderRows(this.tableData.headers)
-					.filter(value => value.value);
-
-				url.searchParams.append('headers', this.handleSearch(array));
-				url.searchParams.append('method', this.method);
-				url.searchParams.append('params', this.handleSearch(this.tableData.params));
-				url.searchParams.append('followRedirects', String(this.redirectSettings.followRedirects));
-				url.searchParams.append('maxRedirects', String(this.redirectSettings.maxRedirects));
-				url.searchParams.append('display', 0);
+				const pageLink = buildRequestPageLink({
+					pageUrl: new URL(this.$router.resolve({ name: 'RequestForm' }).href, location.origin).href,
+					draft: editorDraft
+				});
 				if (patt) {
-					return url.href;
+					return pageLink;
 				}
-				this.copyLinkToClipboard(url.href, '当前配置页面链接已复制到剪切板！');
+				this.copyLinkToClipboard(pageLink, 'API 请求页面链接已复制到剪切板！');
 			},
 			historyRecords() {
 				this.$emit('update-message', false);
@@ -511,7 +497,7 @@
 				} catch (err) {
 					ElMessage.error(`复制失败：${err.message}`);
 					ElMessageBox.confirm(
-							'链接复制失败，是否跳转以获取当前配置API链接？',
+							'链接复制失败，是否在新标签页直接打开该链接？',
 							'温馨提示', {
 								confirmButtonText: '跳转',
 								cancelButtonText: '不跳转',

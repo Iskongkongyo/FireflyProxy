@@ -15,7 +15,7 @@
 | 请求体 | none、Raw、JSON、URL 编码表单、逐字段 multipart 文本/文件 |
 | 上游认证 | Basic Auth、Bearer Token |
 | 响应 | HTTP Status、Final URL、Redirect Chain、可靠 total、实际数据大小、Content-Type、JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
-| 本地功能 | `{{name}}` Environment、Session/持久化变量、IndexedDB Folder/Saved Request、API/网页代理模式切换、分享链接与本地历史 |
+| 本地功能 | `{{name}}` Environment、Session/持久化变量、IndexedDB Folder/Saved Request、API/网页代理模式切换、GET 直达 API 链接、请求页面分享链接与本地历史 |
 | 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、Runtime/WebSocket、可选 Origin Isolation、SSE 提前 flush、Range/Media 元数据保持、受限响应变换、流式转发、共享安全网络内核与限流 |
 
 当前 Browser Route 与独立 `/web/browser` 页面已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar、Origin/Referer 映射和可折叠兼容设置；静态/SSR、跨 CDN、表单、302 登录、Cookie、Range、下载、SSE、常见 SPA 动态请求和 WebSocket 已进入真实浏览器门禁。高级 Worker/Service Worker 兼容仍属于后续 vNext 阶段。
@@ -167,7 +167,7 @@ Browser 页面会为脚本、样式、图片和字体产生大量子请求。仅
 - Browser UI 的兼容参数绑定当前 Browser Session，只能关闭服务器已经允许的 Rewrite、Runtime Bridge、WebSocket、Cookie Jar 或兼容 Header，不能从前端开启全局禁用能力，也不能把 `preserve/strict` 降级为 `compat`。默认使用 `noopener` 新标签页；同源部署时禁用 iframe 预览，并持续建议把不可信 Browser Proxy 与管理 UI 分离到不同 Origin。
 - 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
 - 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
-- 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
+- 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。“复制 API 接口”生成后端 `__proxyweb/api` GET 直达链接；“复制页面链接”生成 `/web/` 编辑器链接并保留原始 URL、Method、Params、非敏感 Headers 与 Redirect 设置。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
 - Environment/Collections 只保存在浏览器 IndexedDB 或 Session Storage，没有账号同步或加密。Secret 标记只是遮罩和风险提示；页面分享/历史保留 `{{变量}}` 而不展开值，实际发送、Copy API/cURL 会解析当前环境。保存持久化 Secret 或含凭据请求前必须确认，详细边界见 [工作区契约](./docs/workspace-environment-collections-contract.md)。
 - CORS 使用显式 Origin allowlist；非法或未授权 Origin 会被拒绝，无 Origin 请求不会获得 CORS 响应头。`allowCredentials: true` 与 `allowedOrigins: ["*"]` 的组合会在配置加载时被拒绝。
 - `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
@@ -183,7 +183,7 @@ P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 �
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 210 项测试与语法检查、前端 33 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 210 项测试与语法检查、前端 36 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 P1 门禁是 P0 的严格超集，并追加 Playwright Core 真实浏览器验收：
 

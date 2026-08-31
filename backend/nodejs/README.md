@@ -351,7 +351,7 @@ location /__proxyweb/ {
 | `npm run test:websocket` | 运行 WebSocket URL、安全握手、双向消息及资源上限专项测试 |
 | `npm run test:runtime:e2e` | 使用本机 Chromium 验证动态 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History |
 | `npm run test:isolation:e2e` | 使用本机 Chromium 验证多 upstream Origin、Storage、SOP 与跨源 Runtime CORS |
-| `npm run test:workspace:e2e` | 重新构建前端并验证 Environment、Session Secret、Folder 与 IndexedDB Saved Request |
+| `npm run test:workspace:e2e` | 重新构建前端并验证 Environment、Session Secret、Folder、IndexedDB Saved Request 与 API/页面链接分流 |
 | `npm run lint` | 检查生产入口与测试辅助脚本语法 |
 | `npm run verify:p0` | 运行前后端完整 P0 门禁（复用已安装依赖） |
 | `npm run verify:p0:ci` | 先执行两端 `npm ci`，再运行完整 P0 门禁 |

@@ -54,6 +54,12 @@ JSON、Raw、URL 编码和 multipart 会分别导出为 `--data-raw` 或 `--form
 
 页面分享链接、代理 API 链接和历史记录仍沿用更严格的脱敏边界：不保存 Body/Auth，敏感 Header 不进入 URL。目标 URL 自身的 query 仍可能含敏感值，分享前必须人工检查。
 
+“复制 API 接口”与“复制页面链接”是两个独立契约：
+
+- API 链接以 `VUE_APP_PROXY_API_URL` 为基址，固定指向后端 `/__proxyweb/api`，携带已解析环境变量和 Params 的目标 URL，以及逐请求 Redirect 控制；浏览器访问会直接获得 GET 响应，不经过 `/web/` 请求编辑器。
+- 普通链接导航无法表示其他 HTTP Method、Body、Auth 或请求 Header。为避免把 POST 等操作伪装成可被预取/跨站触发的 GET，非 GET 编辑器状态拒绝生成直达链接，并提示使用 Copy as cURL。
+- 页面链接固定指向 `/web/` 请求编辑器，保留原始 URL/变量模板、Method、Params、非敏感 Headers、行启停状态与 Redirect 设置；Body、Auth、活动 Environment 值和敏感 Header 继续有意省略。
+
 ## 已知兼容边界
 
 - Import 不是完整 Shell 模拟器；变量、命令替换、管道、重定向、配置文件及未知 cURL flags 不会被猜测执行。
@@ -71,5 +77,6 @@ JSON、Raw、URL 编码和 multipart 会分别导出为 `--data-raw` 或 `--form
 - Shell 控制符/命令替换/非 HTTP(S)/URL credentials 拒绝；
 - POSIX 单引号转义与 Export → Import 往返；
 - 敏感 Header/Auth 二次确认判定。
+- 直达 API 与请求页面链接分路由、GET Method 限制、编辑器行状态保真和敏感字段过滤。
 
-5.1 完成时的仓库级门禁为后端 201/201、前端 23/23；5.2 扩展 Redirect flags 后为后端 209/209、前端 27/27。当前 5.3 门禁继续保持后端 209/209，前端增至 33/33，并在 Browser Core、Runtime/WebSocket、Origin Isolation 之外追加 Workspace Edge E2E。P0 5/5、P1 2/2、P2 3/3、P3 2/2 全部通过；生产构建只保留既有的 3 条 bundle 体积 warning。
+5.1 完成时的仓库级门禁为后端 201/201、前端 23/23；5.2 扩展 Redirect flags 后为后端 209/209、前端 27/27；5.3 完成时为后端 209/209、前端 33/33。当前链接分流修复后为后端 210/210、前端 36/36，并在 Browser Core、Runtime/WebSocket、Origin Isolation 之外由 Workspace Edge E2E 验证两个复制入口。P0 5/5、P1 2/2、P2 3/3、P3 2/2 全部通过；生产构建只保留既有的 3 条 bundle 体积 warning。
