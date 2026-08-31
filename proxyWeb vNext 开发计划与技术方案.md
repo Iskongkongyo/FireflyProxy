@@ -655,7 +655,7 @@ Bearer [REDACTED]
 
 # 13. P0-10. 配置系统统一
 
-> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7，并于 2026-08-30 在 3.1–3.6 激活 Browser Rewrite、Cookie Jar 与 Header Policy 字段；`runtimeBridge` 与 WebSocket 资源限制字段已分别在 4.2、4.3 接入实际能力和 Session 收紧逻辑。Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚均已实现。
+> 状态：✅ 已于 2026-08-29 完成路线图 1.2 与 2.3–2.7，并于 2026-08-30 在 3.1–3.6 激活 Browser Rewrite、Cookie Jar 与 Header Policy 字段；`runtimeBridge` 与 WebSocket 资源限制字段已分别在 4.2、4.3 接入实际能力和 Session 收紧逻辑。Zod Schema、毫秒字段、旧配置迁移、环境变量插值和原子热加载回滚均已实现。2026-08-31 增加可热加载的 `limiter.enabled` 显式开关，默认保留限流，仅允许部署者在本地或受信环境主动关闭 429 窗口门禁。
 
 增加配置 Schema 校验。
 
@@ -741,6 +741,7 @@ cookie_max_age=86400
   },
 
   "limiter": {
+    "enabled": true,
     "windowMs": 60000,
     "max": 60
   }

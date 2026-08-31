@@ -21,6 +21,7 @@ function createDefaultConfig(env = process.env) {
             allowCredentials: true
         },
         limiter: {
+            enabled: true,
             windowMs: 60000,
             max: 60,
             message: "Too many requests, please try again later.",

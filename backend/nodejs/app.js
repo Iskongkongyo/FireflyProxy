@@ -107,7 +107,9 @@ function loadConfig() {
         } else {
             logger.info(`[Config] Configuration loaded. Timeout: ${config.timeoutMs}ms`);
         }
-        logger.info("[System] RateLimiter reloaded dynamically.");
+        logger.info(currentRateLimiter
+            ? "[System] RateLimiter reloaded dynamically."
+            : "[System] RateLimiter disabled by configuration.");
         return { ok: true, config, warnings: loaded.warnings };
     } catch (err) {
         logger.error("[Config] Error loading config", {
@@ -120,6 +122,7 @@ function loadConfig() {
 
 // 创建可原子替换的动态限流器。
 function buildRateLimiter(nextConfig) {
+    if (!nextConfig.limiter.enabled) return null;
     return rateLimit({
         windowMs: nextConfig.limiter.windowMs,
         max: nextConfig.limiter.max,

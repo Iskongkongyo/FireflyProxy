@@ -66,6 +66,7 @@ npm start
     "allowCredentials": true
   },
   "limiter": {
+    "enabled": true,
     "windowMs": 60000,
     "max": 60,
     "message": "Too many requests, please try again later.",
@@ -102,6 +103,7 @@ npm start
 | `session.maxAgeMs` | Number，毫秒 | Session Cookie 生命周期；需重启生效 |
 | `session.secure` | Boolean | 仅 HTTPS 场景设为 `true`；需重启生效 |
 | `session.httpOnly` / `sameSite` | Boolean/String | Session Cookie 属性；需重启生效 |
+| `limiter.enabled` | Boolean | 是否启用按客户端 IP 的窗口限流；保存配置后热加载，默认 `true` |
 | `limiter.windowMs` | Number，毫秒 | 限流窗口；保存配置后重建限流器 |
 | `limiter.max` | Number | 每个窗口允许的请求数 |
 | `security.blockedHostnames` | String[] | 精确 hostname 或 `*.example.com` 子域规则；不接受正则，可热加载 |
@@ -315,7 +317,7 @@ location /__proxyweb/ {
 常见检查：
 
 - 启动后立即提示配置缺失：确认工作目录是 `backend/nodejs/` 且存在 `main.json`。
-- 限流异常频繁：确认 `limiter.windowMs` 使用毫秒，不要写成 `60` 表示一分钟。
+- 网页资源频繁返回 429：先确认 `limiter.windowMs` 使用毫秒，不要写成 `60` 表示一分钟；本地或受信环境可设 `limiter.enabled: false`，公网环境应优先调高 `max` 并保留限流。
 - 修改端口或 Session 配置没有生效：这两类配置需要重启。
 - 前端 `/web/` 返回错误：确认已部署 `webPro/index.html` 以及其静态资源。
 - 400 `PROXY_INVALID_URL`：目标 URL 格式、编码或 credentials 非法。
@@ -362,6 +364,6 @@ location /__proxyweb/ {
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射、Runtime Bridge、WebSocket Upgrade 与 Origin Isolation Host 双绑定，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE、脚本动态 URL、WebSocket、独立 Origin/Storage 与 SOP 边界。
 
-后端当前 209 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 210 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，可热加载限流开关、请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.4 的 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E；路线图 5.3 的 P3 门禁继续复用 P2，并追加本地工作区 IndexedDB E2E。逐项证据见 [P0 自动化验收矩阵](../../docs/p0-verification-matrix.md)、[P1 Browser Core 自动化验收矩阵](../../docs/p1-verification-matrix.md)、[P2 Runtime/WebSocket/Origin Isolation 自动化验收矩阵](../../docs/p2-runtime-verification-matrix.md)、[工作区契约](../../docs/workspace-environment-collections-contract.md) 与 [Origin Isolation 威胁模型](../../docs/origin-isolation-threat-model.md)。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

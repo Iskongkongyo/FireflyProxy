@@ -1093,6 +1093,28 @@ test("rate limiter can reject requests after the configured maximum", async () =
     }
 });
 
+test("rate limiter can be disabled and re-enabled through hot configuration", async () => {
+    const toggleProxy = await startProxy({ limiter: { enabled: false, windowMs: 60000, max: 1 } });
+    try {
+        const target = `${fixture.origin}/json`;
+        const first = await fetch(`${toggleProxy.origin}/?url=${encodeURIComponent(target)}`);
+        const second = await fetch(`${toggleProxy.origin}/?url=${encodeURIComponent(target)}`);
+        assert.equal(first.status, 200);
+        assert.equal(second.status, 200);
+
+        const outputIndex = toggleProxy.getOutput().length;
+        await toggleProxy.updateConfig({ limiter: { enabled: true } });
+        await toggleProxy.waitForOutput(/RateLimiter reloaded dynamically/, outputIndex);
+
+        const limitedFirst = await fetch(`${toggleProxy.origin}/?url=${encodeURIComponent(target)}`);
+        const limitedSecond = await fetch(`${toggleProxy.origin}/?url=${encodeURIComponent(target)}`);
+        assert.equal(limitedFirst.status, 200);
+        assert.equal(limitedSecond.status, 429);
+    } finally {
+        await toggleProxy.close();
+    }
+});
+
 test("default trustProxy ignores spoofed X-Forwarded-For for rate-limit identity", async () => {
     const directProxy = await startProxy({
         trustProxy: false,

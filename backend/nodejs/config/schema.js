@@ -44,6 +44,7 @@ const corsSchema = z.object({
 });
 
 const limiterSchema = z.object({
+    enabled: z.boolean(),
     windowMs: z.number().int().positive(),
     max: z.number().int().positive(),
     message: z.string(),

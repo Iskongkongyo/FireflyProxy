@@ -752,3 +752,12 @@ Milestone 2 P0 安全门禁至此完成，可以进入 3.1 API Mode 与 Browser 
 - 最终门禁为后端 209/209、前端 33/33、P0 5/5、P1 2/2、P2 3/3、P3 2/2 全部 PASS；Edge 150 的 Browser Core、Runtime/WebSocket、Origin Isolation 与 Workspace 四组真实浏览器流程均通过。生产构建仅保留既有的 3 条 bundle 体积 warning。
 
 Milestone 5 Postman Lite 主线已完成；高级 Worker/Service Worker 兼容仍作为独立后续增强。
+
+### 第二十八轮执行记录
+
+2026-08-31 完成 Browser 资源 429 运维修复：
+
+- 新增可热加载的 `limiter.enabled` Boolean 配置，默认 `true` 保持现有安全行为；设置为 `false` 时跳过按客户端 IP 的窗口限流，适合本地或受信网络中的高资源量网页。
+- 关闭窗口限流不会放宽 URL/SSRF/DNS/Pinning、请求体、并发请求、WebSocket 连接数或超时限制；公网和多人共享部署应优先提高 `limiter.max` 而不是关闭。
+- 新增关闭与重新启用限流的真实子进程集成测试，并同步配置模板、Schema、README 和总体技术方案。
+- 后端全量 210/210、前端 33/33、lint 与生产构建通过；P0 5/5、P1 2/2、P2 3/3、P3 2/2 全部 PASS，Edge 150 四组真实浏览器 E2E 保持通过。生产构建仍只有既有的 3 条 bundle 体积 warning。

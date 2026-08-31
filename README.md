@@ -127,6 +127,7 @@ npm run build
 | `cors.allowCredentials` | 是否允许浏览器携带凭据；为 `true` 时禁止 `*` | 是 |
 | `session.secret` | Session 签名密钥 | 否，需重启 |
 | `session.maxAgeMs` | Cookie 生命周期，毫秒 | 否，需重启 |
+| `limiter.enabled` | 是否启用按客户端 IP 的窗口限流；默认开启 | 是 |
 | `limiter.windowMs` | 限流窗口，毫秒 | 是 |
 | `limiter.max` | 每个窗口的请求数 | 是 |
 | `security.blockedHostnames` | 精确主机或 `*.example.com` 子域规则；不接受正则 | 是 |
@@ -149,6 +150,8 @@ npm run build
 | `browser.webSocketMaxConnections` | 进行中握手与已建立连接总上限，默认 64 | 是 |
 | `browser.originIsolation.enabled` | 是否为每个 upstream 使用独立 proxy 子域；默认关闭 | 否，部署变更需重启 |
 | `browser.originIsolation.baseOrigin` | 专用 Browser DNS namespace，例如 `https://browse.example.com` | 否，需同步 DNS/TLS/Session 并重启 |
+
+Browser 页面会为脚本、样式、图片和字体产生大量子请求。仅在本地或受信网络中，可在 `backend/nodejs/main.json` 设置 `"limiter": { "enabled": false, ... }` 后热加载关闭 429 窗口限流；公网或多人共享部署建议保留限流并调高 `max`。该开关不会关闭 SSRF、请求体大小、并发数、连接数或超时门禁。
 
 旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin`、`blacklist` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins`、`security.blockedHostnames` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；旧黑名单值按精确主机或前导通配子域规则校验，不再作为正则执行。迁移会记录弃用警告，建议按模板尽快更新。
 
@@ -180,7 +183,7 @@ P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 �
 node scripts/p0-gate.js --install
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 209 项测试与语法检查、前端 33 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+已完成依赖安装时可省略 `--install`。当前门禁会执行后端 210 项测试与语法检查、前端 33 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
 
 P1 门禁是 P0 的严格超集，并追加 Playwright Core 真实浏览器验收：
 

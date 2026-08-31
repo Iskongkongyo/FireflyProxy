@@ -40,6 +40,7 @@ function defaultConfig(port) {
             }
         },
         limiter: {
+            enabled: true,
             windowMs: 60000,
             max: 1000,
             message: "fixture rate limit",
