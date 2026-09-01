@@ -23,6 +23,7 @@ function createProxyAuth(options) {
     const logger = options.logger;
 
     return (req, res, next) => {
+        if (req.proxyWebAdminRoute || req.proxyWebAdminHome) return next();
         const config = getConfig();
         const authentication = authenticateProxyRequest(req, config);
         if (authentication.open) {

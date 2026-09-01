@@ -6,6 +6,12 @@ function createDefaultConfig(env = process.env) {
         user: "",
         pwd: "",
         defaultSkip: "",
+        admin: {
+            enabled: false,
+            path: "/admin",
+            user: "",
+            pwd: ""
+        },
         session: {
             secret: env.PROXYWEB_SESSION_SECRET || `change-this-secret-in-prod-${Date.now()}`,
             name: "proxySession",
@@ -21,7 +27,7 @@ function createDefaultConfig(env = process.env) {
             allowCredentials: true
         },
         limiter: {
-            enabled: true,
+            enabled: false,
             windowMs: 60000,
             max: 60,
             message: "Too many requests, please try again later.",
@@ -47,6 +53,7 @@ function createDefaultConfig(env = process.env) {
             rewriteCss: true,
             cookieJar: true,
             runtimeBridge: false,
+            scriptCookieBridge: false,
             webSocket: false,
             webSocketMaxPayloadBytes: 1048576,
             webSocketIdleTimeoutMs: 60000,

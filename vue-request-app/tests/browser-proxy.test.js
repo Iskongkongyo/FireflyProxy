@@ -25,6 +25,7 @@ test('Browser entry URL keeps preferences explicit and target credentials out of
             rewriteCss: true,
             cookieJar: false,
             runtimeBridge: false,
+            scriptCookieBridge: false,
             webSocket: false,
             compatHeaders: true
         }
@@ -37,6 +38,7 @@ test('Browser entry URL keeps preferences explicit and target credentials out of
     assert.equal(result.searchParams.get('rewriteCss'), 'true');
     assert.equal(result.searchParams.get('cookieJar'), 'false');
     assert.equal(result.searchParams.get('runtimeBridge'), 'false');
+    assert.equal(result.searchParams.get('scriptCookieBridge'), 'false');
     assert.equal(result.searchParams.get('webSocket'), 'false');
     assert.equal(result.searchParams.get('compatHeaders'), 'true');
     assert.throws(

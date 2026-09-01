@@ -72,6 +72,8 @@ npm start
 
 默认监听 `http://localhost:8082`。
 
+可选 Admin Console 默认关闭。首次在 `main.json` 配置非空的 `admin.user`/`admin.pwd` 并设 `admin.enabled: true` 后，可访问 `http://localhost:8082/admin`；`admin.path` 可改为其他非保留绝对路径。若 `defaultSkip` 为空，访问后端 `/` 会自动进入管理页。页面可结构化编辑全部当前配置、遮蔽已有密码/Session Secret、校验后原子写入并热加载；完整安全契约见 [Admin Console 文档](./docs/admin-console-contract.md)。
+
 当前推荐的 API 入口是：
 
 ```text
@@ -123,6 +125,9 @@ npm run build
 | `trustProxy` | Express 信任代理策略；模板默认 `false` | 否，需重启 |
 | `timeoutMs` | 上游请求超时，毫秒 | 是 |
 | `user` / `pwd` | 代理自身 Basic Auth；两者均非空时启用 | 是 |
+| `admin.enabled` | 是否开放独立配置管理页面；默认关闭 | 是 |
+| `admin.path` | 管理页面路径，例如 `/admin` 或 `/control/settings`；不能使用 `/web`、`/__proxyweb` | 是 |
+| `admin.user` / `admin.pwd` | 管理页面独立 Basic Auth；启用时必须均非空 | 是 |
 | `cors.allowedOrigins` | 允许的浏览器 Origin 数组 | 是 |
 | `cors.allowCredentials` | 是否允许浏览器携带凭据；为 `true` 时禁止 `*` | 是 |
 | `session.secret` | Session 签名密钥 | 否，需重启 |
@@ -144,6 +149,7 @@ npm run build
 | `browser.rewriteHtml` | 是否启用 HTML 属性、`srcset`、Meta Refresh 和内联 style URL 重写 | 是 |
 | `browser.rewriteCss` | 是否启用 CSS `url()` 与 `@import` AST 重写 | 是 |
 | `browser.runtimeBridge` | 是否注入 Runtime Bridge；默认关闭，且依赖 `rewriteHtml` | 是 |
+| `browser.scriptCookieBridge` | 是否按 upstream Origin 映射脚本 `document.cookie`；默认关闭，依赖 Runtime Bridge | 是 |
 | `browser.webSocket` | 是否开放 Canonical ws/wss Upgrade 并启用 Runtime WebSocket 映射；默认关闭 | 是 |
 | `browser.webSocketMaxPayloadBytes` | 单条 WebSocket 消息上限，默认 1 MiB | 新连接 |
 | `browser.webSocketIdleTimeoutMs` | WebSocket 空闲关闭时间，默认 60 秒 | 新连接 |
@@ -157,12 +163,15 @@ Browser 页面会为脚本、样式、图片和字体产生大量子请求。仅
 
 ## 当前安全边界
 
+- Admin Console 与代理认证分离，密码和 `session.secret` 不通过读取 API 返回；保存要求当前管理页面 Referer、同源 Origin 和专用 Header，并使用 `no-store`、CSP、COOP/CORP、frame deny 与独立登录尝试限流。即使如此，生产仍应启用 Browser Origin Isolation 或把不可信 Browser Proxy 与管理面部署到不同站点，详见 [管理控制面契约](./docs/admin-console-contract.md)。
 - URL Validator 已拒绝非 HTTP(S) 协议、URL credentials、非法编码、localhost，以及 loopback/private/link-local/unspecified/multicast/reserved 等字面 IPv4/IPv6。域名使用 `lookup(all: true, verbatim: true)` 校验全部 A/AAAA，任一结果非公网即整体拒绝；请求级 HTTP/HTTPS Agent 的 `lookup` 只能返回该验证集合，并保持原 hostname、Host、SNI 和严格 TLS 证书校验。
 - Axios 自身固定 `maxRedirects: 0`；启用 `api.followRedirects` 时由 proxyWeb 处理 301/302/303/307/308，每一跳重新执行 URL、DNS 与 Pinning 校验。API 请求的 `followRedirects`/`maxRedirects` 只能关闭或收紧全局策略。跨域跳转会删除认证、Cookie、Token、Secret 与 API Key 类 Header，循环或超限返回 508；Final URL 与有序跳转链通过有界、防上游伪造的诊断头返回。
 - 代理请求同时受 `timeoutMs`、`api.connectTimeoutMs`、`api.maxRequestBodyBytes` 与 `api.maxConcurrentRequests` 约束；客户端断开会取消上游，异常响应流由管道边界回收。API 响应仍保持流式转发，不受 Rewrite 缓冲上限影响。
 - Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。HTML 使用 Parser 重写 allowlist 属性、`srcset`、`<base>`、Meta Refresh 与内联 CSS，独立 CSS 使用 AST 重写 `url()`/`@import`；相对 CSS URL 基于样式表自身地址。Browser 301/302/303/307/308 会先验证 Location，再返回 Canonical Location 交由浏览器处理，不在服务端吞掉跳转。实际子请求与跳转目标仍执行完整 SSRF/DNS/Pinning 校验。SSE 会提前发送响应头并携带 `X-Accel-Buffering: no`；206、附件、`no-transform`、音视频、PDF 和二进制保持流式，未变换响应保留合法 Content-Length。
+- 页面运行时新增的 `/path` 链接、表单或导航若逃离 Canonical Route，服务端只在 `Referer` 可严格反解为当前 Browser Canonical 页面时恢复其 upstream origin，并在完整 URL/SSRF/DNS 校验后用 `307 Cache-Control: no-store` 跳回 Canonical URL；`/__proxyweb/*`、`/web/*`、显式 `?url=`、双斜杠、外部/缺失 Referer 均不会被猜测或接管。目标站使用 `noreferrer`/`no-referrer` 时无法安全推断来源，应启用 Runtime Bridge 或由目标页面提供完整 Canonical 链接。
 - Browser Cookie Jar 仅由服务端按 proxyWeb Session 保存，并按 upstream Domain、Path、Secure 与 Expiry 匹配；入站 proxyWeb Cookie 不会直接转发，上游 `Set-Cookie` 也不会设置到 proxyWeb 域名。Canonical Referer 会映射回完整 upstream URL，Origin 只取已验证的来源页面 origin；来源未知时使用 `null`，不会把跨站请求伪装成与目标同源。
 - Runtime Bridge 默认关闭；开启后在 upstream 脚本前注入 `no-store` 脚本，映射 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History URL，并保持 Promise、prototype、this 和错误行为。Bridge 不读取或记录 Body/Token，动态目标仍逐次经过 Canonical Route 的 SSRF/DNS/Pinning 校验。WebSocket 还需独立开启 `browser.webSocket`；握手在下游 101 前执行 Basic Auth、Session、Origin、DNS SSRF、Pinning/TLS 和远端地址校验，并受 payload、idle、总连接数及 backpressure 限制。
+- Script Cookie Bridge 默认关闭；开启后把 `document.cookie` 编码为当前 upstream Origin 专属 carrier，后端仅解码与当前 Canonical Token 匹配的 Cookie，并与服务端 Jar 合并。它不会转发 `proxySession` 或其他 upstream Cookie，也不会向脚本暴露 HttpOnly Cookie；详细边界见 [Script Cookie Bridge 契约](./docs/script-cookie-bridge.md)。
 - Origin Isolation 默认关闭；启用后以 SHA-256 派生的规范子域和可逆 path token 双重绑定 upstream，错误/未知 Host 及隔离 host 上的 API/UI 路由返回 421。不同 upstream 的 DOM、Storage 与权限 Origin 已由真实 Edge 验证隔离；精确 base Domain 下的 HttpOnly 控制 Session 仍共享，因此管理 UI 必须部署到不同站点。生产需要专用 wildcard DNS/TLS、HTTPS、Secure Session 与正确保留 Host 的反向代理，详见 [威胁模型](./docs/origin-isolation-threat-model.md)。
 - Browser UI 的兼容参数绑定当前 Browser Session，只能关闭服务器已经允许的 Rewrite、Runtime Bridge、WebSocket、Cookie Jar 或兼容 Header，不能从前端开启全局禁用能力，也不能把 `preserve/strict` 降级为 `compat`。默认使用 `noopener` 新标签页；同源部署时禁用 iframe 预览，并持续建议把不可信 Browser Proxy 与管理 UI 分离到不同 Origin。
 - 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
@@ -171,7 +180,7 @@ Browser 页面会为脚本、样式、图片和字体产生大量子请求。仅
 - Environment/Collections 只保存在浏览器 IndexedDB 或 Session Storage，没有账号同步或加密。Secret 标记只是遮罩和风险提示；页面分享/历史保留 `{{变量}}` 而不展开值，实际发送、Copy API/cURL 会解析当前环境。保存持久化 Secret 或含凭据请求前必须确认，详细边界见 [工作区契约](./docs/workspace-environment-collections-contract.md)。
 - CORS 使用显式 Origin allowlist；非法或未授权 Origin 会被拒绝，无 Origin 请求不会获得 CORS 响应头。`allowCredentials: true` 与 `allowedOrigins: ["*"]` 的组合会在配置加载时被拒绝。
 - `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
-- Express Session 与 Browser SessionStateStore 当前都使用进程内存，不适合多实例或长期生产运行；服务端 Jar 也无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
+- Express Session 与 Browser SessionStateStore 当前都使用进程内存，不适合多实例或长期生产运行。服务端 Jar 不会向脚本暴露 upstream HttpOnly Cookie；可读写脚本 Cookie 只能在显式开启 Script Cookie Bridge 时按其兼容边界映射。
 
 P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)、[P1 Browser Core 验收矩阵](./docs/p1-verification-matrix.md) 和 [P2 验收矩阵](./docs/p2-runtime-verification-matrix.md)；P3 本地资产边界见 [工作区契约](./docs/workspace-environment-collections-contract.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
 

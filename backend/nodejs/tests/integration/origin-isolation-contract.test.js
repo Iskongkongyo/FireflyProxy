@@ -125,6 +125,28 @@ test("cross-upstream source headers are restored only from a matching isolated R
     assert.equal(payload.headers.referer, sourceUrl);
 });
 
+test("escaped root-relative navigation is recovered only on its matching isolated origin", async () => {
+    const sourceUrl = `${fixture.origin}/page`;
+    const sourceProxyUrl = toProxyUrl(sourceUrl, { originIsolation: isolation });
+    const recoveredTarget = `${fixture.origin}/json?root=isolated`;
+    const response = await requestProxy("/json?root=isolated", {
+        host: hostHeader(new URL(sourceProxyUrl).origin),
+        origin: new URL(sourceProxyUrl).origin,
+        referer: sourceProxyUrl
+    });
+
+    assert.equal(response.status, 307);
+    assert.equal(response.headers.location, toProxyUrl(recoveredTarget, { originIsolation: isolation }));
+    assert.equal(response.headers["cache-control"], "no-store");
+
+    const untrusted = await requestProxy("/json?root=denied", {
+        host: hostHeader(new URL(sourceProxyUrl).origin),
+        referer: "http://attacker.test/page"
+    });
+    assert.equal(untrusted.status, 421);
+    assert.equal(untrusted.json().error.code, "PROXY_ORIGIN_ISOLATION_DENIED");
+});
+
 test("HTML rewrite emits absolute isolated origins and configures the Runtime mapper", async () => {
     const target = `${fixture.origin}/html-relative`;
     const canonical = toProxyUrl(target, { originIsolation: isolation });

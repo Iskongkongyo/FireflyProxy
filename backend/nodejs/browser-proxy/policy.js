@@ -13,6 +13,7 @@ const {
 const { rewriteCss } = require("./cssRewriter");
 const { rewriteHtml } = require("./htmlRewriter");
 const { getCookieHeader, storeResponseCookies } = require("./sessionStateStore");
+const { getScriptCookieHeader, mergeCookieHeaders } = require("./scriptCookieBridge");
 const { createWebSocketOriginContext } = require("./webSocketUrl");
 const {
     isolatedProxyOrigin,
@@ -152,10 +153,14 @@ const browserPolicy = Object.freeze({
             ...omitHeaders(headers, ["accept-encoding"]),
             "accept-encoding": "identity"
         }, inboundHeaders, { ...context, config });
-        if (config.browser.cookieJar && context.sessionState) {
-            const cookie = await getCookieHeader(context.sessionState, context.targetUrl);
-            if (cookie) replaceHeader(browserHeaders, "cookie", cookie);
-        }
+        const jarCookie = config.browser.cookieJar && context.sessionState
+            ? await getCookieHeader(context.sessionState, context.targetUrl)
+            : "";
+        const scriptCookie = config.browser.scriptCookieBridge
+            ? getScriptCookieHeader(getHeader(inboundHeaders, "cookie"), context.targetUrl)
+            : "";
+        const cookie = mergeCookieHeaders(jarCookie, scriptCookie);
+        if (cookie) replaceHeader(browserHeaders, "cookie", cookie);
         return browserHeaders;
     },
     async captureResponseHeaders(upstreamHeaders, config, context) {
@@ -175,6 +180,7 @@ const browserPolicy = Object.freeze({
                 documentUrl: targetUrl,
                 mediaType,
                 runtimeBridge: config.browser.runtimeBridge,
+                scriptCookieBridge: config.browser.scriptCookieBridge,
                 webSocket: config.browser.webSocket,
                 webSocketContext: config.browser.webSocket
                     ? createWebSocketOriginContext(new URL(targetUrl).origin, config.session.secret)

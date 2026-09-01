@@ -124,7 +124,8 @@ test("Runtime Bridge is injected first exactly once with the upstream document U
     const output = rewriteHtml({
         html: "<!doctype html><html><head><script id='upstream'>window.started = true</script></head><body></body></html>",
         documentUrl,
-        runtimeBridge: true
+        runtimeBridge: true,
+        scriptCookieBridge: true
     });
     const $ = cheerio.load(output);
     const scripts = $("head script");
@@ -132,6 +133,7 @@ test("Runtime Bridge is injected first exactly once with the upstream document U
     assert.equal(scripts.length, 2);
     assert.equal(scripts.first().attr("src"), "/__proxyweb/runtime.js");
     assert.equal(scripts.first().attr("data-proxyweb-runtime"), documentUrl);
+    assert.equal(scripts.first().attr("data-proxyweb-script-cookie-bridge"), "true");
     assert.equal(scripts.last().attr("id"), "upstream");
 
     const repeated = rewriteHtml({ html: output, documentUrl, runtimeBridge: true });

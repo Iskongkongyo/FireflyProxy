@@ -9,6 +9,7 @@ function runtimeBridgeBootstrap() {
     const runtimeScript = document.currentScript;
     const initialDocumentUrl = runtimeScript?.getAttribute("data-proxyweb-runtime");
     const initialBaseUrl = runtimeScript?.getAttribute("data-proxyweb-base-url");
+    const scriptCookieBridgeEnabled = runtimeScript?.getAttribute("data-proxyweb-script-cookie-bridge") === "true";
     const webSocketEnabled = runtimeScript?.getAttribute("data-proxyweb-websocket") === "true";
     const webSocketOriginContext = runtimeScript?.getAttribute("data-proxyweb-origin-context");
     const isolationBaseOriginValue = runtimeScript?.getAttribute("data-proxyweb-isolation-base-origin");
@@ -53,6 +54,28 @@ function runtimeBridgeBootstrap() {
         let binary = "";
         for (const byte of bytes) binary += String.fromCharCode(byte);
         return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    }
+
+    function encodeCookieName(name) {
+        if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name || "")) return null;
+        const bytes = new TextEncoder().encode(name);
+        let binary = "";
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    }
+
+    function decodeCookieName(token) {
+        if (!/^[A-Za-z0-9_-]+$/.test(token || "")) return null;
+        try {
+            const base64 = token.replace(/-/g, "+").replace(/_/g, "/");
+            const padded = base64 + "=".repeat((4 - base64.length % 4) % 4);
+            const binary = atob(padded);
+            const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+            const name = new TextDecoder().decode(bytes);
+            return encodeCookieName(name) === token ? name : null;
+        } catch {
+            return null;
+        }
     }
 
     function sha256Hex(value) {
@@ -178,6 +201,57 @@ function runtimeBridgeBootstrap() {
     if (!currentUpstreamUrl) return;
     fixedBaseUrl = parseHttpUrl(initialBaseUrl)?.href || null;
     runtimeScript.dataset.proxywebRuntimeActive = "true";
+
+    function installScriptCookieBridge() {
+        if (!scriptCookieBridgeEnabled || typeof Document !== "function") return;
+        const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
+        if (!descriptor?.configurable || typeof descriptor.get !== "function" || typeof descriptor.set !== "function") {
+            return;
+        }
+
+        const prefix = `__proxyweb_sc_${encodeOrigin(new URL(currentUpstreamUrl).origin)}_`;
+        const nativeGetter = descriptor.get;
+        const nativeSetter = descriptor.set;
+        Object.defineProperty(Document.prototype, "cookie", {
+            configurable: true,
+            enumerable: descriptor.enumerable,
+            get() {
+                const visible = [];
+                const nativeValue = Reflect.apply(nativeGetter, this, []);
+                for (const part of String(nativeValue || "").split(";")) {
+                    const candidate = part.trim();
+                    const separator = candidate.indexOf("=");
+                    if (separator <= 0) continue;
+                    const carrierName = candidate.slice(0, separator).trim();
+                    if (!carrierName.startsWith(prefix)) continue;
+                    const name = decodeCookieName(carrierName.slice(prefix.length));
+                    if (name) visible.push(`${name}=${candidate.slice(separator + 1).trim()}`);
+                }
+                return visible.join("; ");
+            },
+            set(value) {
+                const parts = String(value).split(";");
+                const pair = parts.shift()?.trim() || "";
+                const separator = pair.indexOf("=");
+                if (separator <= 0) return undefined;
+                const name = pair.slice(0, separator).trim();
+                const encodedName = encodeCookieName(name);
+                if (!encodedName) return undefined;
+
+                const attributes = [];
+                for (const rawAttribute of parts) {
+                    const attribute = rawAttribute.trim();
+                    const key = attribute.split("=", 1)[0].trim().toLowerCase();
+                    if (key === "expires" || key === "max-age") attributes.push(attribute);
+                }
+                const serialized = `${prefix}${encodedName}=${pair.slice(separator + 1).trim()}; Path=/`
+                    + (attributes.length ? `; ${attributes.join("; ")}` : "");
+                return Reflect.apply(nativeSetter, this, [serialized]);
+            }
+        });
+    }
+
+    installScriptCookieBridge();
 
     const NativeRequest = window.Request;
     if (typeof NativeRequest === "function") {

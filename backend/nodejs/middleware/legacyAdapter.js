@@ -19,6 +19,8 @@ function readinessResponse(res) {
 
 function createLegacyReadiness({ getConfig }) {
     return (req, res, next) => {
+        if (req.proxyWebAdminRoute) return next();
+        if (req.proxyWebBrowserRootRecovery) return next();
         if (
             req.path.startsWith("/web")
             || req.path === "/__proxyweb"
@@ -27,6 +29,8 @@ function createLegacyReadiness({ getConfig }) {
         if (Object.prototype.hasOwnProperty.call(req.query, "url") || req.session.targetUrl) return next();
         const { defaultSkip } = getConfig();
         if (defaultSkip) return res.redirect(defaultSkip);
+        const { admin } = getConfig();
+        if (admin.enabled) return res.redirect(admin.path);
         return readinessResponse(res);
     };
 }

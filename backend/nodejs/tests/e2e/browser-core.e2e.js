@@ -144,6 +144,35 @@ async function run() {
         assert.equal(await linkPage.locator("#link-result").textContent(), "linked");
         await linkPage.close();
 
+        await page.evaluate(() => {
+            const link = document.createElement("a");
+            link.id = "runtime-root-link";
+            link.href = "/link-result";
+            link.target = "_blank";
+            link.textContent = "runtime root link";
+            document.body.append(link);
+
+            const form = document.createElement("form");
+            form.id = "runtime-root-post";
+            form.action = "/form/result";
+            form.method = "post";
+            form.target = "_blank";
+            form.innerHTML = '<input name="message" value="runtime root post"><button>submit</button>';
+            document.body.append(form);
+        });
+        assert.equal(await page.locator("#runtime-root-link").getAttribute("href"), "/link-result");
+
+        const recoveredLinkPage = await openPopup(context, () => page.locator("#runtime-root-link").click());
+        assert.equal(await recoveredLinkPage.locator("#link-result").textContent(), "linked");
+        assert.match(recoveredLinkPage.url(), /\/__proxyweb\/browser\/[^/]+\/link-result$/);
+        await recoveredLinkPage.close();
+
+        const recoveredPostPage = await openPopup(context, () => page.locator("#runtime-root-post button").click());
+        assert.equal(await recoveredPostPage.locator("#form-result").getAttribute("data-method"), "POST");
+        assert.equal(await recoveredPostPage.locator("#form-result").textContent(), "message=runtime+root+post");
+        assert.match(recoveredPostPage.url(), /\/__proxyweb\/browser\/[^/]+\/form\/result$/);
+        await recoveredPostPage.close();
+
         const ssrPage = await openPopup(context, () => page.locator("#ssr-link").click());
         assert.equal(await ssrPage.locator("#ssr-result").textContent(), "SSR:Browser");
         await ssrPage.close();
@@ -190,7 +219,7 @@ async function run() {
         assert.notEqual(await page.evaluate(() => window.__e2e.sseError || false), true);
 
         process.stdout.write(`[P1 E2E] Browser: ${browser.version()} (${browserPath})\n`);
-        process.stdout.write("[P1 E2E] PASS (static/SSR, HTML/CSS assets, CDN, forms, redirect, Cookie, Range, download, SSE)\n");
+        process.stdout.write("[P1 E2E] PASS (static/SSR, HTML/CSS assets, CDN, forms, root recovery, redirect, Cookie, Range, download, SSE)\n");
         passed = true;
     } catch (error) {
         if (page && !page.isClosed()) {

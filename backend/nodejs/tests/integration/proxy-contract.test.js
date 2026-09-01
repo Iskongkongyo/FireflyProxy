@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const http = require("node:http");
 const { after, before, test } = require("node:test");
 const cheerio = require("cheerio");
+const { encodeScriptCookieName, scriptCookiePrefix } = require("../../browser-proxy/scriptCookieBridge");
 const { toProxyUrl } = require("../../core/urlMapper");
 const { createUpstreamFixture, RANGE_BODY } = require("../fixtures/upstream-server");
 const { startProxy } = require("../helpers/proxy-process");
@@ -138,6 +139,55 @@ test("Browser entry creates a validated canonical URL whose query cannot become 
         assert.equal(new URL(payload.url, fixture.origin).searchParams.get("q"), "canonical");
     } finally {
         await canonicalProxy.close();
+    }
+});
+
+test("Browser safely recovers escaped root-relative GET and POST requests from a Canonical Referer", async () => {
+    const recoveryProxy = await startProxy({ browser: { enabled: true } });
+    try {
+        const sourceUrl = `${fixture.origin}/html?source=root-recovery`;
+        const canonicalReferer = `${recoveryProxy.origin}${toProxyUrl(sourceUrl)}`;
+        const recovered = await fetch(`${recoveryProxy.origin}/echo?via=root`, {
+            method: "POST",
+            redirect: "manual",
+            headers: {
+                origin: recoveryProxy.origin,
+                referer: canonicalReferer,
+                "content-type": "text/plain"
+            },
+            body: "root-recovery-body"
+        });
+
+        assert.equal(recovered.status, 307);
+        assert.equal(recovered.headers.get("location"), toProxyUrl(`${fixture.origin}/echo?via=root`));
+        assert.equal(recovered.headers.get("cache-control"), "no-store");
+        assert.match(recovered.headers.get("vary"), /Referer/i);
+        assert.equal(recovered.headers.get("deprecation"), null);
+
+        const canonicalResponse = await fetch(new URL(
+            recovered.headers.get("location"),
+            recoveryProxy.origin
+        ), {
+            method: "POST",
+            headers: {
+                origin: recoveryProxy.origin,
+                referer: canonicalReferer,
+                "content-type": "text/plain"
+            },
+            body: "root-recovery-body"
+        });
+        const payload = await canonicalResponse.json();
+        assert.equal(canonicalResponse.status, 200);
+        assert.equal(payload.method, "POST");
+        assert.equal(payload.body, "root-recovery-body");
+        assert.equal(payload.headers.referer, sourceUrl);
+        assert.equal(payload.headers.origin, fixture.origin);
+
+        const noReferer = await fetch(`${recoveryProxy.origin}/json`, { redirect: "manual" });
+        assert.equal(noReferer.status, 400);
+        assert.match(await noReferer.text(), /Proxy Service Ready/);
+    } finally {
+        await recoveryProxy.close();
     }
 });
 
@@ -381,6 +431,36 @@ test("Browser Cookie Jar persists upstream cookies while isolating paths, hosts 
             cookieProxy.origin
         ));
         assert.equal((await separateSession.json()).cookie, "");
+    } finally {
+        await cookieProxy.close();
+    }
+});
+
+test("Browser Script Cookie Bridge forwards only the carrier bound to the current upstream origin", async () => {
+    const cookieProxy = await startProxy({
+        browser: { enabled: true, runtimeBridge: true, scriptCookieBridge: true }
+    }, {
+        dnsRecords: {
+            "other.test": [{ address: "93.184.216.35", family: 4 }]
+        }
+    });
+    try {
+        const setResponse = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/cookie/set`),
+            cookieProxy.origin
+        ));
+        const proxySessionCookie = setResponse.headers.get("set-cookie").split(";", 1)[0];
+        const target = `${fixture.origin}/cookie/echo`;
+        const localCarrier = `${scriptCookiePrefix(target)}${encodeScriptCookieName("dscld")}=true`;
+        const foreignTarget = `http://other.test:${fixture.port}/cookie/echo`;
+        const foreignCarrier = `${scriptCookiePrefix(foreignTarget)}${encodeScriptCookieName("foreign")}=leak`;
+
+        const response = await fetch(new URL(toProxyUrl(target), cookieProxy.origin), {
+            headers: {
+                cookie: `${proxySessionCookie}; ${localCarrier}; ${foreignCarrier}; unrelated=blocked`
+            }
+        });
+        assert.equal((await response.json()).cookie, "hostOnly=alpha; dscld=true");
     } finally {
         await cookieProxy.close();
     }

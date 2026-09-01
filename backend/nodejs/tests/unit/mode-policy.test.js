@@ -7,6 +7,7 @@ const {
     legacyPolicy
 } = require("../../browser-proxy/policy");
 const { createSessionStateStore, storeResponseCookies } = require("../../browser-proxy/sessionStateStore");
+const { encodeScriptCookieName, scriptCookiePrefix } = require("../../browser-proxy/scriptCookieBridge");
 const { toProxyUrl } = require("../../core/urlMapper");
 const { getTargetUrl } = require("../../middleware/legacyAdapter");
 
@@ -93,25 +94,27 @@ test("Browser requests map source headers, inject jar cookies and force identity
     const state = createSessionStateStore().get("session-a", 60000);
     await storeResponseCookies(state, "https://cdn.test/", "upstream=jar; Path=/; HttpOnly");
     const sourceUrl = "https://source.test/page?q=1";
+    const targetUrl = "https://cdn.test/asset.css";
+    const bridgeCookie = `${scriptCookiePrefix(targetUrl)}${encodeScriptCookieName("dscld")}=true`;
     const headers = await browserPolicy.buildRequestHeaders({
         Accept: "text/html",
         "Accept-Encoding": "gzip, br",
-        Cookie: "proxySession=do-not-forward",
+        Cookie: `proxySession=do-not-forward; ${bridgeCookie}`,
         Host: "proxy.test",
         Origin: "https://proxy.test",
         Referer: `https://proxy.test${toProxyUrl(sourceUrl)}`
     }, {}, {
-        browser: { cookieJar: true }
+        browser: { cookieJar: true, scriptCookieBridge: true }
     }, {
         request: { protocol: "https", headers: { host: "proxy.test" } },
         sessionState: state,
-        targetUrl: "https://cdn.test/asset.css"
+        targetUrl
     });
 
     assert.equal(headers["Accept-Encoding"], undefined);
     assert.equal(headers["accept-encoding"], "identity");
     assert.equal(headers.Accept, "text/html");
-    assert.equal(headers.cookie, "upstream=jar");
+    assert.equal(headers.cookie, "upstream=jar; dscld=true");
     assert.equal(headers.origin, "https://source.test");
     assert.equal(headers.referer, sourceUrl);
     assert.equal(headers.Host, undefined);

@@ -51,6 +51,12 @@ npm start
   "user": "",
   "pwd": "",
   "defaultSkip": "",
+  "admin": {
+    "enabled": false,
+    "path": "/admin",
+    "user": "",
+    "pwd": ""
+  },
   "session": {
     "secret": "please-change-this-secret-in-production",
     "name": "proxySession",
@@ -245,6 +251,14 @@ Legacy 响应会携带 `Deprecation: true`、HTTP `Warning: 299` 和指向 `/__p
 
 `/web` 映射到当前目录的 `webPro/`，未命中的 `/web/*` 路径回退到 `webPro/index.html`。前端构建后需要显式把 `vue-request-app/dist/` 的内容部署到该目录。
 
+### 配置管理页面
+
+`admin.enabled` 默认关闭。首次需要在 `main.json` 配置独立的 `admin.path`、`admin.user` 和 `admin.pwd`；启用后管理页面由后端直接提供，不依赖 `webPro`。当 `defaultSkip` 为空时，访问 `/` 会重定向到管理路径。
+
+页面覆盖完整配置 Schema，保存时先验证、再同目录原子替换 `main.json` 并调用热加载。`port`、`trustProxy` 与 `session` 会提示重启。读取 API 只返回 Secret 是否存在，不返回代理密码、Session Secret 或管理密码；空密码输入保持原文件值及 `${ENV}` 占位符。
+
+管理 API 要求独立 Basic Auth、当前管理页 Referer、精确同源 Origin 和 `X-ProxyWeb-Admin: 1`，并有独立认证尝试限流。Canonical Browser 页面 Referer、派生 Origin Isolation host、iframe 和外部 Origin 均被拒绝。详细契约与验收命令见 [Admin Console 文档](../../docs/admin-console-contract.md)。
+
 ## 当前安全限制
 
 路线图 2.2 已完成严格 CORS 与客户端地址边界：带凭据请求必须命中显式 Origin allowlist，预检方法和请求头会校验；无 Origin 请求不会获得 CORS 响应头。`trustProxy` 默认关闭，限流使用 Express 按显式信任策略计算的 `req.ip`。如部署在 Nginx/Caddy 等反向代理后，必须按实际可信跳数或地址配置，错误配置仍会使日志与限流采用错误的客户端地址。
@@ -266,6 +280,8 @@ Axios 自身始终使用 `maxRedirects: 0`。当 `api.followRedirects` 开启时
 路线图 3.7 已完成 Browser UI 与受限启动偏好：前端 `/web/browser` 默认用 `noopener,noreferrer` 新标签页打开目标，提供独立模式切换、URL 校验、可折叠兼容设置以及安全/兼容限制提示。只有 Browser Proxy 与管理 UI 不同 Origin 时才允许 sandbox iframe 预览；即使跨 Origin，iframe 仍可能受第三方 Cookie 和目标站防嵌入策略影响。`VUE_APP_PROXY_API_URL` 与 `VUE_APP_PROXY_BROWSE_URL` 可分别部署，缺省时保持旧 `VUE_APP_PROXY_URL` 回退行为。
 
 路线图 3.8 已完成 P1 Browser Core E2E：`playwright-core` 驱动本机 Edge/Chrome/Chromium，访问两个本地虚拟 upstream origin，强制验证静态/SSR 页面、多 CSS/图片、跨 CDN 图片与脚本、GET/POST 表单、302 登录、Cookie Session、字体、MP4 Range、下载和 SSE。HTML/CSS/Location 不逃回 upstream、跨 origin Token 隔离和二进制逐字节直通也属于门禁条件；失败会保留截图、HTML、浏览器错误、失败请求与代理日志。
+
+Browser 根路径恢复 Adapter 处理页面运行时插入、直接赋值或第三方脚本生成的 `/path` 导航。它只接受能按当前 proxy Origin 严格反解的 Canonical Referer，将单斜杠路径绑定到该 Referer 的 upstream origin，重新执行 URL、SSRF 与 DNS 校验后返回不缓存的 307 Canonical 跳转，从而保留 POST Method 与 Body。该 Adapter 不接管 `/__proxyweb/*`、`/web/*`、显式 Legacy `?url=`、双斜杠或缺少可信 Referer 的请求；`noreferrer`/`no-referrer` 页面不会使用 Session 或 Origin 猜测目标。
 
 路线图 4.1 已完成 SSE 与 Range/Media 专项可靠性：SSE 在首个事件前显式 flush 下游响应头并设置 `X-Accel-Buffering: no`；API/Legacy/Browser 的未变换响应均保留合法 Content-Length。开放/后缀 Range、2 MiB 媒体、512 KiB HTML 附件和分块时序已在仅 32 字节 Rewrite 上限下验证，证明 206、媒体与附件不会进入文本 Buffer。
 
@@ -290,7 +306,7 @@ location /__proxyweb/ {
 
 1. **旧敏感查询仍处于兼容期。** 外部旧客户端如果继续使用 `headers` 查询参数，凭据仍可能进入其浏览器历史、剪贴板或中间访问日志；后端会脱敏自身日志并返回弃用提示，新版前端已停止生成。
 2. **进程内 Session Store。** 默认 Express MemoryStore 与 Browser SessionStateStore 不适合生产、多进程或多实例部署；后续需要共享存储实现。
-3. **脚本 Cookie 可见性。** 服务端 Cookie Jar 可以维持 HTTP 会话，但无法让目标页面 JavaScript 通过 `document.cookie` 读取 upstream Cookie；不能通过把上游 Cookie 设置到 proxyWeb 主域来绕过此边界。
+3. **脚本 Cookie 可见性。** 服务端 Cookie Jar 可以维持 HTTP 会话，但不会让目标脚本读取 upstream HttpOnly Cookie。可显式开启 `browser.scriptCookieBridge` 映射脚本可见 Cookie；它默认关闭、依赖 Runtime Bridge，且共享 proxy Origin 不等价于完整浏览器 Origin Isolation，详见 [Script Cookie Bridge 契约](../../docs/script-cookie-bridge.md)。
 
 配置 `user`/`pwd` 不能消除上述问题。P0 门禁通过不等于已解决多实例 Session、完整 Browser 隔离或生产运维要求，因此仍不提供开放代理式公网生产部署步骤。
 

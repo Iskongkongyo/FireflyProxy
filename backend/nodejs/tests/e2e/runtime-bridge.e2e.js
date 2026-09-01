@@ -37,7 +37,12 @@ async function run() {
         const browserPath = findBrowserExecutable();
         fixture = await createBrowserE2eFixture();
         proxy = await startProxy({
-            browser: { enabled: true, runtimeBridge: true, webSocket: true }
+            browser: {
+                enabled: true,
+                runtimeBridge: true,
+                scriptCookieBridge: true,
+                webSocket: true
+            }
         }, {
             fixtureHosts: ["fixture.test", "cdn.test"],
             dnsRecords: {
@@ -59,6 +64,7 @@ async function run() {
         const entryUrl = new URL("/__proxyweb/browser", proxy.origin);
         entryUrl.searchParams.set("url", `${fixture.origin}/runtime`);
         entryUrl.searchParams.set("runtimeBridge", "true");
+        entryUrl.searchParams.set("scriptCookieBridge", "true");
         const navigation = await page.goto(entryUrl.href, { waitUntil: "domcontentloaded" });
         assert.equal(navigation.status(), 200);
         assert.equal(await page.evaluate(() => window.__runtimeDone), true, await page.evaluate(() => window.__runtimeError));
@@ -76,6 +82,8 @@ async function run() {
         assert.equal(results.webSocketName, "WebSocket");
         assert.equal(results.xhrOpenName, "open");
         assert.equal(results.historyPushStateName, "pushState");
+        assert.equal(results.scriptCookieValue, "dscld=true");
+        assert.equal(results.fetch.cookie, "dscld=true");
         assert.equal(results.fetch.method, "GET");
         assert.equal(results.fetch.pathname, "/runtime/api");
         assert.equal(results.fetch.query.via, "fetch");

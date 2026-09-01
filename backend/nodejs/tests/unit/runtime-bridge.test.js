@@ -31,6 +31,8 @@ test("Runtime Bridge source is standalone JavaScript without diagnostic or stora
     assert.match(RUNTIME_BRIDGE_SOURCE, /XMLHttpRequest/);
     assert.match(RUNTIME_BRIDGE_SOURCE, /EventSource/);
     assert.match(RUNTIME_BRIDGE_SOURCE, /ProxyWebWebSocket/);
+    assert.match(RUNTIME_BRIDGE_SOURCE, /installScriptCookieBridge/);
+    assert.match(RUNTIME_BRIDGE_SOURCE, /__proxyweb_sc_/);
     assert.match(RUNTIME_BRIDGE_SOURCE, /pushState/);
 });
 

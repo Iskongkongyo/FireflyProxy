@@ -13,6 +13,7 @@ test("Browser preferences parse only explicit boolean query values", () => {
         rewriteCss: "true",
         cookieJar: false,
         runtimeBridge: "false",
+        scriptCookieBridge: "true",
         webSocket: "false",
         compatHeaders: true,
         url: "https://example.test/"
@@ -21,6 +22,7 @@ test("Browser preferences parse only explicit boolean query values", () => {
         rewriteCss: true,
         cookieJar: false,
         runtimeBridge: false,
+        scriptCookieBridge: true,
         webSocket: false,
         compatHeaders: true
     });
@@ -33,11 +35,14 @@ test("Browser preferences parse only explicit boolean query values", () => {
 
 test("Browser preferences can only tighten configured capabilities", () => {
     const defaults = createDefaultConfig({ PROXYWEB_SESSION_SECRET: "test-secret" });
+    defaults.browser.scriptCookieBridge = true;
+    defaults.browser.runtimeBridge = true;
     const tightened = applyBrowserPreferences(defaults, {
         rewriteHtml: false,
         rewriteCss: false,
         cookieJar: false,
         runtimeBridge: false,
+        scriptCookieBridge: false,
         webSocket: false,
         compatHeaders: false
     });
@@ -45,6 +50,7 @@ test("Browser preferences can only tighten configured capabilities", () => {
     assert.equal(tightened.browser.rewriteCss, false);
     assert.equal(tightened.browser.cookieJar, false);
     assert.equal(tightened.browser.runtimeBridge, false);
+    assert.equal(tightened.browser.scriptCookieBridge, false);
     assert.equal(tightened.browser.webSocket, false);
     assert.equal(tightened.browser.headerPolicy, "preserve");
 
@@ -56,6 +62,7 @@ test("Browser preferences can only tighten configured capabilities", () => {
             rewriteCss: false,
             cookieJar: false,
             runtimeBridge: false,
+            scriptCookieBridge: false,
             webSocket: false,
             headerPolicy: "strict"
         }
@@ -65,6 +72,7 @@ test("Browser preferences can only tighten configured capabilities", () => {
         rewriteCss: true,
         cookieJar: true,
         runtimeBridge: true,
+        scriptCookieBridge: true,
         webSocket: true,
         compatHeaders: true
     });
@@ -72,6 +80,7 @@ test("Browser preferences can only tighten configured capabilities", () => {
     assert.equal(attemptedEnable.browser.rewriteCss, false);
     assert.equal(attemptedEnable.browser.cookieJar, false);
     assert.equal(attemptedEnable.browser.runtimeBridge, false);
+    assert.equal(attemptedEnable.browser.scriptCookieBridge, false);
     assert.equal(attemptedEnable.browser.webSocket, false);
     assert.equal(attemptedEnable.browser.headerPolicy, "strict");
 });
@@ -82,12 +91,14 @@ test("stored Browser preferences ignore malformed or unknown fields", () => {
         rewriteCss: "false",
         cookieJar: true,
         runtimeBridge: true,
+        scriptCookieBridge: true,
         webSocket: true,
         __proto__: { polluted: true }
     }), {
         rewriteHtml: false,
         cookieJar: true,
         runtimeBridge: true,
+        scriptCookieBridge: true,
         webSocket: true
     });
 });

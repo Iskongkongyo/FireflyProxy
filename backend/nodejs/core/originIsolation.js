@@ -114,7 +114,10 @@ function createOriginIsolationMiddleware({ getConfig }) {
 
             const browserRoute = req.path.startsWith("/__proxyweb/browser/");
             const runtimeRoute = req.path === "/__proxyweb/runtime.js";
-            if (!browserRoute && !runtimeRoute) throw originIsolationError("isolated-host-route");
+            const recoveredBrowserRoot = Boolean(req.proxyWebBrowserRootRecovery);
+            if (!browserRoute && !runtimeRoute && !recoveredBrowserRoot) {
+                throw originIsolationError("isolated-host-route");
+            }
             return next();
         } catch (error) {
             return next(error);

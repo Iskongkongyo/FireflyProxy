@@ -19,6 +19,27 @@ const trustProxySchema = z.union([
     z.array(z.string().min(1))
 ]);
 
+const adminPathSchema = z.string().max(128).refine(value => (
+    /^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(value)
+    && value !== "/web"
+    && !value.startsWith("/web/")
+    && value !== "/__proxyweb"
+    && !value.startsWith("/__proxyweb/")
+), "Expected an absolute non-reserved path such as /admin or /control/settings");
+
+const adminSchema = z.object({
+    enabled: z.boolean(),
+    path: adminPathSchema,
+    user: z.string().max(256).refine(
+        value => !/[\u0000-\u001f\u007f:]/.test(value),
+        "Admin username cannot contain control characters or ':'"
+    ),
+    pwd: z.string().max(1024).refine(
+        value => !/[\u0000-\u001f\u007f]/.test(value),
+        "Admin password cannot contain control characters"
+    )
+}).strict();
+
 const sessionSchema = z.object({
     secret: z.string().min(1),
     name: z.string().min(1),
@@ -76,6 +97,7 @@ const browserSchema = z.object({
     rewriteCss: z.boolean(),
     cookieJar: z.boolean(),
     runtimeBridge: z.boolean(),
+    scriptCookieBridge: z.boolean(),
     webSocket: z.boolean(),
     webSocketMaxPayloadBytes: z.number().int().positive().max(16777216),
     webSocketIdleTimeoutMs: z.number().int().positive().max(3600000),
@@ -94,6 +116,7 @@ const configSchema = z.object({
     user: z.string(),
     pwd: z.string(),
     defaultSkip: z.string(),
+    admin: adminSchema,
     session: sessionSchema,
     cors: corsSchema,
     limiter: limiterSchema,
@@ -101,6 +124,20 @@ const configSchema = z.object({
     api: apiSchema,
     browser: browserSchema
 }).strict().superRefine((value, context) => {
+    if (value.admin.enabled && (!value.admin.user || !value.admin.pwd)) {
+        context.addIssue({
+            code: "custom",
+            path: ["admin"],
+            message: "Enabled admin console requires a non-empty admin user and password"
+        });
+    }
+    if (value.browser.scriptCookieBridge && (!value.browser.runtimeBridge || !value.browser.rewriteHtml)) {
+        context.addIssue({
+            code: "custom",
+            path: ["browser", "scriptCookieBridge"],
+            message: "Script Cookie Bridge requires browser.runtimeBridge and browser.rewriteHtml"
+        });
+    }
     if (!value.browser.originIsolation.enabled) return;
     const base = new URL(value.browser.originIsolation.baseOrigin);
     const labels = base.hostname.split(".");

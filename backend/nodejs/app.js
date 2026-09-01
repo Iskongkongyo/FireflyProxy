@@ -10,8 +10,18 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const chokidar = require("chokidar");
 const session = require("express-session");
+const { saveAdminConfig } = require("./admin-console/configManager");
+const {
+    createAdminHomeMarker,
+    createAdminRouteMarker,
+    createAdminRouter
+} = require("./admin-console/router");
 const { createApiRouter } = require("./api-proxy/router");
 const { createBrowserRouter } = require("./browser-proxy/router");
+const {
+    createBrowserRootRecoveryAdapter,
+    createBrowserRootRecoveryMarker
+} = require("./browser-proxy/rootRecovery");
 const { RUNTIME_BRIDGE_PATH, createRuntimeBridgeHandler } = require("./browser-proxy/runtimeBridge");
 const { createSessionStateStore } = require("./browser-proxy/sessionStateStore");
 const { createWebSocketProxy } = require("./browser-proxy/webSocketProxy");
@@ -165,6 +175,11 @@ const configWatcher = options.watchConfig === false
 // ---------------------------
 
 app.use(createRequestLogger({ logger, requestIdFactory: options.requestIdFactory }));
+app.use(createAdminRouteMarker({ getConfig: () => config }));
+app.use(createBrowserRootRecoveryMarker({
+    getConfig: () => config,
+    originIsolationRegistry
+}));
 app.use(createOriginIsolationMiddleware({ getConfig: () => config }));
 
 // Session 配置
@@ -183,12 +198,16 @@ const sessionMiddleware = session({
 });
 app.use(sessionMiddleware);
 app.use(createSharedSessionDomainMiddleware({ getConfig: () => config }));
+app.use(createAdminHomeMarker({ getConfig: () => config }));
 
 const corsMiddleware = createCorsMiddleware({ getConfig: () => config });
 app.use((req, res, next) => {
     const browserRoute = req.path === "/__proxyweb/browser"
         || req.path.startsWith("/__proxyweb/browser/")
-        || req.path === RUNTIME_BRIDGE_PATH;
+        || req.path === RUNTIME_BRIDGE_PATH
+        || req.proxyWebAdminRoute
+        || req.proxyWebAdminHome
+        || req.proxyWebBrowserRootRecovery;
     if (browserRoute) return next();
     return corsMiddleware(req, res, next);
 });
@@ -220,6 +239,18 @@ app.use((req, res, next) => {
     next();
 });
 
+app.use(createAdminRouter({
+    getConfig: () => config,
+    saveConfig: submittedConfig => saveAdminConfig({
+        configPath: CONFIG_PATH,
+        submittedConfig,
+        currentConfig: config,
+        defaults: CONFIG_DEFAULTS,
+        env: CONFIG_ENV,
+        reloadConfig: loadConfig
+    })
+}));
+
 const proxyExecutor = createProxyExecutor({
     getConfig: () => config,
     dnsResolver,
@@ -248,6 +279,10 @@ app.use("/__proxyweb", (req, res, next) => next(new ProxyError(
     "Reserved proxy route was not found",
     { statusCode: 404 }
 )));
+app.use(createBrowserRootRecoveryAdapter({
+    proxyExecutor,
+    getConfig: () => config
+}));
 app.use(createLegacyAdapter({
     proxyExecutor,
     getConfig: () => config,

@@ -88,6 +88,13 @@
                             </div>
                             <div class="setting-row">
                                 <div>
+                                    <strong>Script Cookie Bridge</strong>
+                                    <span>按 upstream Origin 隔离 document.cookie，并同步给上游请求</span>
+                                </div>
+                                <el-switch v-model="preferences.scriptCookieBridge" />
+                            </div>
+                            <div class="setting-row">
+                                <div>
                                     <strong>WebSocket Proxy</strong>
                                     <span>映射 ws/wss，并通过受限 Upgrade 通道转发双向消息</span>
                                 </div>

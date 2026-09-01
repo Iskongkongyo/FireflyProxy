@@ -12,6 +12,7 @@ const {
 const { authenticateProxyRequest } = require("../middleware/auth");
 const { applyBrowserPreferences } = require("./preferences");
 const { getCookieHeader, storeResponseCookies } = require("./sessionStateStore");
+const { getScriptCookieHeader, mergeCookieHeaders } = require("./scriptCookieBridge");
 const {
     WEB_SOCKET_CONTEXT_PREFIX,
     fromWebSocketProxyRequest,
@@ -344,9 +345,13 @@ function createWebSocketProxy(options) {
             const sessionState = requestConfig.browser.cookieJar
                 ? await sessionStateStore.get(req.sessionID, requestConfig.session.maxAgeMs)
                 : null;
-            const cookie = sessionState
+            const jarCookie = sessionState
                 ? await getCookieHeader(sessionState, targetHttpUrl.href)
                 : "";
+            const scriptCookie = requestConfig.browser.scriptCookieBridge
+                ? getScriptCookieHeader(req.headers.cookie, targetHttpUrl.href)
+                : "";
+            const cookie = mergeCookieHeaders(jarCookie, scriptCookie);
             const upstream = new WebSocket(webSocketUrl, source.protocols, {
                 agent: target.protocol === "https:"
                     ? state.connection.httpsAgent

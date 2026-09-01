@@ -140,6 +140,9 @@ function injectRuntimeBridge($, documentUrl, baseUrl = null, options = {}) {
         .attr("src", RUNTIME_BRIDGE_PATH)
         .attr("data-proxyweb-runtime", documentUrl);
     if (baseUrl) script.attr("data-proxyweb-base-url", baseUrl);
+    if (options.scriptCookieBridge) {
+        script.attr("data-proxyweb-script-cookie-bridge", "true");
+    }
     if (options.webSocket && options.webSocketContext) {
         script.attr("data-proxyweb-websocket", "true");
         script.attr("data-proxyweb-origin-context", options.webSocketContext);
@@ -158,6 +161,7 @@ function rewriteHtml({
     documentUrl,
     mediaType = "text/html",
     runtimeBridge = false,
+    scriptCookieBridge = false,
     webSocket = false,
     webSocketContext = null,
     mapperOptions
@@ -212,6 +216,7 @@ function rewriteHtml({
         documentUrl,
         resolvedBaseUrl,
         {
+            scriptCookieBridge,
             webSocket,
             webSocketContext,
             originIsolation: mapperOptions?.originIsolation

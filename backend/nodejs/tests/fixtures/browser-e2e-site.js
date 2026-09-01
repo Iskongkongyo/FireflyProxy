@@ -113,6 +113,9 @@ function runtimePageHtml(port) {
             results.xhrOpenName = window.XMLHttpRequest.prototype.open.name;
             results.historyPushStateName = window.history.pushState.name;
 
+            document.cookie = "dscld=true; Path=/; SameSite=None; Secure";
+            results.scriptCookieValue = document.cookie;
+
             const fetchPromise = fetch("/runtime/api?via=fetch");
             results.fetchReturnsPromise = fetchPromise instanceof Promise;
             results.fetch = await (await fetchPromise).json();
@@ -210,6 +213,7 @@ async function handleRequest(request, response, port) {
             : {};
         return send(response, 200, JSON.stringify({
             body: body.toString("utf8"),
+            cookie: request.headers.cookie || "",
             host: request.headers.host,
             method: request.method,
             origin: request.headers.origin || "",

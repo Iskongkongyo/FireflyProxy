@@ -14,14 +14,21 @@ test("default configuration uses explicit millisecond fields", () => {
 
     assert.equal(config.timeoutMs, 30000);
     assert.equal(config.session.maxAgeMs, 86400000);
-    assert.equal(config.limiter.enabled, true);
+    assert.equal(config.limiter.enabled, false);
     assert.equal(config.limiter.windowMs, 60000);
     assert.equal(config.session.secret, "default-test-secret");
     assert.equal(config.api.maxRedirects, 5);
     assert.equal(config.api.connectTimeoutMs, 5000);
     assert.equal(config.api.maxRequestBodyBytes, 5242880);
     assert.equal(config.api.maxConcurrentRequests, 64);
+    assert.deepEqual(config.admin, {
+        enabled: false,
+        path: "/admin",
+        user: "",
+        pwd: ""
+    });
     assert.equal(config.browser.webSocket, false);
+    assert.equal(config.browser.scriptCookieBridge, false);
     assert.equal(config.browser.webSocketMaxPayloadBytes, 1048576);
     assert.equal(config.browser.webSocketIdleTimeoutMs, 60000);
     assert.equal(config.browser.webSocketMaxConnections, 64);
@@ -152,6 +159,24 @@ test("credentialed wildcard CORS configuration fails closed", () => {
     );
 });
 
+test("admin console requires credentials and a non-reserved absolute path when enabled", () => {
+    assert.throws(
+        () => parseConfigObject({ admin: { enabled: true, path: "/admin", user: "", pwd: "" } }),
+        error => error instanceof ConfigLoadError && /admin/.test(error.message)
+    );
+    for (const adminPath of ["/", "/web", "/web/admin", "/__proxyweb/admin", "relative", "/bad.path"]) {
+        assert.throws(
+            () => parseConfigObject({ admin: {
+                enabled: true,
+                path: adminPath,
+                user: "admin",
+                pwd: "password"
+            } }),
+            error => error instanceof ConfigLoadError && /admin\.path/.test(error.message)
+        );
+    }
+});
+
 test("hostname block rules reject legacy regular expressions", () => {
     assert.throws(
         () => parseConfigObject({
@@ -211,6 +236,23 @@ test("WebSocket resource settings are bounded by the configuration schema", () =
         error => error instanceof ConfigLoadError
             && /browser\.webSocketIdleTimeoutMs/.test(error.message)
     );
+});
+
+test("Script Cookie Bridge requires HTML Rewrite and Runtime Bridge", () => {
+    for (const browser of [
+        { scriptCookieBridge: true, runtimeBridge: false },
+        { scriptCookieBridge: true, runtimeBridge: true, rewriteHtml: false }
+    ]) {
+        assert.throws(
+            () => parseConfigObject({ browser }),
+            error => error instanceof ConfigLoadError && /browser\.scriptCookieBridge/.test(error.message)
+        );
+    }
+    assert.equal(parseConfigObject({ browser: {
+        scriptCookieBridge: true,
+        runtimeBridge: true,
+        rewriteHtml: true
+    } }).config.browser.scriptCookieBridge, true);
 });
 
 test("Origin isolation requires an owned HTTPS namespace and Secure control session", () => {
