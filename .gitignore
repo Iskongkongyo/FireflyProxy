@@ -105,6 +105,13 @@ Desktop.ini
 # 其他
 # ============================
 
+# 项目说明与本地开发备忘
+# 保留任意目录中的 README.md，其余 Markdown/TXT 仅留在本地。
+*.md
+!README.md
+!**/README.md
+*.txt
+
 # 临时文件
 *.tmp
 *.temp
