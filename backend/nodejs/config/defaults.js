@@ -13,7 +13,8 @@ function createDefaultConfig(env = process.env) {
             pwd: ""
         },
         session: {
-            secret: env.PROXYWEB_SESSION_SECRET || `change-this-secret-in-prod-${Date.now()}`,
+            secret: env.FIREFLYPROXY_SESSION_SECRET || env.PROXYWEB_SESSION_SECRET || `change-this-secret-in-prod-${Date.now()}`,
+            // Retained as a wire-compatible cookie name for existing browser sessions.
             name: "proxySession",
             resave: false,
             saveUninitialized: false,
@@ -21,6 +22,11 @@ function createDefaultConfig(env = process.env) {
             secure: false,
             httpOnly: true,
             sameSite: "lax"
+        },
+        runtimeState: {
+            backend: "memory",
+            sqlitePath: "./.fireflyproxy-state/runtime.sqlite",
+            busyTimeoutMs: 5000
         },
         cors: {
             allowedOrigins: ["http://localhost:8080"],
@@ -58,6 +64,17 @@ function createDefaultConfig(env = process.env) {
             webSocketMaxPayloadBytes: 1048576,
             webSocketIdleTimeoutMs: 60000,
             webSocketMaxConnections: 64,
+            responseTransform: {
+                enabled: false,
+                rules: []
+            },
+            publicCache: {
+                enabled: false,
+                directory: "./.fireflyproxy-cache/public",
+                ttlMs: 300000,
+                maxBytes: 268435456,
+                maxObjectBytes: 5242880
+            },
             originIsolation: {
                 enabled: false,
                 baseOrigin: "https://browse.example.com"

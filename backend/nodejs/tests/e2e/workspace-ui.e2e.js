@@ -10,6 +10,7 @@ const contentTypes = Object.freeze({
     ".css": "text/css; charset=utf-8",
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
+    ".jpg": "image/jpeg",
     ".json": "application/json; charset=utf-8",
     ".png": "image/png",
     ".svg": "image/svg+xml",
@@ -80,40 +81,42 @@ async function run() {
         await page.reload({ waitUntil: "networkidle" });
         await page.getByRole("button", { name: "工作区 · Development" }).waitFor();
 
-        await page.locator('input[placeholder="Enter API URL"]:visible').fill("{{baseUrl}}/users");
+        await page.getByLabel("API 请求地址").fill("{{baseUrl}}/users");
         await page.getByRole("button", { name: /^工作区/ }).click();
-        await page.getByRole("tab", { name: "Collections" }).click();
-        await page.getByPlaceholder("新 Folder 名称").fill("Users");
-        await page.getByRole("button", { name: "新增 Folder" }).click();
-        await page.getByPlaceholder("Saved Request 名称").fill("List users");
+        await page.getByRole("tab", { name: "请求集合" }).click();
+        await page.getByPlaceholder("新文件夹名称").fill("Users");
+        await page.getByRole("button", { name: "新增文件夹" }).click();
+        await page.getByPlaceholder("请求名称").fill("List users");
         await page.locator(".save-grid .el-select").click();
         await page.locator(".el-select-dropdown__item").filter({ hasText: /^Users$/ }).click();
         await page.locator(".save-grid").getByRole("button", { name: "保存" }).click();
         await page.getByText("当前请求已保存。").waitFor();
         await page.locator(".el-drawer__close-btn").click();
 
-        await page.locator('input[placeholder="Enter API URL"]:visible').fill("https://changed.example.test/");
+        await page.getByLabel("API 请求地址").fill("https://changed.example.test/");
         await page.getByRole("button", { name: /^工作区/ }).click();
         const savedRow = page.locator(".el-drawer .el-table__row").filter({ hasText: "List users" });
         await savedRow.getByRole("button", { name: "加载" }).click();
-        assert.equal(await page.locator('input[placeholder="Enter API URL"]:visible').inputValue(), "{{baseUrl}}/users");
+        assert.equal(await page.getByLabel("API 请求地址").inputValue(), "{{baseUrl}}/users");
 
-        await page.getByRole("button", { name: "复制API接口" }).click();
+        await page.getByRole("button", { name: "导入与导出" }).click();
+        await page.getByRole("menuitem", { name: "复制直达 API 链接" }).click();
         const directApiLink = new URL(await page.evaluate(() => window.__proxywebCopiedText));
         assert.equal(directApiLink.origin, "http://localhost:8082");
         assert.equal(directApiLink.pathname, "/__proxyweb/api");
         assert.equal(directApiLink.searchParams.get("url"), "https://api.example.test/users");
 
-        await page.getByRole("button", { name: "复制页面链接" }).click();
+        await page.getByRole("button", { name: "导入与导出" }).click();
+        await page.getByRole("menuitem", { name: "复制请求页面链接" }).click();
         const requestPageLink = new URL(await page.evaluate(() => window.__proxywebCopiedText));
         assert.equal(requestPageLink.origin, staticServer.origin);
         assert.equal(requestPageLink.pathname, "/web/");
         assert.equal(requestPageLink.searchParams.get("url"), "{{baseUrl}}/users");
 
         const stored = await page.evaluate(async () => {
-            const session = JSON.parse(sessionStorage.getItem("proxyweb.workspace.session-environments.v1") || "[]");
+            const session = JSON.parse(sessionStorage.getItem("fireflyproxy.workspace.session-environments.v1") || "[]");
             const database = await new Promise((resolve, reject) => {
-                const request = indexedDB.open("proxyweb-workspace", 1);
+                const request = indexedDB.open("fireflyproxy-workspace", 1);
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
             });

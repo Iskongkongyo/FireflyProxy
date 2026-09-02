@@ -14,6 +14,10 @@ const { rewriteCss } = require("./cssRewriter");
 const { rewriteHtml } = require("./htmlRewriter");
 const { getCookieHeader, storeResponseCookies } = require("./sessionStateStore");
 const { getScriptCookieHeader, mergeCookieHeaders } = require("./scriptCookieBridge");
+const {
+    applyScopedResponseTransform,
+    hasMatchingResponseTransform
+} = require("./scopedResponseTransform");
 const { createWebSocketOriginContext } = require("./webSocketUrl");
 const {
     isolatedProxyOrigin,
@@ -173,10 +177,19 @@ const browserPolicy = Object.freeze({
         );
     },
     filterResponseHeaders: filterBrowserResponseHeaders,
+    shouldTransformResponseText({ mediaType, targetUrl, config }) {
+        return hasMatchingResponseTransform(config, targetUrl, mediaType);
+    },
     transformResponseText({ text, mediaType, targetUrl, config }) {
-        if (mediaType === "text/html" || mediaType === "application/xhtml+xml") {
+        let transformedText = config.browser.responseTransform?.enabled
+            ? applyScopedResponseTransform({ text, mediaType, targetUrl, config }).text
+            : text;
+        if (
+            config.browser.rewriteHtml
+            && (mediaType === "text/html" || mediaType === "application/xhtml+xml")
+        ) {
             return rewriteHtml({
-                html: text,
+                html: transformedText,
                 documentUrl: targetUrl,
                 mediaType,
                 runtimeBridge: config.browser.runtimeBridge,
@@ -188,10 +201,10 @@ const browserPolicy = Object.freeze({
                 mapperOptions: mapperOptions(config)
             });
         }
-        if (mediaType === "text/css") {
-            return rewriteCss({ css: text, stylesheetUrl: targetUrl, mapperOptions: mapperOptions(config) });
+        if (config.browser.rewriteCss && mediaType === "text/css") {
+            return rewriteCss({ css: transformedText, stylesheetUrl: targetUrl, mapperOptions: mapperOptions(config) });
         }
-        return text;
+        return transformedText;
     },
     redirectOptions(config) {
         return {

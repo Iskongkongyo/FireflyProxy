@@ -9,7 +9,7 @@ const {
     validateUpgradeHeaders
 } = require("../../browser-proxy/webSocketProxy");
 
-test("WebSocket protocol parsing removes only a verified proxyWeb source marker", () => {
+test("WebSocket protocol parsing removes only a verified FireflyProxy source marker", () => {
     const marker = createWebSocketOriginContext("https://source.test", "secret");
     const parsed = parseSourceOrigin(parseProtocols(`chat, ${marker}`), "secret");
     assert.equal(parsed.origin, "https://source.test");

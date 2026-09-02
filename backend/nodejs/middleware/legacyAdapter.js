@@ -1,7 +1,7 @@
 const { markDeprecated } = require("../core/deprecation");
 const { legacyPolicy } = require("../browser-proxy/policy");
 
-const LEGACY_ROUTE_WARNING = '299 proxyWeb "legacy /?url route is deprecated; use /__proxyweb/api"';
+const LEGACY_ROUTE_WARNING = '299 FireflyProxy "legacy /?url route is deprecated; use /__proxyweb/api"';
 
 function getTargetUrl(baseUrl, requestPath) {
     const path = requestPath.replace(/^\//, "");
@@ -13,14 +13,14 @@ function readinessResponse(res) {
         <h3>Proxy Service Ready</h3>
         <p>新 API：<code>/__proxyweb/api?url=请求地址</code></p>
         <p>旧接口 <code>/?url=...</code> 仅作为兼容 Adapter 保留并已弃用。</p>
-        <p>上游认证请使用请求头 <code>X-ProxyWeb-Upstream-Authorization</code>；普通 <code>Authorization</code> 只用于代理自身鉴权。</p>
+        <p>上游认证请使用请求头 <code>X-FireflyProxy-Upstream-Authorization</code>；普通 <code>Authorization</code> 只用于代理自身鉴权。</p>
     `);
 }
 
 function createLegacyReadiness({ getConfig }) {
     return (req, res, next) => {
-        if (req.proxyWebAdminRoute) return next();
-        if (req.proxyWebBrowserRootRecovery) return next();
+        if (req.fireflyProxyAdminRoute) return next();
+        if (req.fireflyProxyBrowserRootRecovery) return next();
         if (
             req.path.startsWith("/web")
             || req.path === "/__proxyweb"

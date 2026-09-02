@@ -90,6 +90,90 @@ const apiSchema = z.object({
     maxConcurrentRequests: z.number().int().positive().max(10000)
 }).strict();
 
+const transformHostnameSchema = z.string().refine(
+    value => normalizeHostnameRule(value) !== null,
+    "Expected an exact hostname or a leading wildcard such as *.example.com"
+);
+
+const transformContentTypeSchema = z.string().max(128).refine(value => (
+    value === value.trim()
+    && value === value.toLowerCase()
+    && /^(?:[a-z0-9!#$&^_.+-]+)\/(?:[a-z0-9!#$&^_.+-]+|\*)$/.test(value)
+), "Expected a lowercase media type such as text/html or text/*");
+
+const literalReplacementSchema = z.object({
+    search: z.string().min(1).max(16384),
+    replacement: z.string().max(65536),
+    mode: z.enum(["once", "all"]).default("all"),
+    maxReplacements: z.number().int().min(1).max(10000).default(1000)
+}).strict();
+
+const responseTransformRuleSchema = z.object({
+    id: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/),
+    enabled: z.boolean().default(true),
+    hosts: z.array(transformHostnameSchema).min(1).max(32),
+    pathPrefix: z.string().min(1).max(2048).refine(value => (
+        value.startsWith("/") && !/[\u0000-\u001f\u007f?#]/.test(value)
+    ), "Expected an absolute URL path prefix without query or fragment"),
+    contentTypes: z.array(transformContentTypeSchema).min(1).max(32),
+    replacements: z.array(literalReplacementSchema).max(64).default([]),
+    appendHead: z.string().max(262144).default(""),
+    prependBody: z.string().max(262144).default("")
+}).strict().superRefine((value, context) => {
+    if (value.replacements.length === 0 && !value.appendHead && !value.prependBody) {
+        context.addIssue({
+            code: "custom",
+            path: ["replacements"],
+            message: "A response transform rule requires a replacement or HTML injection"
+        });
+    }
+});
+
+const responseTransformSchema = z.object({
+    enabled: z.boolean(),
+    rules: z.array(responseTransformRuleSchema).max(64)
+}).strict().superRefine((value, context) => {
+    const seen = new Set();
+    for (const [index, rule] of value.rules.entries()) {
+        if (seen.has(rule.id)) {
+            context.addIssue({
+                code: "custom",
+                path: ["rules", index, "id"],
+                message: "Response transform rule IDs must be unique"
+            });
+        }
+        seen.add(rule.id);
+    }
+});
+
+const publicCacheSchema = z.object({
+    enabled: z.boolean(),
+    directory: z.string().min(1).max(1024).refine(
+        value => value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value),
+        "Expected a non-empty cache directory without control characters"
+    ),
+    ttlMs: z.number().int().positive().max(2592000000),
+    maxBytes: z.number().int().positive().max(10737418240),
+    maxObjectBytes: z.number().int().positive().max(104857600)
+}).strict().superRefine((value, context) => {
+    if (value.maxObjectBytes > value.maxBytes) {
+        context.addIssue({
+            code: "custom",
+            path: ["maxObjectBytes"],
+            message: "Public cache object limit cannot exceed total cache capacity"
+        });
+    }
+});
+
+const runtimeStateSchema = z.object({
+    backend: z.enum(["memory", "sqlite"]),
+    sqlitePath: z.string().min(1).max(1024).refine(
+        value => value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value),
+        "Expected a non-empty SQLite path without control characters"
+    ),
+    busyTimeoutMs: z.number().int().min(100).max(60000)
+}).strict();
+
 const browserSchema = z.object({
     enabled: z.boolean(),
     maxRedirects: z.number().int().nonnegative().max(20),
@@ -102,6 +186,8 @@ const browserSchema = z.object({
     webSocketMaxPayloadBytes: z.number().int().positive().max(16777216),
     webSocketIdleTimeoutMs: z.number().int().positive().max(3600000),
     webSocketMaxConnections: z.number().int().positive().max(10000),
+    responseTransform: responseTransformSchema,
+    publicCache: publicCacheSchema,
     originIsolation: z.object({
         enabled: z.boolean(),
         baseOrigin: originSchema.refine(value => value !== "*", "Expected an exact HTTP(S) origin")
@@ -118,6 +204,7 @@ const configSchema = z.object({
     defaultSkip: z.string(),
     admin: adminSchema,
     session: sessionSchema,
+    runtimeState: runtimeStateSchema,
     cors: corsSchema,
     limiter: limiterSchema,
     security: securitySchema,

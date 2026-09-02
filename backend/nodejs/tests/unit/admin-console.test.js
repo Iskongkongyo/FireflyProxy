@@ -49,7 +49,7 @@ test("admin home marker applies only to an unclaimed GET homepage", () => {
     });
     const homepage = { method: "GET", path: "/", query: {}, session: {} };
     middleware(homepage, {}, () => {});
-    assert.equal(homepage.proxyWebAdminHome, true);
+    assert.equal(homepage.fireflyProxyAdminHome, true);
 
     for (const request of [
         { method: "POST", path: "/", query: {}, session: {} },
@@ -57,7 +57,7 @@ test("admin home marker applies only to an unclaimed GET homepage", () => {
         { method: "GET", path: "/", query: {}, session: { targetUrl: "https://example.test" } }
     ]) {
         middleware(request, {}, () => {});
-        assert.equal(request.proxyWebAdminHome, undefined);
+        assert.equal(request.fireflyProxyAdminHome, undefined);
     }
 });
 
@@ -67,9 +67,22 @@ test("admin page ships a standalone syntactically valid management client", () =
     const end = html.lastIndexOf("</script>");
     assert.ok(start > 0 && end > start);
     assert.doesNotThrow(() => new vm.Script(html.slice(start, end), {
-        filename: "proxyweb-admin-inline.js"
+        filename: "fireflyproxy-admin-inline.js"
     }));
     assert.doesNotMatch(html, /admin-password|session-secret/);
+    assert.match(html, /browser\.responseTransform\.enabled/);
+    assert.match(html, /browser\.responseTransform\.rules/);
+    assert.match(html, /browser\.publicCache\.enabled/);
+    assert.match(html, /browser\.publicCache\.maxObjectBytes/);
+    assert.match(html, /runtimeState\.backend/);
+    assert.match(html, /runtimeState\.sqlitePath/);
+    assert.match(html, /FireflyProxy 管理面板/);
+    assert.match(html, /开启（true）/);
+    assert.match(html, /data-unit-for/);
+    assert.match(html, /HTML 文字替换/);
+    assert.match(html, /HTML 注入/);
+    assert.match(html, /深色模式/);
+    assert.match(html, /搜索参数、说明或路径/);
 });
 
 test("admin source checks reject Browser Canonical pages even on the same proxy origin", () => {
@@ -131,7 +144,7 @@ test("admin snapshots redact every secret and null keeps raw placeholders on sav
     assert.equal(restored.admin.pwd, "raw-admin-secret");
 });
 
-test("restart detection is limited to startup-bound settings", () => {
+test("restart detection includes startup-bound state settings and the cache directory", () => {
     const current = createDefaultConfig({ PROXYWEB_SESSION_SECRET: "restart-secret" });
     const hot = structuredClone(current);
     hot.timeoutMs += 1;
@@ -141,5 +154,12 @@ test("restart detection is limited to startup-bound settings", () => {
     const restart = structuredClone(current);
     restart.port += 1;
     restart.session.maxAgeMs += 1;
-    assert.deepEqual(changedRestartFields(current, restart), ["port", "session"]);
+    restart.runtimeState.backend = "sqlite";
+    restart.browser.publicCache.directory = "./another-cache";
+    assert.deepEqual(changedRestartFields(current, restart), [
+        "port",
+        "session",
+        "runtimeState",
+        "browser.publicCache.directory"
+    ]);
 });

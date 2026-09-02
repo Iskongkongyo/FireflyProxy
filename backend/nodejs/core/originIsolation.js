@@ -28,7 +28,7 @@ function requestOrigin(request) {
     const host = request?.headers?.host;
     if (typeof host !== "string" || !host || host.includes(",")) return null;
     try {
-        const protocol = request.proxyWebExternalProtocol
+        const protocol = request.fireflyProxyExternalProtocol
             || request.protocol
             || (request.socket?.encrypted ? "https" : "http");
         return new URL(`${protocol}://${host}`).origin;
@@ -78,22 +78,34 @@ function validateTargetProxyOrigin(request, upstreamOrigin, isolation) {
 
 function createOriginIsolationRegistry(options = {}) {
     const maxEntries = options.maxEntries || 4096;
+    const ttlMs = options.ttlMs || Infinity;
+    const now = options.now || Date.now;
     const origins = new Map();
+    const prune = current => {
+        for (const [label, entry] of origins) {
+            if (entry.expiresAt <= current) origins.delete(label);
+        }
+    };
     return Object.freeze({
         register(upstreamOrigin) {
             const label = isolationLabel(upstreamOrigin);
+            const current = now();
+            prune(current);
             origins.delete(label);
-            origins.set(label, upstreamOrigin);
+            origins.set(label, { upstreamOrigin, expiresAt: current + ttlMs });
             while (origins.size > maxEntries) origins.delete(origins.keys().next().value);
             return label;
         },
         resolve(proxyOrigin, isolation) {
             const classified = classifyProxyOrigin(proxyOrigin, isolation);
             if (classified?.scope !== "isolated") return null;
-            const upstreamOrigin = origins.get(classified.label);
+            const current = now();
+            prune(current);
+            const entry = origins.get(classified.label);
+            const upstreamOrigin = entry?.upstreamOrigin;
             if (!upstreamOrigin || isolatedProxyOrigin(upstreamOrigin, isolation) !== proxyOrigin) return null;
             origins.delete(classified.label);
-            origins.set(classified.label, upstreamOrigin);
+            origins.set(classified.label, { upstreamOrigin, expiresAt: current + ttlMs });
             return upstreamOrigin;
         },
         clear() {
@@ -109,12 +121,12 @@ function createOriginIsolationMiddleware({ getConfig }) {
             if (!isolation) return next();
             const classified = classifyProxyOrigin(requestOrigin(req), isolation);
             if (!classified) throw originIsolationError("unconfigured-host");
-            req.proxyWebOriginIsolation = classified;
+            req.fireflyProxyOriginIsolation = classified;
             if (classified.scope === "base") return next();
 
             const browserRoute = req.path.startsWith("/__proxyweb/browser/");
             const runtimeRoute = req.path === "/__proxyweb/runtime.js";
-            const recoveredBrowserRoot = Boolean(req.proxyWebBrowserRootRecovery);
+            const recoveredBrowserRoot = Boolean(req.fireflyProxyBrowserRootRecovery);
             if (!browserRoute && !runtimeRoute && !recoveredBrowserRoot) {
                 throw originIsolationError("isolated-host-route");
             }

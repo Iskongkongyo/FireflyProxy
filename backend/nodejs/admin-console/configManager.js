@@ -71,8 +71,11 @@ function restoreSecretValues(candidate, rawConfig, currentConfig) {
 
 function changedRestartFields(previous, next) {
     const fields = [];
-    for (const field of ["port", "trustProxy", "session"]) {
+    for (const field of ["port", "trustProxy", "session", "runtimeState"]) {
         if (JSON.stringify(previous[field]) !== JSON.stringify(next[field])) fields.push(field);
+    }
+    if (previous.browser.publicCache.directory !== next.browser.publicCache.directory) {
+        fields.push("browser.publicCache.directory");
     }
     return fields;
 }

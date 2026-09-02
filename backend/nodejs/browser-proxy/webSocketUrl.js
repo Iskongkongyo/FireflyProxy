@@ -2,7 +2,7 @@ const { createHmac, timingSafeEqual } = require("node:crypto");
 const { BROWSER_ROUTE_PREFIX, fromProxyRequest } = require("../core/urlMapper");
 const { ERROR_CODES, ProxyError } = require("../core/errors");
 
-const WEB_SOCKET_CONTEXT_PREFIX = "proxyweb-origin";
+const WEB_SOCKET_CONTEXT_PREFIX = "fireflyproxy-origin";
 const WEB_SOCKET_PROTOCOLS = new Set(["ws:", "wss:"]);
 
 function invalidWebSocketUrl(reason) {

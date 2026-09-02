@@ -4,9 +4,10 @@ import {
 	normalizeSavedRequest
 } from './workspaceModel.mjs';
 
-export const WORKSPACE_DB_NAME = 'proxyweb-workspace';
+export const WORKSPACE_DB_NAME = 'fireflyproxy-workspace';
 export const WORKSPACE_DB_VERSION = 1;
-export const SESSION_ENVIRONMENTS_KEY = 'proxyweb.workspace.session-environments.v1';
+export const SESSION_ENVIRONMENTS_KEY = 'fireflyproxy.workspace.session-environments.v1';
+const LEGACY_SESSION_ENVIRONMENTS_KEY = 'proxyweb.workspace.session-environments.v1';
 
 function requestResult(request) {
 	return new Promise((resolve, reject) => {
@@ -52,7 +53,13 @@ export function openWorkspaceDatabase(indexedDBFactory = globalThis.indexedDB) {
 
 function safeSessionRead(storage) {
 	try {
-		const value = JSON.parse(storage?.getItem(SESSION_ENVIRONMENTS_KEY) || '[]');
+		const current = storage?.getItem(SESSION_ENVIRONMENTS_KEY);
+		const legacy = current === null ? storage?.getItem(LEGACY_SESSION_ENVIRONMENTS_KEY) : null;
+		if (legacy !== null && storage?.setItem) {
+			storage.setItem(SESSION_ENVIRONMENTS_KEY, legacy);
+			storage.removeItem?.(LEGACY_SESSION_ENVIRONMENTS_KEY);
+		}
+		const value = JSON.parse(current ?? legacy ?? '[]');
 		return Array.isArray(value) ? value.flatMap(entry => {
 			try { return [{ ...normalizeEnvironment(entry), scope: 'session' }]; } catch { return []; }
 		}) : [];

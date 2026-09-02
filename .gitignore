@@ -1,5 +1,5 @@
 # ============================
-# PostmanWeb .gitignore
+# FireflyProxy .gitignore
 # ============================
 
 # ============================
@@ -111,6 +111,10 @@ Desktop.ini
 !README.md
 !**/README.md
 *.txt
+.proxyweb-cache/
+.proxyweb-state/
+.fireflyproxy-cache/
+.fireflyproxy-state/
 
 # 临时文件
 *.tmp

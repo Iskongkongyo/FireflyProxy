@@ -6,6 +6,7 @@ const MEDIA_BODY = Buffer.allocUnsafe(2 * 1024 * 1024 + 333);
 const LARGE_DOWNLOAD_BODY = Buffer.alloc(512 * 1024 + 17, "d");
 const SSE_FIRST_DELAY_MS = 200;
 const SSE_SECOND_DELAY_MS = 200;
+const CACHE_REQUEST_COUNTS = new Map();
 for (let index = 0; index < MEDIA_BODY.length; index += 1) MEDIA_BODY[index] = (index * 31) % 251;
 
 function readBody(req) {
@@ -25,6 +26,12 @@ function sendJson(res, status, value, headers = {}) {
         ...headers
     });
     res.end(body);
+}
+
+function nextCacheCount(key) {
+    const count = (CACHE_REQUEST_COUNTS.get(key) || 0) + 1;
+    CACHE_REQUEST_COUNTS.set(key, count);
+    return count;
 }
 
 function parseRange(value, size) {
@@ -55,6 +62,97 @@ async function handleRequest(req, res) {
             method: req.method,
             query: Object.fromEntries(url.searchParams)
         }, { "x-fixture": "json" });
+    }
+
+    if (url.pathname === "/cache/stats") {
+        return sendJson(res, 200, Object.fromEntries(CACHE_REQUEST_COUNTS));
+    }
+
+    if (url.pathname === "/cache/public.js") {
+        const language = String(req.headers["accept-language"] || "none");
+        const key = `public:${language}:${url.search}`;
+        const count = nextCacheCount(key);
+        const body = Buffer.from(`window.__publicCache = ${JSON.stringify({ language, count })};`, "utf8");
+        const send = () => {
+            const headers = {
+                "content-type": "application/javascript; charset=utf-8",
+                "content-length": body.length,
+                "cache-control": "public, max-age=120",
+                vary: "Accept-Language",
+                "x-fixture-cache-count": String(count)
+            };
+            if (url.searchParams.has("age")) headers.age = url.searchParams.get("age");
+            res.writeHead(200, headers);
+            res.end(body);
+        };
+        return url.searchParams.has("delay") ? setTimeout(send, 120) : send();
+    }
+
+    if (url.pathname === "/cache/public.css") {
+        const count = nextCacheCount("css");
+        const body = Buffer.from(`.cached-${count}{background:url('/cache/public.png?case=css')}`, "utf8");
+        res.writeHead(200, {
+            "content-type": "text/css; charset=utf-8",
+            "content-length": body.length,
+            "cache-control": "public, max-age=120",
+            "x-fixture-cache-count": String(count)
+        });
+        return res.end(body);
+    }
+
+    if (url.pathname === "/cache/private.js") {
+        const count = nextCacheCount("private");
+        const body = Buffer.from(`window.__privateCache = ${count};`, "utf8");
+        res.writeHead(200, {
+            "content-type": "application/javascript; charset=utf-8",
+            "content-length": body.length,
+            "cache-control": "public, max-age=120",
+            "set-cookie": `privateSession=${count}; Path=/; HttpOnly`,
+            "x-fixture-cache-count": String(count)
+        });
+        return res.end(body);
+    }
+
+    if (url.pathname === "/cache/no-store.js") {
+        const count = nextCacheCount("no-store");
+        const body = Buffer.from(`window.__noStoreCache = ${count};`, "utf8");
+        res.writeHead(200, {
+            "content-type": "application/javascript; charset=utf-8",
+            "content-length": body.length,
+            "cache-control": "public, no-store",
+            "x-fixture-cache-count": String(count)
+        });
+        return res.end(body);
+    }
+
+    if (url.pathname === "/cache/public.html") {
+        const count = nextCacheCount("html");
+        const body = Buffer.from(`<!doctype html><html><body>${count}</body></html>`, "utf8");
+        res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "content-length": body.length,
+            "cache-control": "public, max-age=120",
+            "x-fixture-cache-count": String(count)
+        });
+        return res.end(body);
+    }
+
+    if (url.pathname === "/cache/public.png") {
+        const count = nextCacheCount(`image:${url.search}`);
+        const size = Math.min(Math.max(Number(url.searchParams.get("size")) || 64, 1), 1024 * 1024);
+        const body = Buffer.alloc(size, count % 251);
+        const headers = {
+            "content-type": "image/png",
+            "cache-control": "public, max-age=120",
+            "x-fixture-cache-count": String(count)
+        };
+        if (!url.searchParams.has("chunked")) headers["content-length"] = body.length;
+        res.writeHead(200, headers);
+        if (url.searchParams.has("chunked")) {
+            res.write(body.subarray(0, Math.floor(body.length / 2)));
+            return setTimeout(() => res.end(body.subarray(Math.floor(body.length / 2))), 20);
+        }
+        return res.end(body);
     }
 
     if (url.pathname === "/security-headers") {
@@ -95,7 +193,8 @@ async function handleRequest(req, res) {
             "content-type": "text/html; charset=utf-8",
             "content-length": body.length,
             etag: '"fixture-html-etag"',
-            "content-md5": "fixture-html-md5"
+            "content-md5": "fixture-html-md5",
+            "last-modified": "Mon, 01 Jan 2024 00:00:00 GMT"
         });
         return res.end(body);
     }

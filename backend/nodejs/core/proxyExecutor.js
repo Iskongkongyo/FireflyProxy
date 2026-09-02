@@ -1,4 +1,4 @@
-const { pipeline } = require("node:stream");
+const { pipeline, Readable } = require("node:stream");
 const axios = require("axios");
 const { markDeprecated } = require("./deprecation");
 const { exposeCorsHeaders } = require("../middleware/cors");
@@ -13,7 +13,7 @@ const { requestWithRedirects } = require("./safeRedirect");
 const { validateTarget } = require("./targetValidator");
 
 const VALID_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]);
-const HEADERS_QUERY_WARNING = '299 proxyWeb "headers query parameter is deprecated; send upstream Authorization with X-ProxyWeb-Upstream-Authorization"';
+const HEADERS_QUERY_WARNING = '299 FireflyProxy "headers query parameter is deprecated; send upstream Authorization with X-FireflyProxy-Upstream-Authorization"';
 
 function validatePolicy(policy) {
     if (
@@ -34,6 +34,7 @@ function createProxyExecutor(options) {
         dnsResolver,
         connectionFactory,
         logger,
+        publicStaticCache,
         dispatch = request => axios(request)
     } = options;
     const concurrencyGate = createConcurrencyGate();
@@ -79,6 +80,62 @@ function createProxyExecutor(options) {
         });
         res.once("finish", requestState.finalize);
         let effectiveRedirectOptions;
+        let cacheFlight;
+
+        const completeCacheFlight = result => {
+            cacheFlight?.complete(result);
+            cacheFlight = null;
+        };
+
+        const logCache = (event, reason) => {
+            logger.info(`[PublicCache] ${event}`, {
+                requestId: req.id,
+                reason
+            });
+        };
+
+        const sendCachedResponse = (cached, cacheRequest) => {
+            const prepared = {
+                headers: cached.metadata.headers,
+                classification: cached.metadata.classification,
+                transformed: false,
+                preserveContentLength: true
+            };
+            const responseHeaders = applyStreamingHeaders(policy.filterResponseHeaders(
+                prepared.headers,
+                requestConfig,
+                {
+                    ...prepared,
+                    request: req,
+                    originIsolationRegistry: options.originIsolationRegistry,
+                    status: cached.metadata.status,
+                    targetUrl: target.url
+                }
+            ), prepared.classification);
+            responseHeaders["content-length"] = String(cached.body.length);
+            responseHeaders.age = String(
+                Math.max(0, cached.metadata.initialAgeSeconds || 0)
+                + Math.max(0, Math.floor((Date.now() - cached.metadata.createdAt) / 1000))
+            );
+            responseHeaders["x-proxyweb-cache"] = "HIT";
+            for (const [key, value] of Object.entries(responseHeaders)) res.setHeader(key, value);
+            res.status(cached.metadata.status);
+            flushStreamingHeaders(res, prepared.classification);
+            logCache("Hit", "fresh");
+            if (cacheRequest.method === "HEAD") {
+                res.end();
+                return;
+            }
+            pipeline(Readable.from([cached.body]), res, error => {
+                requestState.finalize();
+                if (error && !controller.signal.aborted) {
+                    logger.warn("[PublicCache] Cached response stream interrupted", {
+                        requestId: req.id,
+                        error
+                    });
+                }
+            });
+        };
 
         try {
             logger.info("[Proxy] Dispatching request", {
@@ -110,6 +167,32 @@ function createProxyExecutor(options) {
                 policyContext
             );
             logger.info("[Proxy] Method selected", { requestId: req.id, mode: policy.mode, method });
+
+            const cacheRequest = publicStaticCache?.prepareRequest({
+                mode: policy.mode,
+                method,
+                targetUrl: target.url,
+                headers,
+                config: requestConfig
+            });
+            if (requestConfig.browser?.publicCache?.enabled && cacheRequest?.eligible) {
+                while (true) {
+                    const cached = await publicStaticCache.lookup(cacheRequest, requestConfig);
+                    if (cached) {
+                        sendCachedResponse(cached, cacheRequest);
+                        return;
+                    }
+                    const acquired = publicStaticCache.acquire(cacheRequest.baseHash);
+                    if (acquired.leader) {
+                        cacheFlight = acquired;
+                        break;
+                    }
+                    logCache("Wait", "request-collapse");
+                    await acquired.promise;
+                }
+            } else if (requestConfig.browser?.publicCache?.enabled && policy.mode === "browser") {
+                logCache("Bypass", cacheRequest?.reason || "unavailable");
+            }
 
             const requestBody = hasRequestBody
                 ? createLimitedRequestBody(req, requestConfig.api.maxRequestBodyBytes)
@@ -182,7 +265,7 @@ function createProxyExecutor(options) {
                 options.onRedirect(finalTarget, target);
             }
 
-            const preparedResponse = await prepareResponse({
+            let preparedResponse = await prepareResponse({
                 body: response.data,
                 headers: response.headers,
                 method,
@@ -191,9 +274,39 @@ function createProxyExecutor(options) {
                 config: requestConfig,
                 targetUrl: finalTarget.url,
                 transformText: policy.transformResponseText,
+                shouldTransformText: policy.shouldTransformResponseText,
                 logger,
                 requestId: req.id
             });
+            const cacheResponse = publicStaticCache?.evaluateResponse({
+                request: cacheRequest,
+                status: response.status,
+                headers: preparedResponse.headers,
+                classification: preparedResponse.classification,
+                config: requestConfig
+            });
+            if (cacheFlight && cacheResponse?.eligible) {
+                preparedResponse = {
+                    ...preparedResponse,
+                    body: publicStaticCache.capture({
+                        body: preparedResponse.body,
+                        request: cacheRequest,
+                        response: {
+                            ...cacheResponse,
+                            headers: preparedResponse.headers,
+                            classification: preparedResponse.classification
+                        },
+                        config: requestConfig,
+                        onComplete(result) {
+                            logCache(result.stored ? "Store" : "Bypass", result.reason);
+                            completeCacheFlight(result);
+                        }
+                    })
+                };
+            } else if (cacheFlight) {
+                logCache("Bypass", cacheResponse?.reason || "response");
+                completeCacheFlight(cacheResponse);
+            }
             const controlHeaders = new Map(
                 ["deprecation", "warning", "link"]
                     .filter(name => res.hasHeader(name))
@@ -219,6 +332,9 @@ function createProxyExecutor(options) {
                 }));
             }
             for (const [key, value] of Object.entries(responseHeaders)) res.setHeader(key, value);
+            if (requestConfig.browser?.publicCache?.enabled && policy.mode === "browser") {
+                res.setHeader("x-proxyweb-cache", cacheResponse?.eligible ? "MISS" : "BYPASS");
+            }
             for (const [key, value] of controlHeaders) res.setHeader(key, value);
             if (policy.exposeCors) {
                 exposeCorsHeaders(req, res, [
@@ -244,6 +360,7 @@ function createProxyExecutor(options) {
                 }
             });
         } catch (error) {
+            completeCacheFlight({ stored: false, reason: "request-error" });
             if (
                 typeof policy.responseDiagnostics === "function"
                 && error.redirectDiagnostics

@@ -1,26 +1,27 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import Index from '../components/Index.vue';
-import History from '../components/History.vue';
-import BrowserProxy from '../components/BrowserProxy.vue';
+
+const History = () => import(/* webpackChunkName: "history" */ '../components/History.vue');
+const BrowserProxy = () => import(/* webpackChunkName: "browser-proxy" */ '../components/BrowserProxy.vue');
 
 const routes = [
   {
     path: '/',
     name: 'RequestForm',
     component: Index,
-    meta: { title: '在线代理网站' }
+    meta: { title: 'API 请求 · FireflyProxy' }
   },
   {
     path: '/browser',
     name: 'BrowserProxy',
     component: BrowserProxy,
-    meta: { title: '网页代理' }
+    meta: { title: '网页代理 · FireflyProxy' }
   },
   {
     path: '/history',
     name: 'HistoryRecord',
     component: History,
-    meta: { title: '请求历史记录' }
+    meta: { title: '请求历史 · FireflyProxy' }
   }
 ];
 
@@ -28,11 +29,14 @@ const router = createRouter({
   // 设置基础路径为 /web，匹配后端静态资源挂载点
   history: createWebHistory('/web/'),
   routes,
+  scrollBehavior() {
+    return { top: 0 };
+  }
 });
 
 // 路由守卫设置标题
 router.beforeEach((to, from, next) => {
-  document.title = to.meta.title || '在线代理网站';
+  document.title = to.meta.title || 'FireflyProxy';
   next();
 });
 

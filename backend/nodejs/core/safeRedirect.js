@@ -14,7 +14,7 @@ const ENTITY_HEADERS = new Set([
     "digest",
     "transfer-encoding"
 ]);
-const SENSITIVE_REDIRECT_HEADER = /^(?:authorization|cookie2?|proxy-authorization|x-proxyweb-upstream-authorization|.*(?:token|password|passwd|secret|api[-_]?key).*)$/i;
+const SENSITIVE_REDIRECT_HEADER = /^(?:authorization|cookie2?|proxy-authorization|x-(?:fireflyproxy|proxyweb)-upstream-authorization|.*(?:token|password|passwd|secret|api[-_]?key).*)$/i;
 
 function redirectMethod(status, method) {
     const normalized = String(method || "GET").toUpperCase();

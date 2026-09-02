@@ -13,6 +13,7 @@ const ALLOWED_METHODS = Object.freeze([
 const DEFAULT_ALLOWED_HEADERS = Object.freeze([
     "content-type",
     "authorization",
+    "x-fireflyproxy-upstream-authorization",
     "x-proxyweb-upstream-authorization"
 ]);
 

@@ -31,8 +31,8 @@ test("enabled Runtime Bridge injects before upstream scripts and is served with 
         const scripts = $("head script");
 
         assert.equal(scripts.first().attr("src"), "/__proxyweb/runtime.js");
-        assert.equal(scripts.first().attr("data-proxyweb-runtime"), `${fixture.origin}/html-relative`);
-        assert.equal($("script[data-proxyweb-runtime]").length, 1);
+        assert.equal(scripts.first().attr("data-fireflyproxy-runtime"), `${fixture.origin}/html-relative`);
+        assert.equal($("script[data-fireflyproxy-runtime]").length, 1);
 
         const runtime = await fetch(new URL("/__proxyweb/runtime.js", proxy.origin));
         assert.equal(runtime.status, 200);
@@ -53,11 +53,11 @@ test("effective WebSocket support injects only a signed source context marker", 
     try {
         const response = await fetch(new URL(toProxyUrl(`${fixture.origin}/html-relative`), proxy.origin));
         const $ = cheerio.load(await response.text());
-        const script = $("script[data-proxyweb-runtime]").first();
-        assert.equal(script.attr("data-proxyweb-websocket"), "true");
+        const script = $("script[data-fireflyproxy-runtime]").first();
+        assert.equal(script.attr("data-fireflyproxy-websocket"), "true");
         assert.match(
-            script.attr("data-proxyweb-origin-context"),
-            /^proxyweb-origin\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+            script.attr("data-fireflyproxy-origin-context"),
+            /^fireflyproxy-origin\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
         );
     } finally {
         await proxy.close();
@@ -80,7 +80,7 @@ test("Runtime Bridge preference can disable injection and script delivery but ca
                 headers: { cookie }
             });
             const $ = cheerio.load(await page.text());
-            assert.equal($("script[data-proxyweb-runtime]").length, 0);
+            assert.equal($("script[data-fireflyproxy-runtime]").length, 0);
 
             const runtime = await fetch(new URL("/__proxyweb/runtime.js", proxy.origin), {
                 headers: { cookie }
@@ -99,7 +99,7 @@ test("disabling HTML Rewrite also disables the effective Runtime Bridge", async 
     });
     try {
         const page = await fetch(new URL(toProxyUrl(`${fixture.origin}/html-relative`), proxy.origin));
-        assert.doesNotMatch(await page.text(), /data-proxyweb-runtime/);
+        assert.doesNotMatch(await page.text(), /data-fireflyproxy-runtime/);
         const runtime = await fetch(new URL("/__proxyweb/runtime.js", proxy.origin));
         assert.equal(runtime.status, 404);
     } finally {

@@ -1,90 +1,77 @@
-# proxyWeb
+<div align="center">
+  <img src="./vue-request-app/public/favicon.jpg" width="128" alt="FireflyProxy 图标">
+  <h1>FireflyProxy</h1>
+  <p><strong>中文 API 调试与安全网页代理工作台</strong></p>
+  <p>在浏览器中组合 HTTP 请求、检查响应，并通过受控的 Browser Proxy 调试网页。</p>
 
-轻量的浏览器 API 调试界面与 Node.js HTTP 代理实验项目。当前版本可用于本地开发和受信网络中的 API 调试；vNext 计划在此基础上补齐安全边界、测试体系和 Browser Proxy 能力。
+  <p>
+    <img src="https://img.shields.io/badge/Vue-3.2-42b883?logo=vuedotjs&logoColor=white" alt="Vue 3.2">
+    <img src="https://img.shields.io/badge/Element_Plus-2.9-409eff" alt="Element Plus 2.9">
+    <img src="https://img.shields.io/badge/Node.js-%E2%89%A522.16-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22.16+">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
+  </p>
 
-![界面预览](./vue-request-app/review.png)
+  <p>
+    <a href="#-主要能力">主要能力</a> ·
+    <a href="#-快速开始">快速开始</a> ·
+    <a href="#%EF%B8%8F-配置说明">配置说明</a> ·
+    <a href="#-安全边界">安全边界</a> ·
+    <a href="#-测试与验收">测试与验收</a>
+  </p>
+</div>
+
+---
+
+FireflyProxy 是一个面向本地开发与受信网络的浏览器代理调试项目，由 Vue 3 前端和 Node.js 后端组成。它同时提供 API 请求工作台、网页代理入口、请求历史、环境变量与管理控制台，并将 URL、DNS、SSRF、重定向和连接安全校验集中在后端处理。
 
 > [!WARNING]
-> P0 网络安全、P1 Browser Core、P2 Runtime/WebSocket/Origin Isolation 与 P3 本地工作区门禁已通过，但进程内 Session Store、旧查询兼容面和可选隔离部署仍有限制，**不要直接暴露为生产级开放代理**。完整问题和改造顺序见 [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)。
+> FireflyProxy 不是可直接暴露到公网的开放代理。生产部署前必须配置身份认证、HTTPS、可信 CORS Origin、独立 Browser Origin、强 Session Secret，并理解下文列出的安全边界。
 
-## 当前能力
+## ✨ 主要能力
 
-| 模块 | 已实现 |
+| 模块 | 能力 |
 | --- | --- |
-| API 请求 | GET、POST、PUT、DELETE、PATCH、HEAD；可逐行启停的查询参数与自定义请求头；逐请求 Redirect 收紧控制；安全 cURL Import/Export |
-| 请求体 | none、Raw、JSON、URL 编码表单、逐字段 multipart 文本/文件 |
-| 上游认证 | Basic Auth、Bearer Token |
-| 响应 | HTTP Status、Final URL、Redirect Chain、可靠 total、实际数据大小、Content-Type、JSON/文本格式化、响应头、图片/音视频预览、文件下载 |
-| 本地功能 | `{{name}}` Environment、Session/持久化变量、IndexedDB Folder/Saved Request、API/网页代理模式切换、GET 直达 API 链接、请求页面分享链接与本地历史 |
-| 后端 | API/Browser 分路由、Canonical URL、HTML/CSS/Location 重写、Session Cookie Jar、Header 映射、Runtime/WebSocket、可选 Origin Isolation、SSE 提前 flush、Range/Media 元数据保持、受限响应变换、流式转发、共享安全网络内核与限流 |
+| API 请求 | GET、POST、PUT、DELETE、PATCH、HEAD；查询参数、请求头、请求体、认证与重定向控制 |
+| 请求体 | JSON、原始文本、URL 编码表单、multipart 文本与文件 |
+| 响应检查 | HTTP 状态、总耗时、响应大小、Content-Type、最终 URL、重定向链及媒体/文件预览 |
+| 网页代理 | HTML/CSS/Location 重写、Cookie Jar、Runtime Bridge、WebSocket 与可选 Origin Isolation |
+| 本地工作区 | 环境变量、Session/持久化作用域、文件夹、已保存请求与敏感变量提醒 |
+| 请求历史 | 本地搜索、复制、重新打开、损坏数据容错和移动端卡片视图 |
+| 管理控制台 | 中文设置说明、配置搜索、明暗主题、单位换算、规则模板、原子写入和热加载 |
+| 安全内核 | HTTP(S) 限制、URL credentials 拒绝、DNS 全量校验、SSRF 防护、连接 Pinning、并发与大小上限 |
 
-当前 Browser Route 与独立 `/web/browser` 页面已支持常见 HTML 属性、`srcset`、`<base>`、Meta Refresh、内联/独立 CSS、安全 Location、Session Cookie Jar、Origin/Referer 映射和可折叠兼容设置；静态/SSR、跨 CDN、表单、302 登录、Cookie、Range、下载、SSE、常见 SPA 动态请求和 WebSocket 已进入真实浏览器门禁。高级 Worker/Service Worker 兼容仍属于后续 vNext 阶段。
+### 前端体验
 
-## 目录结构
+- API 请求、网页代理和请求历史采用统一的中文响应式界面。
+- 390px 移动视口下无页面级横向溢出。
+- `Ctrl / ⌘ + Enter` 可快速发送 API 请求。
+- 网页代理兼容能力均提供用途说明，并明确不可信脚本与来源隔离风险。
+- 历史记录和工作区只保存在当前浏览器，不会自动上传或跨设备同步。
 
-```text
-proxyWeb/
-├── backend/
-│   ├── main.json.example        # 后端配置模板
-│   ├── echo.js                  # 独立回显服务（开发辅助）
-│   └── nodejs/
-│       ├── main.js              # 进程启动与关闭入口
-│       ├── app.js               # Express App Factory 与模式路由装配
-│       ├── api-proxy/           # API Route 与响应策略
-│       ├── browser-proxy/       # Browser Route、Rewrite、Cookie 与偏好策略
-│       ├── config/              # 默认值、Schema 与配置加载
-│       ├── core/                # 安全网络内核、UrlMapper、日志、Header 与错误模块
-│       ├── middleware/          # 请求日志等 Express 中间件
-│       ├── main.json            # 当前本地配置
-│       └── README.md            # 后端说明
-├── vue-request-app/             # Vue 3 前端
-│   ├── src/
-│   ├── package.json
-│   └── README.md                # 前端说明
-├── docs/
-│   ├── p0-verification-matrix.md        # P0 安全门禁证据
-│   ├── p1-verification-matrix.md        # P1 Browser Core E2E 证据
-│   ├── p2-runtime-verification-matrix.md # P2 Runtime/WebSocket/隔离证据
-│   ├── origin-isolation-threat-model.md # Origin Isolation 部署与威胁模型
-│   ├── request-editor-curl-contract.md  # API 编辑器与 cURL 安全契约
-│   ├── api-response-diagnostics-contract.md # Redirect 控制与响应诊断契约
-│   ├── workspace-environment-collections-contract.md # 本地工作区与 Secret 边界
-│   └── vnext-implementation-roadmap.md  # vNext 分阶段实施路线图
-├── scripts/                             # P0–P3 一键门禁
-└── proxyWeb vNext 开发计划与技术方案.md
-```
+## 🚀 快速开始
 
-## 快速开始
+### 环境要求
 
-建议使用 Node.js 22+。前后端均已提交依赖锁文件，使用 `npm ci` 可复现安装。
+- Node.js `22.16.0+`
+- npm（随 Node.js 安装）
 
 ### 1. 启动后端
-
-在仓库根目录执行：
 
 ```powershell
 Set-Location .\backend\nodejs
 npm ci
+Copy-Item ..\main.json.example .\main.json
+$env:FIREFLYPROXY_SESSION_SECRET = "请替换为足够长的随机值"
 npm start
 ```
 
-后端从**当前工作目录**读取 `./main.json`，因此应在 `backend/nodejs/` 内启动。若该文件不存在，可先把 `../main.json.example` 复制为 `./main.json`，并至少修改 `session.secret`。
+默认监听地址：`http://localhost:8082`。
 
-默认监听 `http://localhost:8082`。
-
-可选 Admin Console 默认关闭。首次在 `main.json` 配置非空的 `admin.user`/`admin.pwd` 并设 `admin.enabled: true` 后，可访问 `http://localhost:8082/admin`；`admin.path` 可改为其他非保留绝对路径。若 `defaultSkip` 为空，访问后端 `/` 会自动进入管理页。页面可结构化编辑全部当前配置、遮蔽已有密码/Session Secret、校验后原子写入并热加载；完整安全契约见 [Admin Console 文档](./docs/admin-console-contract.md)。
-
-当前推荐的 API 入口是：
-
-```text
-ANY /__proxyweb/api?url=<percent-encoded-target>&followRedirects=<true|false>&maxRedirects=<0..20>
-```
-
-旧 `/?url=...` 仅作为兼容 Adapter 保留，并返回 `Deprecation`、`Warning` 与后继路由 `Link`。`/__proxyweb/browser?url=...` 是 Browser Mode 的独立入口，默认由 `browser.enabled: false` 关闭；开启后会先校验目标，再 302 到 `/__proxyweb/browser/<originToken>/...` Canonical URL。Token 只标识 origin，每次请求仍执行完整安全校验；HTML 中可映射的静态 URL 会改写到对应 Canonical 路由。显式启用 `browser.runtimeBridge` 后，还会映射常见脚本动态请求；再开启 `browser.webSocket` 可安全代理 ws/wss Upgrade。
+> `main.json` 包含认证和 Session 配置，已被 `.gitignore` 排除，请勿提交真实密码或 Secret。
 
 ### 2. 启动前端
 
-另开一个终端，在仓库根目录执行：
+另开一个终端：
 
 ```powershell
 Set-Location .\vue-request-app
@@ -92,13 +79,9 @@ npm ci
 npm run serve
 ```
 
-由于前端的 `publicPath` 和路由基址都是 `/web/`，开发地址是：
+开发地址：`http://localhost:8080/web/`。
 
-```text
-http://localhost:8080/web/
-```
-
-前端的 API 与 Browser Proxy 默认都请求 `http://localhost:8082`。推荐分别设置 `VUE_APP_PROXY_API_URL` 和 `VUE_APP_PROXY_BROWSE_URL`；未配置时均回退到旧的 `VUE_APP_PROXY_URL`，再回退到本地默认值。这些都是 Vue CLI 的**构建时变量**：
+前端默认连接 `http://localhost:8082`，也可以在启动或构建前分别指定：
 
 ```powershell
 $env:VUE_APP_PROXY_API_URL = "https://api.proxy.example.com"
@@ -113,131 +96,108 @@ Set-Location .\vue-request-app
 npm run build
 ```
 
-产物位于 `vue-request-app/dist/`。后端只会从其工作目录下的 `webPro/` 提供静态文件，因此若希望由 Node.js 一并托管前端，需要把 `dist/` 的内容部署到 `backend/nodejs/webPro/`，然后访问后端的 `/web/`。
+构建产物位于 `vue-request-app/dist/`。后端从 `backend/nodejs/webPro/` 提供静态前端，如需由同一 Node.js 进程托管，请将 `dist/` 内容部署到该目录。
 
-## 配置
+## ⚙️ 配置说明
 
-以 [backend/main.json.example](./backend/main.json.example) 为当前配置格式参考。常用字段如下：
+配置模板位于 [`backend/main.json.example`](./backend/main.json.example)，后端从其当前工作目录读取 `main.json`。
 
-| 字段 | 单位/含义 | 是否可热加载 |
-| --- | --- | --- |
-| `port` | 监听端口 | 否，需重启 |
-| `trustProxy` | Express 信任代理策略；模板默认 `false` | 否，需重启 |
-| `timeoutMs` | 上游请求超时，毫秒 | 是 |
-| `user` / `pwd` | 代理自身 Basic Auth；两者均非空时启用 | 是 |
-| `admin.enabled` | 是否开放独立配置管理页面；默认关闭 | 是 |
-| `admin.path` | 管理页面路径，例如 `/admin` 或 `/control/settings`；不能使用 `/web`、`/__proxyweb` | 是 |
-| `admin.user` / `admin.pwd` | 管理页面独立 Basic Auth；启用时必须均非空 | 是 |
-| `cors.allowedOrigins` | 允许的浏览器 Origin 数组 | 是 |
-| `cors.allowCredentials` | 是否允许浏览器携带凭据；为 `true` 时禁止 `*` | 是 |
-| `session.secret` | Session 签名密钥 | 否，需重启 |
-| `session.maxAgeMs` | Cookie 生命周期，毫秒 | 否，需重启 |
-| `limiter.enabled` | 是否启用按客户端 IP 的窗口限流；默认开启 | 是 |
-| `limiter.windowMs` | 限流窗口，毫秒 | 是 |
-| `limiter.max` | 每个窗口的请求数 | 是 |
-| `security.blockedHostnames` | 精确主机或 `*.example.com` 子域规则；不接受正则 | 是 |
-| `security.maxRewriteBytes` | Browser HTML/CSS 解压后的最大变换字节数，超限返回 413 | 是 |
-| `api.followRedirects` | 是否启用 proxyWeb 安全逐跳循环 | 是 |
-| `api.maxRedirects` | 安全逐跳循环的最大次数 | 是 |
-| `api.connectTimeoutMs` | 每一跳 TCP/TLS 连接超时，毫秒 | 是 |
-| `api.maxRequestBodyBytes` | 非 GET/HEAD 请求体与 Redirect 重放缓存上限，字节 | 是 |
-| `api.maxConcurrentRequests` | 同时执行的代理请求上限，超出返回 503 | 是 |
-| `browser.enabled` | 是否开放 Browser Route；默认关闭 | 是 |
-| `browser.maxRedirects` | 兼容保留；Browser 3xx 已改为验证并返回 Canonical Location，不在服务端逐跳跟随 | 是 |
-| `browser.cookieJar` | 是否在服务端 Session 内维护 upstream Cookie；默认开启 | 是 |
-| `browser.headerPolicy` | `compat` 移除不兼容的嵌入/跨源策略头，`preserve` 保留；`strict` 为保留策略兼容值 | 是 |
-| `browser.rewriteHtml` | 是否启用 HTML 属性、`srcset`、Meta Refresh 和内联 style URL 重写 | 是 |
-| `browser.rewriteCss` | 是否启用 CSS `url()` 与 `@import` AST 重写 | 是 |
-| `browser.runtimeBridge` | 是否注入 Runtime Bridge；默认关闭，且依赖 `rewriteHtml` | 是 |
-| `browser.scriptCookieBridge` | 是否按 upstream Origin 映射脚本 `document.cookie`；默认关闭，依赖 Runtime Bridge | 是 |
-| `browser.webSocket` | 是否开放 Canonical ws/wss Upgrade 并启用 Runtime WebSocket 映射；默认关闭 | 是 |
-| `browser.webSocketMaxPayloadBytes` | 单条 WebSocket 消息上限，默认 1 MiB | 新连接 |
-| `browser.webSocketIdleTimeoutMs` | WebSocket 空闲关闭时间，默认 60 秒 | 新连接 |
-| `browser.webSocketMaxConnections` | 进行中握手与已建立连接总上限，默认 64 | 是 |
-| `browser.originIsolation.enabled` | 是否为每个 upstream 使用独立 proxy 子域；默认关闭 | 否，部署变更需重启 |
-| `browser.originIsolation.baseOrigin` | 专用 Browser DNS namespace，例如 `https://browse.example.com` | 否，需同步 DNS/TLS/Session 并重启 |
+| 配置 | 说明 |
+| --- | --- |
+| `port` | 后端监听端口，修改后需重启 |
+| `user` / `pwd` | 代理自身 Basic Auth；两者均非空时启用 |
+| `admin.*` | 管理控制台开关、路径与独立认证 |
+| `session.*` | Session Cookie 名称、生命周期与安全属性 |
+| `cors.allowedOrigins` | 允许访问 API 的浏览器 Origin |
+| `security.blockedHostnames` | 精确主机或 `*.example.com` 子域阻止规则 |
+| `api.*` | API 重定向、连接超时、请求体与并发限制 |
+| `browser.*` | 网页代理、重写、Cookie、Runtime、WebSocket 与来源隔离 |
+| `browser.responseTransform.*` | 按 Host、路径和 MIME 限定的内容替换规则 |
+| `browser.publicCache.*` | 匿名公开静态资源缓存；默认关闭 |
+| `runtimeState.*` | `memory` 或单机多进程共享的 `sqlite` 状态后端 |
 
-Browser 页面会为脚本、样式、图片和字体产生大量子请求。仅在本地或受信网络中，可在 `backend/nodejs/main.json` 设置 `"limiter": { "enabled": false, ... }` 后热加载关闭 429 窗口限流；公网或多人共享部署建议保留限流并调高 `max`。该开关不会关闭 SSRF、请求体大小、并发数、连接数或超时门禁。
+管理控制台默认关闭。设置 `admin.enabled: true` 并配置独立的 `admin.user`、`admin.pwd` 后，可访问默认地址 `http://localhost:8082/admin`。
 
-旧配置仍会迁移：`timeout` 按秒转换为 `timeoutMs`，`cookie_max_age` 按秒转换为 `session.maxAgeMs`，`session.cookie.maxAge` 保持毫秒，`accessOrigin`、`blacklist` 和 `max_redirects` 分别迁移到 `cors.allowedOrigins`、`security.blockedHostnames` 与 `api.maxRedirects`。旧 `accessOrigin: "*"` 会以 `allowCredentials: false` 迁移；旧黑名单值按精确主机或前导通配子域规则校验，不再作为正则执行。迁移会记录弃用警告，建议按模板尽快更新。
+## 🔌 接口与兼容性
 
-## 当前安全边界
+当前 API 与 Browser Route：
 
-- Admin Console 与代理认证分离，密码和 `session.secret` 不通过读取 API 返回；保存要求当前管理页面 Referer、同源 Origin 和专用 Header，并使用 `no-store`、CSP、COOP/CORP、frame deny 与独立登录尝试限流。即使如此，生产仍应启用 Browser Origin Isolation 或把不可信 Browser Proxy 与管理面部署到不同站点，详见 [管理控制面契约](./docs/admin-console-contract.md)。
-- URL Validator 已拒绝非 HTTP(S) 协议、URL credentials、非法编码、localhost，以及 loopback/private/link-local/unspecified/multicast/reserved 等字面 IPv4/IPv6。域名使用 `lookup(all: true, verbatim: true)` 校验全部 A/AAAA，任一结果非公网即整体拒绝；请求级 HTTP/HTTPS Agent 的 `lookup` 只能返回该验证集合，并保持原 hostname、Host、SNI 和严格 TLS 证书校验。
-- Axios 自身固定 `maxRedirects: 0`；启用 `api.followRedirects` 时由 proxyWeb 处理 301/302/303/307/308，每一跳重新执行 URL、DNS 与 Pinning 校验。API 请求的 `followRedirects`/`maxRedirects` 只能关闭或收紧全局策略。跨域跳转会删除认证、Cookie、Token、Secret 与 API Key 类 Header，循环或超限返回 508；Final URL 与有序跳转链通过有界、防上游伪造的诊断头返回。
-- 代理请求同时受 `timeoutMs`、`api.connectTimeoutMs`、`api.maxRequestBodyBytes` 与 `api.maxConcurrentRequests` 约束；客户端断开会取消上游，异常响应流由管道边界回收。API 响应仍保持流式转发，不受 Rewrite 缓冲上限影响。
-- Browser Mode 只有 HTML/CSS 进入 `maxRewriteBytes` 限制的解压、Charset 解码、UTF-8 输出与重新压缩流程；gzip/deflate/br 均按解压后大小计数。HTML 使用 Parser 重写 allowlist 属性、`srcset`、`<base>`、Meta Refresh 与内联 CSS，独立 CSS 使用 AST 重写 `url()`/`@import`；相对 CSS URL 基于样式表自身地址。Browser 301/302/303/307/308 会先验证 Location，再返回 Canonical Location 交由浏览器处理，不在服务端吞掉跳转。实际子请求与跳转目标仍执行完整 SSRF/DNS/Pinning 校验。SSE 会提前发送响应头并携带 `X-Accel-Buffering: no`；206、附件、`no-transform`、音视频、PDF 和二进制保持流式，未变换响应保留合法 Content-Length。
-- 页面运行时新增的 `/path` 链接、表单或导航若逃离 Canonical Route，服务端只在 `Referer` 可严格反解为当前 Browser Canonical 页面时恢复其 upstream origin，并在完整 URL/SSRF/DNS 校验后用 `307 Cache-Control: no-store` 跳回 Canonical URL；`/__proxyweb/*`、`/web/*`、显式 `?url=`、双斜杠、外部/缺失 Referer 均不会被猜测或接管。目标站使用 `noreferrer`/`no-referrer` 时无法安全推断来源，应启用 Runtime Bridge 或由目标页面提供完整 Canonical 链接。
-- Browser Cookie Jar 仅由服务端按 proxyWeb Session 保存，并按 upstream Domain、Path、Secure 与 Expiry 匹配；入站 proxyWeb Cookie 不会直接转发，上游 `Set-Cookie` 也不会设置到 proxyWeb 域名。Canonical Referer 会映射回完整 upstream URL，Origin 只取已验证的来源页面 origin；来源未知时使用 `null`，不会把跨站请求伪装成与目标同源。
-- Runtime Bridge 默认关闭；开启后在 upstream 脚本前注入 `no-store` 脚本，映射 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History URL，并保持 Promise、prototype、this 和错误行为。Bridge 不读取或记录 Body/Token，动态目标仍逐次经过 Canonical Route 的 SSRF/DNS/Pinning 校验。WebSocket 还需独立开启 `browser.webSocket`；握手在下游 101 前执行 Basic Auth、Session、Origin、DNS SSRF、Pinning/TLS 和远端地址校验，并受 payload、idle、总连接数及 backpressure 限制。
-- Script Cookie Bridge 默认关闭；开启后把 `document.cookie` 编码为当前 upstream Origin 专属 carrier，后端仅解码与当前 Canonical Token 匹配的 Cookie，并与服务端 Jar 合并。它不会转发 `proxySession` 或其他 upstream Cookie，也不会向脚本暴露 HttpOnly Cookie；详细边界见 [Script Cookie Bridge 契约](./docs/script-cookie-bridge.md)。
-- Origin Isolation 默认关闭；启用后以 SHA-256 派生的规范子域和可逆 path token 双重绑定 upstream，错误/未知 Host 及隔离 host 上的 API/UI 路由返回 421。不同 upstream 的 DOM、Storage 与权限 Origin 已由真实 Edge 验证隔离；精确 base Domain 下的 HttpOnly 控制 Session 仍共享，因此管理 UI 必须部署到不同站点。生产需要专用 wildcard DNS/TLS、HTTPS、Secure Session 与正确保留 Host 的反向代理，详见 [威胁模型](./docs/origin-isolation-threat-model.md)。
-- Browser UI 的兼容参数绑定当前 Browser Session，只能关闭服务器已经允许的 Rewrite、Runtime Bridge、WebSocket、Cookie Jar 或兼容 Header，不能从前端开启全局禁用能力，也不能把 `preserve/strict` 降级为 `compat`。默认使用 `noopener` 新标签页；同源部署时禁用 iframe 预览，并持续建议把不可信 Browser Proxy 与管理 UI 分离到不同 Origin。
-- 未捕获异常和未处理 Promise rejection 不再作为可继续运行的恢复机制，而会停止接收连接、关闭 runtime，并在超时后强制退出。
-- 代理自身 Basic Auth 已与上游认证隔离：普通 `Authorization` 只用于代理鉴权，上游认证使用 `X-ProxyWeb-Upstream-Authorization`。
-- 旧 `headers` 查询参数仍为兼容而接受，并会返回弃用提示；新版前端不再用它发送 Header，也不会把敏感 Header 写入分享/API 链接或历史。“复制 API 接口”生成后端 `__proxyweb/api` GET 直达链接；“复制页面链接”生成 `/web/` 编辑器链接并保留原始 URL、Method、Params、非敏感 Headers 与 Redirect 设置。目标 URL 自身若包含 Token 仍可能进入浏览器历史和剪贴板。
-- Environment/Collections 只保存在浏览器 IndexedDB 或 Session Storage，没有账号同步或加密。Secret 标记只是遮罩和风险提示；页面分享/历史保留 `{{变量}}` 而不展开值，实际发送、Copy API/cURL 会解析当前环境。保存持久化 Secret 或含凭据请求前必须确认，详细边界见 [工作区契约](./docs/workspace-environment-collections-contract.md)。
-- CORS 使用显式 Origin allowlist；非法或未授权 Origin 会被拒绝，无 Origin 请求不会获得 CORS 响应头。`allowCredentials: true` 与 `allowedOrigins: ["*"]` 的组合会在配置加载时被拒绝。
-- `trustProxy` 的模板、内置默认值和旧配置补全值均为 `false`，限流默认以直连地址识别客户端并忽略伪造的 `X-Forwarded-For`。只有位于可信反向代理后方时，才应按实际代理跳数或地址显式启用。
-- Express Session 与 Browser SessionStateStore 当前都使用进程内存，不适合多实例或长期生产运行。服务端 Jar 不会向脚本暴露 upstream HttpOnly Cookie；可读写脚本 Cookie 只能在显式开启 Script Cookie Bridge 时按其兼容边界映射。
-
-P0、P1 与 P2 Runtime/WebSocket/Origin Isolation 的逐项证据分别见 [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)、[P1 Browser Core 验收矩阵](./docs/p1-verification-matrix.md) 和 [P2 验收矩阵](./docs/p2-runtime-verification-matrix.md)；P3 本地资产边界见 [工作区契约](./docs/workspace-environment-collections-contract.md)。更详细的运行方式与剩余限制见 [后端文档](./backend/nodejs/README.md)，前端数据与构建说明见 [前端文档](./vue-request-app/README.md)。
-
-## P0 / P1 / P2 / P3 自动化门禁
-
-从仓库根目录执行完整的锁文件安装与验收：
-
-```powershell
-node scripts/p0-gate.js --install
+```text
+ANY /__proxyweb/api?url=<percent-encoded-target>
+GET /__proxyweb/browser?url=<percent-encoded-target>
 ```
 
-已完成依赖安装时可省略 `--install`。当前门禁会执行后端 210 项测试与语法检查、前端 36 项回归测试、lint 和生产构建；任一步骤失败都会非零退出。只有最终输出 `P0 gate PASS` 才表示验收通过。
+`/__proxyweb/*` 和 `X-ProxyWeb-*` 是早期版本已经公开的线协议标识。项目品牌已更名为 FireflyProxy，但这些标识会继续保留兼容，避免旧分享链接、客户端和诊断工具失效。新前端发送上游认证时使用：
 
-P1 门禁是 P0 的严格超集，并追加 Playwright Core 真实浏览器验收：
-
-```powershell
-node scripts/p1-gate.js --install
+```text
+X-FireflyProxy-Upstream-Authorization: Bearer <token>
 ```
 
-Playwright Core 不自动下载浏览器；门禁会寻找本机 Edge、Chrome 或 Chromium，也可通过 `PROXYWEB_E2E_BROWSER_PATH` 指定。找不到浏览器会失败而不是跳过，详细场景与失败诊断见 [P1 验收矩阵](./docs/p1-verification-matrix.md)。
+后端仍接受旧的 `X-ProxyWeb-Upstream-Authorization`，仅用于兼容迁移。
 
-P2 门禁继续完整复用 P1，并追加 Runtime Bridge/WebSocket 与 Origin Isolation 两组真实浏览器场景：
+## 🛡️ 安全边界
+
+- 仅接受不含用户名和密码的 HTTP(S) 目标 URL。
+- DNS 校验覆盖全部 A/AAAA 结果，拒绝 loopback、private、link-local、multicast、reserved 等非公网地址。
+- 每次实际连接都绑定已验证地址，并保持原始 Host、SNI 与 TLS 证书校验。
+- API 重定向逐跳重新执行 URL、DNS、SSRF 与 Pinning 校验；跨 Origin 会删除认证和敏感请求头。
+- Browser Proxy 会执行目标站点提供的不可信 JavaScript，生产环境必须与管理界面使用不同 Origin。
+- 工作区的持久化变量、请求集合和历史记录没有加密；“敏感”标记仅负责遮罩与风险提醒。
+- 公共静态缓存、Runtime Bridge、Script Cookie Bridge、WebSocket 和 Origin Isolation 均需按部署需要显式配置。
+- 不应把目标 Token、密码或其他凭据放入可分享 URL。
+
+更完整的后端配置与部署细节见 [`backend/nodejs/README.md`](./backend/nodejs/README.md)，前端使用说明见 [`vue-request-app/README.md`](./vue-request-app/README.md)。
+
+## 🧪 测试与验收
+
+### 前端
 
 ```powershell
-node scripts/p2-gate.js --install
+Set-Location .\vue-request-app
+npm test
+npm run lint
+npm run build
 ```
 
-专项也可在后端目录分别执行 `npm run test:runtime`、`npm run test:websocket`、`npm run test:runtime:e2e` 与 `npm run test:isolation:e2e`。
-
-P3 门禁完整复用 P2，并追加 Environment/Collections 的真实浏览器 IndexedDB 工作流：
+### 后端
 
 ```powershell
-node scripts/p3-gate.js --install
+Set-Location .\backend\nodejs
+npm test
+npm run lint
 ```
 
-工作区专项可在后端目录单独执行 `npm run test:workspace:e2e`；它会先重新构建前端，避免验证陈旧产物。
-
-SSE、Range、媒体和大附件可在后端目录单独快速复核：
+真实浏览器专项：
 
 ```powershell
-npm run test:streaming
+npm run test:workspace:e2e
+npm run test:admin:e2e
+npm run test:e2e
 ```
 
-## 文档索引
+## 📁 项目结构
 
-- [前端 README](./vue-request-app/README.md)
-- [Node.js 后端 README](./backend/nodejs/README.md)
-- [vNext 开发计划与技术方案](./proxyWeb%20vNext%20开发计划与技术方案.md)
-- [vNext 分阶段实施路线图](./docs/vnext-implementation-roadmap.md)
-- [P0 自动化验收矩阵](./docs/p0-verification-matrix.md)
-- [P1 Browser Core 自动化验收矩阵](./docs/p1-verification-matrix.md)
-- [P2 Runtime Bridge、WebSocket 与 Origin Isolation 自动化验收矩阵](./docs/p2-runtime-verification-matrix.md)
-- [Origin Isolation 威胁模型](./docs/origin-isolation-threat-model.md)
-- [请求编辑器与 cURL 契约](./docs/request-editor-curl-contract.md)
-- [API Redirect 与响应诊断契约](./docs/api-response-diagnostics-contract.md)
-- [Environment 与 Collections 契约](./docs/workspace-environment-collections-contract.md)
+```text
+FireflyProxy/
+├── backend/
+│   ├── main.json.example       # 后端配置模板
+│   └── nodejs/
+│       ├── admin-console/      # 管理控制台
+│       ├── api-proxy/          # API Route 与请求控制
+│       ├── browser-proxy/      # Browser Route、重写与会话能力
+│       ├── config/             # 默认配置、Schema 与加载器
+│       ├── core/               # 安全网络内核
+│       ├── middleware/         # 认证、CORS、日志与兼容层
+│       └── tests/              # 单元、集成及真实浏览器测试
+├── vue-request-app/
+│   ├── public/                 # favicon 与 HTML 模板
+│   ├── src/                    # Vue 3 应用源码
+│   └── tests/                  # 前端逻辑测试
+└── scripts/                    # 分阶段自动化门禁
+```
 
-## 许可证状态
+## 📄 License
 
-仓库当前没有 `LICENSE` 文件，因此暂不声明具体开源许可证。发布或接受外部贡献前，建议补充正式许可证文件，并再恢复许可证徽章与声明。
+Copyright © 2026 [流萤可爱捏](https://github.com/Iskongkongyo)。
+
+本项目采用 [MIT License](./LICENSE) 开源；你可以自由使用、复制、修改、合并、发布和分发，但须保留原始版权声明和许可声明。

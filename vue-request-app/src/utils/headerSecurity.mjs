@@ -9,7 +9,7 @@ const SENSITIVE_HEADER_NAMES = new Set([
     "x-access-token"
 ]);
 
-export const UPSTREAM_AUTHORIZATION_HEADER = "X-ProxyWeb-Upstream-Authorization";
+export const UPSTREAM_AUTHORIZATION_HEADER = "X-FireflyProxy-Upstream-Authorization";
 
 export function normalizeHeaderName(name) {
     return String(name || "").trim().toLowerCase();

@@ -25,7 +25,7 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore, orig
                 });
             }
             if (requestConfig.browser.originIsolation.enabled
-                && req.proxyWebOriginIsolation?.scope !== "base") {
+                && req.fireflyProxyOriginIsolation?.scope !== "base") {
                 throw new ProxyError(ERROR_CODES.ORIGIN_ISOLATION_DENIED, "Browser entry requires the configured base origin", {
                     statusCode: 421
                 });
@@ -33,9 +33,9 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore, orig
             const target = await proxyExecutor.resolveTarget(req.query.url, requestConfig);
             const preferences = parseBrowserPreferences(req.query);
             if (Object.keys(preferences).length > 0) {
-                req.session.proxyWebBrowserPreferences = preferences;
-            } else if (req.session.proxyWebBrowserPreferences) {
-                delete req.session.proxyWebBrowserPreferences;
+                req.session.fireflyProxyBrowserPreferences = preferences;
+            } else if (req.session.fireflyProxyBrowserPreferences) {
+                delete req.session.fireflyProxyBrowserPreferences;
             }
             return res.redirect(302, toProxyUrl(target.url, mapperOptions(requestConfig)));
         } catch (error) {
@@ -53,7 +53,7 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore, orig
             }
             const requestConfig = applyBrowserPreferences(
                 configuredRequest,
-                req.session.proxyWebBrowserPreferences
+                req.session.fireflyProxyBrowserPreferences
             );
 
             const targetValue = fromProxyRequest(req);
@@ -65,19 +65,19 @@ function createBrowserRouter({ proxyExecutor, getConfig, sessionStateStore, orig
             );
             if (requestConfig.browser.originIsolation.enabled) {
                 originIsolationRegistry.register(targetOrigin);
-                req.session.proxyWebOriginIsolation = true;
+                req.session.fireflyProxyOriginIsolation = true;
             }
             const canonicalUrl = toProxyUrl(targetValue, mapperOptions(requestConfig));
             const currentUrl = `${BROWSER_ROUTE_PREFIX}${req.url}`;
             if (isolationResult.redirect) return res.redirect(308, canonicalUrl);
-            const canonicalPath = new URL(canonicalUrl, "http://proxyweb.invalid");
+            const canonicalPath = new URL(canonicalUrl, "http://fireflyproxy.invalid");
             if (currentUrl !== `${canonicalPath.pathname}${canonicalPath.search}`) {
                 return res.redirect(308, canonicalUrl);
             }
 
             let sessionState;
             if (requestConfig.browser.cookieJar) {
-                req.session.proxyWebBrowser = true;
+                req.session.fireflyProxyBrowser = true;
                 sessionState = await sessionStateStore.get(req.sessionID, requestConfig.session.maxAgeMs);
             } else if (!configuredRequest.browser.cookieJar) {
                 await sessionStateStore.delete(req.sessionID);

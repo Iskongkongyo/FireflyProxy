@@ -26,14 +26,16 @@ test("admin console protects, redacts, validates and hot-moves its configuration
 
         const unauthorized = await fetch(`${proxy.origin}/control`);
         assert.equal(unauthorized.status, 401);
-        assert.match(unauthorized.headers.get("www-authenticate"), /proxyWeb Admin/);
+        assert.match(unauthorized.headers.get("www-authenticate"), /FireflyProxy Admin/);
 
         const page = await fetch(`${proxy.origin}/control`, {
             headers: { authorization: originalAuth }
         });
         assert.equal(page.status, 200);
         assert.match(page.headers.get("content-security-policy"), /default-src 'none'/);
-        assert.match(await page.text(), /proxyWeb 配置管理/);
+        const pageHtml = await page.text();
+        assert.match(pageHtml, /FireflyProxy 管理面板/);
+        assert.match(pageHtml, /系统配置/);
 
         const snapshotResponse = await fetch(`${proxy.origin}/control/api/config`, {
             headers: {
@@ -64,7 +66,7 @@ test("admin console protects, redacts, validates and hot-moves its configuration
                 origin: "http://attacker.test",
                 referer: `${proxy.origin}/control`,
                 "content-type": "application/json",
-                "x-proxyweb-admin": "1"
+                "x-fireflyproxy-admin": "1"
             },
             body: JSON.stringify({ config: snapshot.config })
         });
@@ -81,7 +83,7 @@ test("admin console protects, redacts, validates and hot-moves its configuration
                 origin: proxy.origin,
                 referer: `${proxy.origin}/control`,
                 "content-type": "application/json",
-                "x-proxyweb-admin": "1"
+                "x-fireflyproxy-admin": "1"
             },
             body: JSON.stringify({ config: invalidConfig })
         });
@@ -99,7 +101,7 @@ test("admin console protects, redacts, validates and hot-moves its configuration
                 origin: proxy.origin,
                 referer: `${proxy.origin}/control`,
                 "content-type": "application/json",
-                "x-proxyweb-admin": "1"
+                "x-fireflyproxy-admin": "1"
             },
             body: JSON.stringify({ config: snapshot.config })
         });

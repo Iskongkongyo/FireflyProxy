@@ -1,20 +1,20 @@
 <template>
-	<el-drawer v-model="visible" title="Environment 与 Collections" size="min(780px, 96vw)" destroy-on-close>
+	<el-drawer v-model="visible" title="环境与请求集合" size="min(780px, 96vw)" destroy-on-close>
 		<el-alert v-if="storageError" :title="storageError" type="error" :closable="false" show-icon />
 		<el-tabs v-else v-model="activeTab" v-loading="loading">
-			<el-tab-pane label="Environment" name="environment">
+			<el-tab-pane label="环境变量" name="environment">
 				<div class="toolbar">
 					<el-select v-model="activeEnvironmentId" placeholder="不使用环境" clearable
 						@change="selectEnvironment" class="grow">
 						<el-option v-for="environment in environments" :key="environment.id"
-							:label="`${environment.name}${environment.scope === 'session' ? '（Session）' : ''}`"
+							:label="`${environment.name}${environment.scope === 'session' ? '（当前会话）' : ''}`"
 							:value="environment.id" />
 					</el-select>
 					<el-button @click="newEnvironment">新建环境</el-button>
 				</div>
 
 				<el-alert
-					title="环境变量会在发送前替换 URL、Params、Headers、Body 与 Auth 中的 {{name}}；它不是脚本表达式。"
+					title="环境变量会在发送前替换 URL、请求参数、请求头、请求体与认证中的 {{name}}；它不是脚本表达式。"
 					type="info" :closable="false" show-icon />
 
 				<div v-if="environmentDraft" class="editor-section">
@@ -32,10 +32,10 @@
 					</el-form>
 
 					<el-alert v-if="environmentDraft.scope === 'persistent'"
-						title="持久化变量未加密，同源脚本、浏览器扩展及可访问本机浏览器资料的人可能读取；Secret 标记只负责遮罩和风险提示。"
+						title="持久化变量未加密，同源脚本、浏览器扩展及可访问本机浏览器资料的人可能读取；敏感标记只负责遮罩和风险提示。"
 						type="warning" :closable="false" show-icon />
 					<el-alert v-else
-						title="Session 环境保存在 sessionStorage，通常随当前标签页会话结束而清除，但仍可被同源脚本读取。"
+						title="会话环境保存在 sessionStorage，通常随当前标签页会话结束而清除，但仍可被同源脚本读取。"
 						type="warning" :closable="false" show-icon />
 
 					<div class="section-heading">
@@ -46,16 +46,16 @@
 						<el-table-column label="启用" width="70" align="center">
 							<template #default="{ row }"><el-switch v-model="row.enabled" /></template>
 						</el-table-column>
-						<el-table-column label="Key" min-width="150">
+						<el-table-column label="变量名" min-width="150">
 							<template #default="{ row }"><el-input v-model="row.key" placeholder="baseUrl" /></template>
 						</el-table-column>
-						<el-table-column label="Value" min-width="240">
+						<el-table-column label="变量值" min-width="240">
 							<template #default="{ row }">
 								<el-input v-model="row.value" :type="row.secret ? 'password' : 'text'"
 									:show-password="row.secret" placeholder="变量值或 {{other}}" />
 							</template>
 						</el-table-column>
-						<el-table-column label="Secret" width="76" align="center">
+						<el-table-column label="敏感" width="76" align="center">
 							<template #default="{ row }"><el-switch v-model="row.secret" /></template>
 						</el-table-column>
 						<el-table-column label="操作" width="82" align="center">
@@ -72,16 +72,16 @@
 				<el-empty v-else description="当前未选择环境；可直接发送不含变量的请求。" />
 			</el-tab-pane>
 
-			<el-tab-pane label="Collections" name="collections">
+			<el-tab-pane label="请求集合" name="collections">
 				<el-alert
-					title="Collections 仅保存在当前站点的 IndexedDB，不加密、不上传、不同浏览器/设备之间不会同步。"
+					title="请求集合仅保存在当前站点的 IndexedDB，不加密、不上传、不同浏览器或设备之间不会同步。"
 					type="warning" :closable="false" show-icon />
 
 				<div class="editor-section">
-					<div class="section-heading"><span>Folders</span></div>
+					<div class="section-heading"><span>文件夹</span></div>
 					<div class="toolbar">
-						<el-input v-model="newFolderName" maxlength="80" placeholder="新 Folder 名称" class="grow" />
-						<el-button type="primary" plain @click="createFolder">新增 Folder</el-button>
+						<el-input v-model="newFolderName" maxlength="80" placeholder="新文件夹名称" class="grow" />
+						<el-button type="primary" plain @click="createFolder">新增文件夹</el-button>
 					</div>
 					<div v-if="folders.length" class="folder-tags">
 						<el-tag v-for="folder in folders" :key="folder.id" closable
@@ -90,18 +90,18 @@
 
 					<div class="section-heading"><span>保存当前请求</span></div>
 					<div class="save-grid">
-						<el-input v-model="requestName" maxlength="80" placeholder="Saved Request 名称" />
+						<el-input v-model="requestName" maxlength="80" placeholder="请求名称" />
 						<el-select v-model="requestFolderId" clearable placeholder="未分类">
 							<el-option v-for="folder in folders" :key="folder.id" :label="folder.name" :value="folder.id" />
 						</el-select>
 						<el-button type="primary" @click="saveCurrentRequest">保存</el-button>
 					</div>
 
-					<div class="section-heading"><span>Saved Requests</span></div>
-					<el-table :data="sortedRequests" border size="small" empty-text="尚无 Saved Request">
-						<el-table-column prop="method" label="Method" width="86" />
-						<el-table-column prop="name" label="Name" min-width="150" />
-						<el-table-column label="Folder" min-width="110">
+					<div class="section-heading"><span>已保存请求</span></div>
+					<el-table :data="sortedRequests" border size="small" empty-text="尚无已保存请求">
+						<el-table-column prop="method" label="请求方法" width="86" />
+						<el-table-column prop="name" label="名称" min-width="150" />
+						<el-table-column label="文件夹" min-width="110">
 							<template #default="{ row }">{{ folderName(row.folderId) }}</template>
 						</el-table-column>
 						<el-table-column prop="url" label="URL" min-width="240" show-overflow-tooltip />
@@ -227,8 +227,8 @@
 					const environment = normalizeEnvironment(this.environmentDraft);
 					if (environment.scope === 'persistent' && environment.variables.some(row => row.secret)) {
 						await ElMessageBox.confirm(
-							'Secret 将以未加密形式持久化到当前站点 IndexedDB。Secret 标记不会提供加密，是否继续？',
-							'持久化 Secret 风险',
+							'敏感变量将以未加密形式持久化到当前站点 IndexedDB。敏感标记不会提供加密，是否继续？',
+							'持久化敏感变量风险',
 							{ type: 'warning', confirmButtonText: '理解风险并保存', cancelButtonText: '取消' }
 						);
 					}
@@ -260,7 +260,7 @@
 			},
 			async deleteFolder(folder) {
 				try {
-					await ElMessageBox.confirm('Folder 删除后，其中请求会移动到“未分类”。', '删除 Folder', { type: 'warning' });
+					await ElMessageBox.confirm('文件夹删除后，其中的请求会移动到“未分类”。', '删除文件夹', { type: 'warning' });
 					await this.store.deleteFolder(folder.id);
 					this.folders = await this.store.listFolders();
 					this.requests = await this.store.listRequests();
@@ -275,7 +275,7 @@
 				if (!requestContainsStoredSecrets(request)
 					&& !requestUsesSecretVariables(request, this.activeEnvironment)) return;
 				await ElMessageBox.confirm(
-					'该请求包含 Auth、敏感 Header 或 Secret 环境变量引用。Collections 未加密且会持久化到 IndexedDB，是否继续？',
+							'该请求包含认证信息、敏感请求头或 Secret 环境变量引用。请求集合未加密且会持久化到 IndexedDB，是否继续？',
 					'敏感请求提醒',
 					{ type: 'warning', confirmButtonText: '理解风险并保存', cancelButtonText: '取消' }
 				);
@@ -308,11 +308,11 @@
 					&& request.body.rows.some(row => row.kind === 'file');
 				ElMessage.success(missingFile
 					? '请求已加载；multipart 文件必须重新选择。'
-					: 'Saved Request 已加载。');
+						: '请求已加载。');
 			},
 			async overwriteRequest(request) {
 				try {
-					await ElMessageBox.confirm(`使用当前编辑器覆盖“${request.name}”？`, '覆盖 Saved Request', { type: 'warning' });
+					await ElMessageBox.confirm(`使用当前编辑器覆盖“${request.name}”？`, '覆盖已保存请求', { type: 'warning' });
 					await this.persistRequest({
 						...this.currentDraft,
 						id: request.id,
@@ -320,14 +320,14 @@
 						folderId: request.folderId,
 						createdAt: request.createdAt
 					});
-					ElMessage.success('Saved Request 已覆盖。');
+					ElMessage.success('已保存请求已覆盖。');
 				} catch (error) {
 					if (error !== 'cancel' && error !== 'close') ElMessage.error(error.message || String(error));
 				}
 			},
 			async deleteRequest(request) {
 				try {
-					await ElMessageBox.confirm(`删除“${request.name}”？`, '删除 Saved Request', { type: 'warning' });
+					await ElMessageBox.confirm(`删除“${request.name}”？`, '删除已保存请求', { type: 'warning' });
 					await this.store.deleteRequest(request.id);
 					this.requests = await this.store.listRequests();
 				} catch (error) {

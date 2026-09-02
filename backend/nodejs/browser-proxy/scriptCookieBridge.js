@@ -1,6 +1,6 @@
 const { encodeOrigin } = require("../core/urlMapper");
 
-const SCRIPT_COOKIE_PREFIX = "__proxyweb_sc_";
+const SCRIPT_COOKIE_PREFIX = "__fireflyproxy_sc_";
 const COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const MAX_COOKIE_HEADER_LENGTH = 65536;
 const MAX_BRIDGED_COOKIES = 128;

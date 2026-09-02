@@ -13,7 +13,7 @@ function createSessionStateStore(options = {}) {
 
     function get(sessionId, maxAgeMs) {
         if (typeof sessionId !== "string" || !sessionId) {
-            throw new TypeError("A non-empty proxyWeb session ID is required");
+            throw new TypeError("A non-empty FireflyProxy session ID is required");
         }
         if (!Number.isSafeInteger(maxAgeMs) || maxAgeMs <= 0) {
             throw new TypeError("Session state maxAgeMs must be a positive safe integer");
@@ -50,13 +50,20 @@ function createSessionStateStore(options = {}) {
 }
 
 async function getCookieHeader(sessionState, targetUrl) {
+    if (typeof sessionState?.getCookieString === "function") {
+        return sessionState.getCookieString(targetUrl);
+    }
     if (!sessionState?.cookieJar) return "";
     return sessionState.cookieJar.getCookieString(targetUrl);
 }
 
 async function storeResponseCookies(sessionState, targetUrl, setCookieHeaders, options = {}) {
-    if (!sessionState?.cookieJar || !setCookieHeaders) return;
+    if (!setCookieHeaders) return;
     const values = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+    if (typeof sessionState?.storeResponseCookies === "function") {
+        return sessionState.storeResponseCookies(targetUrl, values, options);
+    }
+    if (!sessionState?.cookieJar) return;
     for (const value of values) {
         try {
             await sessionState.cookieJar.setCookie(String(value), targetUrl, { ignoreError: true });

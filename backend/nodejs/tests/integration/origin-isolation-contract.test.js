@@ -166,7 +166,7 @@ test("HTML rewrite emits absolute isolated origins and configures the Runtime ma
         new RegExp(isolatedProxyOrigin(`http://cdn.test:${fixture.port}`, isolation).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     );
     assert.equal(
-        $("script[data-proxyweb-runtime]").attr("data-proxyweb-isolation-base-origin"),
+        $("script[data-fireflyproxy-runtime]").attr("data-fireflyproxy-isolation-base-origin"),
         isolation.baseOrigin
     );
 });

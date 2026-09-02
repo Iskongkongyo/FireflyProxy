@@ -16,7 +16,7 @@ function isAdminPath(pathname, adminPath) {
 function createAdminRouteMarker({ getConfig }) {
     return (req, res, next) => {
         const { path } = getConfig().admin;
-        if (isAdminPath(req.path, path)) req.proxyWebAdminRoute = true;
+        if (isAdminPath(req.path, path)) req.fireflyProxyAdminRoute = true;
         next();
     };
 }
@@ -33,7 +33,7 @@ function createAdminHomeMarker({ getConfig }) {
             && req.path === "/"
             && !hasTarget
         ) {
-            req.proxyWebAdminHome = true;
+            req.fireflyProxyAdminHome = true;
         }
         next();
     };
@@ -89,7 +89,7 @@ function adminPageSourceAllowed(req, adminPath) {
     const referer = sameOriginReferer(req);
     if (referer) {
         if (referer.pathname === "/" || isAdminPath(referer.pathname, adminPath)) return true;
-        const previous = req.session?.proxyWebAdminPreviousPath;
+        const previous = req.session?.fireflyProxyAdminPreviousPath;
         if (
             previous
             && previous.expiresAt > Date.now()
@@ -107,7 +107,7 @@ function adminError(code, message, statusCode, cause) {
     return new ProxyError(code, message, { statusCode, cause });
 }
 
-function createAdminRouter({ getConfig, saveConfig }) {
+function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
     const jsonParser = express.json({ limit: "256kb", strict: true, type: "application/json" });
     const loginLimiter = rateLimit({
         windowMs: 15 * 60 * 1000,
@@ -126,7 +126,7 @@ function createAdminRouter({ getConfig, saveConfig }) {
     });
 
     return (req, res, next) => {
-        if (!req.proxyWebAdminRoute) return next();
+        if (!req.fireflyProxyAdminRoute) return next();
         const config = getConfig();
         if (!isAdminPath(req.path, config.admin.path)) return next();
         if (!config.admin.enabled) {
@@ -136,11 +136,13 @@ function createAdminRouter({ getConfig, saveConfig }) {
         secureAdminResponse(res);
         const basePath = config.admin.path;
         const apiPath = `${basePath}/api/config`;
+        const cacheApiPath = `${basePath}/api/cache`;
         const pageRequest = req.path === basePath || req.path === `${basePath}/`;
         const apiRequest = req.path === apiPath;
+        const cacheApiRequest = req.path === cacheApiPath;
         if (
             (pageRequest && !adminPageSourceAllowed(req, basePath))
-            || (apiRequest && !adminApiSourceAllowed(req, basePath))
+            || ((apiRequest || cacheApiRequest) && !adminApiSourceAllowed(req, basePath))
         ) {
             return next(adminError(
                 ERROR_CODES.ADMIN_ORIGIN_DENIED,
@@ -150,7 +152,7 @@ function createAdminRouter({ getConfig, saveConfig }) {
         }
         return loginLimiter(req, res, () => {
             if (!authenticateAdmin(req, config)) {
-                res.setHeader("WWW-Authenticate", 'Basic realm="proxyWeb Admin", charset="UTF-8"');
+                res.setHeader("WWW-Authenticate", 'Basic realm="FireflyProxy Admin", charset="UTF-8"');
                 return res.status(401).json({
                     error: {
                         code: ERROR_CODES.ADMIN_AUTH_REQUIRED,
@@ -163,15 +165,58 @@ function createAdminRouter({ getConfig, saveConfig }) {
                 return res.redirect(308, basePath);
             }
             if (req.method === "GET" && req.path === basePath) {
-                if (req.session?.proxyWebAdminPreviousPath) {
-                    delete req.session.proxyWebAdminPreviousPath;
+                if (req.session?.fireflyProxyAdminPreviousPath) {
+                    delete req.session.fireflyProxyAdminPreviousPath;
                 }
                 return res.type("html").send(createAdminPage());
             }
             if (req.method === "GET" && req.path === apiPath) {
                 return res.json({
                     ...createAdminSnapshot(config),
-                    restartOnly: ["port", "trustProxy", "session"]
+                    restartOnly: ["port", "trustProxy", "session", "runtimeState"]
+                });
+            }
+            if (req.method === "GET" && req.path === cacheApiPath) {
+                return publicStaticCache.stats(config)
+                    .then(stats => res.json({
+                        ...stats,
+                        enabled: config.browser.publicCache.enabled
+                    }))
+                    .catch(next);
+            }
+            if (req.method === "DELETE" && req.path === cacheApiPath) {
+                const expectedOrigin = requestOrigin(req);
+                if (
+                    !expectedOrigin
+                    || req.headers.origin !== expectedOrigin
+                    || req.headers["x-fireflyproxy-admin"] !== "1"
+                ) {
+                    return next(adminError(
+                        ERROR_CODES.ADMIN_ORIGIN_DENIED,
+                        "Admin cache invalidation origin is not allowed",
+                        403
+                    ));
+                }
+                return jsonParser(req, res, async error => {
+                    if (error) return next(adminError(
+                        ERROR_CODES.ADMIN_CONFIG_INVALID,
+                        "Admin cache invalidation payload is invalid",
+                        error.status || 400,
+                        error
+                    ));
+                    try {
+                        const result = await publicStaticCache.invalidate(req.body || {});
+                        return res.json({ ok: true, ...result });
+                    } catch (cacheError) {
+                        return next(adminError(
+                            ERROR_CODES.ADMIN_CONFIG_INVALID,
+                            cacheError instanceof TypeError
+                                ? cacheError.message
+                                : "Unable to invalidate public cache",
+                            cacheError instanceof TypeError ? 400 : 500,
+                            cacheError
+                        ));
+                    }
                 });
             }
             if (req.method === "PUT" && req.path === apiPath) {
@@ -179,7 +224,7 @@ function createAdminRouter({ getConfig, saveConfig }) {
                 if (
                     !expectedOrigin
                     || req.headers.origin !== expectedOrigin
-                    || req.headers["x-proxyweb-admin"] !== "1"
+                    || req.headers["x-fireflyproxy-admin"] !== "1"
                 ) {
                     return next(adminError(
                         ERROR_CODES.ADMIN_ORIGIN_DENIED,
@@ -197,7 +242,7 @@ function createAdminRouter({ getConfig, saveConfig }) {
                     try {
                         const result = await saveConfig(req.body?.config);
                         if (result.config.admin.path !== basePath && req.session) {
-                            req.session.proxyWebAdminPreviousPath = {
+                            req.session.fireflyProxyAdminPreviousPath = {
                                 path: basePath,
                                 expiresAt: Date.now() + 60_000
                             };

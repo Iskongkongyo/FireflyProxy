@@ -1,5 +1,5 @@
 /**
- * proxyWeb Express application factory.
+ * FireflyProxy Express application factory.
  *
  * This module assembles the staged vNext components while route and proxy
  * extraction continues.
@@ -22,8 +22,8 @@ const {
     createBrowserRootRecoveryAdapter,
     createBrowserRootRecoveryMarker
 } = require("./browser-proxy/rootRecovery");
+const { createPublicStaticCache } = require("./browser-proxy/publicStaticCache");
 const { RUNTIME_BRIDGE_PATH, createRuntimeBridgeHandler } = require("./browser-proxy/runtimeBridge");
-const { createSessionStateStore } = require("./browser-proxy/sessionStateStore");
 const { createWebSocketProxy } = require("./browser-proxy/webSocketProxy");
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
@@ -32,9 +32,9 @@ const { ERROR_CODES, ProxyError, createErrorMiddleware } = require("./core/error
 const { createLogger } = require("./core/logger");
 const { createPinnedConnection } = require("./core/pinnedConnection");
 const { createProxyExecutor } = require("./core/proxyExecutor");
+const { createRuntimeState } = require("./core/runtimeState");
 const {
     createOriginIsolationMiddleware,
-    createOriginIsolationRegistry,
     createSharedSessionDomainMiddleware
 } = require("./core/originIsolation");
 const { createProxyAuth } = require("./middleware/auth");
@@ -68,16 +68,6 @@ const connectionFactory = options.connectionFactory || createPinnedConnection;
 if (typeof connectionFactory !== "function") {
     throw new TypeError("connectionFactory must be a function");
 }
-const sessionStateStore = options.sessionStateStore || createSessionStateStore();
-const originIsolationRegistry = options.originIsolationRegistry || createOriginIsolationRegistry();
-if (
-    !sessionStateStore
-    || typeof sessionStateStore.get !== "function"
-    || typeof sessionStateStore.delete !== "function"
-) {
-    throw new TypeError("sessionStateStore must provide get and delete functions");
-}
-
 // ---------------------------
 // 1. 全局配置与热更新状态
 // ---------------------------
@@ -158,6 +148,40 @@ if (!initialLoad.ok) {
     logger.warn("[Config] Invalid startup configuration; continuing with validated defaults.");
 }
 
+const runtimeState = options.runtimeState || createRuntimeState({
+    config,
+    configPath: CONFIG_PATH,
+    expressSessionStore: options.expressSessionStore,
+    sessionStateStore: options.sessionStateStore,
+    originIsolationRegistry: options.originIsolationRegistry
+});
+const expressSessionStore = options.expressSessionStore || runtimeState.expressSessionStore;
+const sessionStateStore = options.sessionStateStore || runtimeState.sessionStateStore;
+const originIsolationRegistry = options.originIsolationRegistry || runtimeState.originIsolationRegistry;
+if (
+    !sessionStateStore
+    || typeof sessionStateStore.get !== "function"
+    || typeof sessionStateStore.delete !== "function"
+) {
+    throw new TypeError("sessionStateStore must provide get and delete functions");
+}
+if (
+    !originIsolationRegistry
+    || typeof originIsolationRegistry.register !== "function"
+    || typeof originIsolationRegistry.resolve !== "function"
+) {
+    throw new TypeError("originIsolationRegistry must provide register and resolve functions");
+}
+
+const configuredCacheDirectory = path.resolve(
+    path.dirname(path.resolve(CONFIG_PATH)),
+    config.browser.publicCache.directory
+);
+const publicStaticCache = options.publicStaticCache || createPublicStaticCache({
+    directory: configuredCacheDirectory,
+    logger
+});
+
 // 信任反向代理 (Nginx/Cloudflare 等前置时必须开启)
 // 'loopback' 仅信任本机，'linklocal' 信任本地网络，数字代表代理层数
 // 如果您直接暴露在公网，请设为 false；如果在 Nginx 后，设为 1
@@ -193,8 +217,8 @@ const {
 } = config.session;
 const sessionMiddleware = session({
     ...sessionOptions,
-    cookie: { maxAge: maxAgeMs, secure, httpOnly, sameSite }
-    // store: new RedisStore({ client: redisClient }), // Example for Prod
+    cookie: { maxAge: maxAgeMs, secure, httpOnly, sameSite },
+    ...(expressSessionStore ? { store: expressSessionStore } : {})
 });
 app.use(sessionMiddleware);
 app.use(createSharedSessionDomainMiddleware({ getConfig: () => config }));
@@ -205,9 +229,9 @@ app.use((req, res, next) => {
     const browserRoute = req.path === "/__proxyweb/browser"
         || req.path.startsWith("/__proxyweb/browser/")
         || req.path === RUNTIME_BRIDGE_PATH
-        || req.proxyWebAdminRoute
-        || req.proxyWebAdminHome
-        || req.proxyWebBrowserRootRecovery;
+        || req.fireflyProxyAdminRoute
+        || req.fireflyProxyAdminHome
+        || req.fireflyProxyBrowserRootRecovery;
     if (browserRoute) return next();
     return corsMiddleware(req, res, next);
 });
@@ -241,6 +265,7 @@ app.use((req, res, next) => {
 
 app.use(createAdminRouter({
     getConfig: () => config,
+    publicStaticCache,
     saveConfig: submittedConfig => saveAdminConfig({
         configPath: CONFIG_PATH,
         submittedConfig,
@@ -255,7 +280,8 @@ const proxyExecutor = createProxyExecutor({
     getConfig: () => config,
     dnsResolver,
     connectionFactory,
-    logger
+    logger,
+    publicStaticCache
 });
 const webSocketProxy = createWebSocketProxy({
     getConfig: () => config,
@@ -294,6 +320,8 @@ app.use(createErrorMiddleware({ logger }));
     return {
         app,
         logger,
+        publicStaticCache,
+        runtimeState,
         getConfig: () => config,
         reloadConfig: loadConfig,
         attachServer(server) {
@@ -303,8 +331,8 @@ app.use(createErrorMiddleware({ logger }));
         async close() {
             webSocketProxy.close();
             proxyExecutor.close();
-            await sessionStateStore.clear?.();
-            originIsolationRegistry.clear?.();
+            await publicStaticCache.close?.();
+            await runtimeState.close?.();
             if (configWatcher) await configWatcher.close();
             if (ownsLogger) logger.close();
         }

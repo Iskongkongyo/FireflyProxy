@@ -23,7 +23,7 @@ test("WebSocket URLs share the canonical HTTP origin token without weakening pro
 
 test("WebSocket source origin context is signed and fails closed after tampering", () => {
     const context = createWebSocketOriginContext("https://source.example", "test-secret");
-    assert.match(context, /^proxyweb-origin\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    assert.match(context, /^fireflyproxy-origin\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     assert.equal(
         verifyWebSocketOriginContext(context, "test-secret"),
         "https://source.example"

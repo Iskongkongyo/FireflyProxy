@@ -15,7 +15,8 @@ const PROXY_AUTHENTICATION_HEADERS = new Set([
     "proxy-authorization"
 ]);
 
-const UPSTREAM_AUTHORIZATION_HEADER = "x-proxyweb-upstream-authorization";
+const UPSTREAM_AUTHORIZATION_HEADER = "x-fireflyproxy-upstream-authorization";
+const LEGACY_UPSTREAM_AUTHORIZATION_HEADER = "x-proxyweb-upstream-authorization";
 
 const PROXY_RESPONSE_CONTROL_HEADERS = new Set([
     "x-proxyweb-final-url",
@@ -23,7 +24,8 @@ const PROXY_RESPONSE_CONTROL_HEADERS = new Set([
     "x-proxyweb-redirect-count",
     "x-proxyweb-follow-redirects",
     "x-proxyweb-max-redirects",
-    "x-proxyweb-diagnostics-truncated"
+    "x-proxyweb-diagnostics-truncated",
+    "x-proxyweb-cache"
 ]);
 
 const LEGACY_REQUEST_EXCLUDED_HEADERS = new Set([
@@ -75,13 +77,15 @@ function getHeader(headers, targetName) {
 
 function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}) {
     const merged = { ...(inboundHeaders || {}), ...(customHeaders || {}) };
-    const upstreamAuthorization = getHeader(inboundHeaders, UPSTREAM_AUTHORIZATION_HEADER);
+    const upstreamAuthorization = getHeader(inboundHeaders, UPSTREAM_AUTHORIZATION_HEADER)
+        || getHeader(inboundHeaders, LEGACY_UPSTREAM_AUTHORIZATION_HEADER);
     const legacyAuthorization = getHeader(customHeaders, "authorization");
     const excluded = new Set([
         ...HOP_BY_HOP_HEADERS,
         ...LEGACY_REQUEST_EXCLUDED_HEADERS,
         "authorization",
         UPSTREAM_AUTHORIZATION_HEADER,
+        LEGACY_UPSTREAM_AUTHORIZATION_HEADER,
         ...connectionHeaderNames(inboundHeaders),
         ...connectionHeaderNames(customHeaders)
     ]);
@@ -106,6 +110,7 @@ module.exports = {
     PROXY_RESPONSE_CONTROL_HEADERS,
     PROXY_AUTHENTICATION_HEADERS,
     UPSTREAM_AUTHORIZATION_HEADER,
+    LEGACY_UPSTREAM_AUTHORIZATION_HEADER,
     buildUpstreamRequestHeaders,
     filterUpstreamResponseHeaders,
     getHeader,

@@ -10,7 +10,7 @@ const {
 } = require("../../config/loader");
 
 test("default configuration uses explicit millisecond fields", () => {
-    const config = createDefaultConfig({ PROXYWEB_SESSION_SECRET: "default-test-secret" });
+    const config = createDefaultConfig({ FIREFLYPROXY_SESSION_SECRET: "default-test-secret" });
 
     assert.equal(config.timeoutMs, 30000);
     assert.equal(config.session.maxAgeMs, 86400000);
@@ -27,11 +27,27 @@ test("default configuration uses explicit millisecond fields", () => {
         user: "",
         pwd: ""
     });
+    assert.deepEqual(config.runtimeState, {
+        backend: "memory",
+        sqlitePath: "./.fireflyproxy-state/runtime.sqlite",
+        busyTimeoutMs: 5000
+    });
     assert.equal(config.browser.webSocket, false);
     assert.equal(config.browser.scriptCookieBridge, false);
     assert.equal(config.browser.webSocketMaxPayloadBytes, 1048576);
     assert.equal(config.browser.webSocketIdleTimeoutMs, 60000);
     assert.equal(config.browser.webSocketMaxConnections, 64);
+    assert.deepEqual(config.browser.responseTransform, {
+        enabled: false,
+        rules: []
+    });
+    assert.deepEqual(config.browser.publicCache, {
+        enabled: false,
+        directory: "./.fireflyproxy-cache/public",
+        ttlMs: 300000,
+        maxBytes: 268435456,
+        maxObjectBytes: 5242880
+    });
     assert.deepEqual(config.browser.originIsolation, {
         enabled: false,
         baseOrigin: "https://browse.example.com"
@@ -253,6 +269,110 @@ test("Script Cookie Bridge requires HTML Rewrite and Runtime Bridge", () => {
         runtimeBridge: true,
         rewriteHtml: true
     } }).config.browser.scriptCookieBridge, true);
+});
+
+test("Scoped response transform validates bounded literal rules and unique IDs", () => {
+    const valid = parseConfigObject({
+        browser: {
+            responseTransform: {
+                enabled: true,
+                rules: [{
+                    id: "example-html",
+                    hosts: ["example.com", "*.static.example.com"],
+                    pathPrefix: "/app/",
+                    contentTypes: ["text/html"],
+                    replacements: [{ search: "before", replacement: "after" }]
+                }]
+            }
+        }
+    }).config.browser.responseTransform;
+    assert.equal(valid.rules[0].enabled, true);
+    assert.equal(valid.rules[0].replacements[0].mode, "all");
+    assert.equal(valid.rules[0].replacements[0].maxReplacements, 1000);
+
+    for (const rules of [
+        [{
+            id: "empty",
+            hosts: ["example.com"],
+            pathPrefix: "/",
+            contentTypes: ["text/html"]
+        }],
+        [{
+            id: "bad-host",
+            hosts: ["*"],
+            pathPrefix: "/",
+            contentTypes: ["text/html"],
+            replacements: [{ search: "a", replacement: "b" }]
+        }],
+        [{
+            id: "bad-path",
+            hosts: ["example.com"],
+            pathPrefix: "relative",
+            contentTypes: ["text/html"],
+            replacements: [{ search: "a", replacement: "b" }]
+        }],
+        ...[["duplicate", "duplicate"]].map(ids => ids.map(id => ({
+            id,
+            hosts: ["example.com"],
+            pathPrefix: "/",
+            contentTypes: ["text/html"],
+            replacements: [{ search: "a", replacement: "b" }]
+        })))
+    ]) {
+        assert.throws(
+            () => parseConfigObject({ browser: { responseTransform: { enabled: true, rules } } }),
+            error => error instanceof ConfigLoadError && /responseTransform/.test(error.message)
+        );
+    }
+});
+
+test("Public static cache defaults closed and enforces bounded disk capacity", () => {
+    const valid = parseConfigObject({
+        browser: {
+            publicCache: {
+                enabled: true,
+                directory: "./cache/public",
+                ttlMs: 60000,
+                maxBytes: 1048576,
+                maxObjectBytes: 65536
+            }
+        }
+    }).config.browser.publicCache;
+    assert.equal(valid.enabled, true);
+    assert.equal(valid.maxObjectBytes, 65536);
+
+    for (const publicCache of [
+        { enabled: true, directory: "", ttlMs: 1, maxBytes: 1024, maxObjectBytes: 1 },
+        { enabled: true, directory: "./cache", ttlMs: 0, maxBytes: 1024, maxObjectBytes: 1 },
+        { enabled: true, directory: "./cache", ttlMs: 1, maxBytes: 1024, maxObjectBytes: 2048 }
+    ]) {
+        assert.throws(
+            () => parseConfigObject({ browser: { publicCache } }),
+            error => error instanceof ConfigLoadError && /publicCache/.test(error.message)
+        );
+    }
+});
+
+test("Runtime state accepts memory or bounded SQLite startup configuration", () => {
+    assert.equal(parseConfigObject({
+        runtimeState: {
+            backend: "sqlite",
+            sqlitePath: "./state/runtime.sqlite",
+            busyTimeoutMs: 1000
+        }
+    }).config.runtimeState.backend, "sqlite");
+
+    for (const runtimeState of [
+        { backend: "redis", sqlitePath: "./state.sqlite", busyTimeoutMs: 1000 },
+        { backend: "sqlite", sqlitePath: "", busyTimeoutMs: 1000 },
+        { backend: "sqlite", sqlitePath: "./state.sqlite", busyTimeoutMs: 99 },
+        { backend: "sqlite", sqlitePath: "./state.sqlite", busyTimeoutMs: 60001 }
+    ]) {
+        assert.throws(
+            () => parseConfigObject({ runtimeState }),
+            error => error instanceof ConfigLoadError && /runtimeState/.test(error.message)
+        );
+    }
 });
 
 test("Origin isolation requires an owned HTTPS namespace and Secure control session", () => {

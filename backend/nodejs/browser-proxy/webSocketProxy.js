@@ -298,7 +298,7 @@ function createWebSocketProxy(options) {
                 });
             }
             if (configuredRequest.browser.originIsolation.enabled) {
-                req.proxyWebExternalProtocol = new URL(
+                req.fireflyProxyExternalProtocol = new URL(
                     configuredRequest.browser.originIsolation.baseOrigin
                 ).protocol.slice(0, -1);
             }
@@ -321,7 +321,7 @@ function createWebSocketProxy(options) {
             await parseSession(sessionMiddleware, req);
             const requestConfig = applyBrowserPreferences(
                 configuredRequest,
-                req.session?.proxyWebBrowserPreferences
+                req.session?.fireflyProxyBrowserPreferences
             );
             if (!requestConfig.browser.webSocket) {
                 throw new ProxyError(ERROR_CODES.WEBSOCKET_DISABLED, "Browser WebSocket proxy is disabled", {

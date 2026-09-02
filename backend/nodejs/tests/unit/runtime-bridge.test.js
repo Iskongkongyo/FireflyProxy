@@ -27,12 +27,12 @@ test("Runtime Bridge source is standalone JavaScript without diagnostic or stora
     assert.equal(RUNTIME_BRIDGE_PATH, "/__proxyweb/runtime.js");
     assert.doesNotThrow(() => new Function(RUNTIME_BRIDGE_SOURCE));
     assert.doesNotMatch(RUNTIME_BRIDGE_SOURCE, /console\.|localStorage|sessionStorage/);
-    assert.match(RUNTIME_BRIDGE_SOURCE, /ProxyWebRequest/);
+    assert.match(RUNTIME_BRIDGE_SOURCE, /FireflyProxyRequest/);
     assert.match(RUNTIME_BRIDGE_SOURCE, /XMLHttpRequest/);
     assert.match(RUNTIME_BRIDGE_SOURCE, /EventSource/);
-    assert.match(RUNTIME_BRIDGE_SOURCE, /ProxyWebWebSocket/);
+    assert.match(RUNTIME_BRIDGE_SOURCE, /FireflyProxyWebSocket/);
     assert.match(RUNTIME_BRIDGE_SOURCE, /installScriptCookieBridge/);
-    assert.match(RUNTIME_BRIDGE_SOURCE, /__proxyweb_sc_/);
+    assert.match(RUNTIME_BRIDGE_SOURCE, /__fireflyproxy_sc_/);
     assert.match(RUNTIME_BRIDGE_SOURCE, /pushState/);
 });
 
@@ -51,7 +51,7 @@ test("Runtime Bridge handler fails closed and serves a no-store nosniff script o
     assert.equal(enabledResponse.body, RUNTIME_BRIDGE_SOURCE);
 
     let failure;
-    handler({ session: { proxyWebBrowserPreferences: { runtimeBridge: false } } }, responseRecorder(), error => {
+    handler({ session: { fireflyProxyBrowserPreferences: { runtimeBridge: false } } }, responseRecorder(), error => {
         failure = error;
     });
     assert.equal(failure.code, "PROXY_ROUTE_NOT_FOUND");
@@ -59,7 +59,7 @@ test("Runtime Bridge handler fails closed and serves a no-store nosniff script o
 
     config = { ...config, browser: { ...config.browser, runtimeBridge: false } };
     failure = null;
-    handler({ session: { proxyWebBrowserPreferences: { runtimeBridge: true } } }, responseRecorder(), error => {
+    handler({ session: { fireflyProxyBrowserPreferences: { runtimeBridge: true } } }, responseRecorder(), error => {
         failure = error;
     });
     assert.equal(failure.code, "PROXY_ROUTE_NOT_FOUND");

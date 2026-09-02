@@ -62,14 +62,14 @@ function resolveBrowserRootRecovery(req, config, originIsolationRegistry) {
 function createBrowserRootRecoveryMarker({ getConfig, originIsolationRegistry }) {
     return (req, res, next) => {
         const recovery = resolveBrowserRootRecovery(req, getConfig(), originIsolationRegistry);
-        if (recovery) req.proxyWebBrowserRootRecovery = recovery;
+        if (recovery) req.fireflyProxyBrowserRootRecovery = recovery;
         next();
     };
 }
 
 function createBrowserRootRecoveryAdapter({ proxyExecutor, getConfig }) {
     return async (req, res, next) => {
-        const recovery = req.proxyWebBrowserRootRecovery;
+        const recovery = req.fireflyProxyBrowserRootRecovery;
         if (!recovery) return next();
 
         try {

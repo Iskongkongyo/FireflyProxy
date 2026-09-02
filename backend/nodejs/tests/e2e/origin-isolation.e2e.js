@@ -60,13 +60,13 @@ async function run() {
         assert.notEqual(sourceOrigin, cdnOrigin);
         assert.equal((await sourcePage.evaluate(() => window.__runtimeResults.cdn)).host, `cdn.test:${fixture.port}`);
 
-        await sourcePage.evaluate(() => localStorage.setItem("proxyweb-origin-probe", "source-value"));
+        await sourcePage.evaluate(() => localStorage.setItem("fireflyproxy-origin-probe", "source-value"));
         const cdnPage = await context.newPage();
         const cdnNavigation = await cdnPage.goto(cdnCanonical, { waitUntil: "domcontentloaded" });
         assert.equal(cdnNavigation.status(), 200);
-        assert.equal(await cdnPage.evaluate(() => localStorage.getItem("proxyweb-origin-probe")), null);
-        await cdnPage.evaluate(() => localStorage.setItem("proxyweb-origin-probe", "cdn-value"));
-        assert.equal(await sourcePage.evaluate(() => localStorage.getItem("proxyweb-origin-probe")), "source-value");
+        assert.equal(await cdnPage.evaluate(() => localStorage.getItem("fireflyproxy-origin-probe")), null);
+        await cdnPage.evaluate(() => localStorage.setItem("fireflyproxy-origin-probe", "cdn-value"));
+        assert.equal(await sourcePage.evaluate(() => localStorage.getItem("fireflyproxy-origin-probe")), "source-value");
 
         const popupPromise = context.waitForEvent("page");
         await sourcePage.evaluate(url => { window.__isolationPopup = window.open(url, "_blank"); }, cdnCanonical);

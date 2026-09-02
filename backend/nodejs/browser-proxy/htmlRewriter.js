@@ -135,20 +135,20 @@ function rewriteAttributeSet($, selector, attribute, baseUrl, mapperOptions) {
 }
 
 function injectRuntimeBridge($, documentUrl, baseUrl = null, options = {}) {
-    if ($("script[data-proxyweb-runtime]").length > 0) return false;
+    if ($("script[data-fireflyproxy-runtime]").length > 0) return false;
     const script = $("<script></script>")
         .attr("src", RUNTIME_BRIDGE_PATH)
-        .attr("data-proxyweb-runtime", documentUrl);
-    if (baseUrl) script.attr("data-proxyweb-base-url", baseUrl);
+        .attr("data-fireflyproxy-runtime", documentUrl);
+    if (baseUrl) script.attr("data-fireflyproxy-base-url", baseUrl);
     if (options.scriptCookieBridge) {
-        script.attr("data-proxyweb-script-cookie-bridge", "true");
+        script.attr("data-fireflyproxy-script-cookie-bridge", "true");
     }
     if (options.webSocket && options.webSocketContext) {
-        script.attr("data-proxyweb-websocket", "true");
-        script.attr("data-proxyweb-origin-context", options.webSocketContext);
+        script.attr("data-fireflyproxy-websocket", "true");
+        script.attr("data-fireflyproxy-origin-context", options.webSocketContext);
     }
     if (options.originIsolation?.enabled) {
-        script.attr("data-proxyweb-isolation-base-origin", options.originIsolation.baseOrigin);
+        script.attr("data-fireflyproxy-isolation-base-origin", options.originIsolation.baseOrigin);
     }
     const head = $("head").first();
     if (head.length > 0) head.prepend(script);

@@ -25,7 +25,7 @@ function closeServer(server) {
     return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 }
 
-function proxyWebSocketUrl(proxyOrigin, target) {
+function fireflyProxyWebSocketUrl(proxyOrigin, target) {
     const url = new URL(toProxyUrl(target), proxyOrigin);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     return url.href;
@@ -109,7 +109,7 @@ test("WebSocket proxy preserves text, binary, subprotocol, close code, Cookie Ja
         const sourceOrigin = fixture.origin;
         const marker = createWebSocketOriginContext(sourceOrigin, SESSION_SECRET);
         const client = new WebSocket(
-            proxyWebSocketUrl(proxy.origin, `http://fixture.test:${upstreamPort}/socket?q=1`),
+            fireflyProxyWebSocketUrl(proxy.origin, `http://fixture.test:${upstreamPort}/socket?q=1`),
             ["chat", marker],
             {
                 origin: proxy.origin,
@@ -149,7 +149,7 @@ test("WebSocket Upgrade enforces proxy Basic Auth without forwarding credentials
         pwd: "proxy-pass",
         browser: { enabled: true, webSocket: true }
     });
-    const url = proxyWebSocketUrl(proxy.origin, `http://fixture.test:${upstreamPort}/socket?auth=1`);
+    const url = fireflyProxyWebSocketUrl(proxy.origin, `http://fixture.test:${upstreamPort}/socket?auth=1`);
     try {
         assert.equal(await rejectedUpgradeStatus(url, { origin: proxy.origin }), 401);
 
@@ -178,7 +178,7 @@ test("WebSocket connection limit includes established and pending Upgrade work",
             webSocketMaxConnections: 1
         }
     });
-    const url = proxyWebSocketUrl(proxy.origin, `http://fixture.test:${upstreamPort}/hold`);
+    const url = fireflyProxyWebSocketUrl(proxy.origin, `http://fixture.test:${upstreamPort}/hold`);
     try {
         const first = new WebSocket(url, { origin: proxy.origin });
         await once(first, "open");
@@ -193,7 +193,7 @@ test("WebSocket Upgrade fails closed for disabled capability, foreign Origin and
     const disabled = await startProxy({ browser: { enabled: true, webSocket: false } });
     try {
         assert.equal(await rejectedUpgradeStatus(
-            proxyWebSocketUrl(disabled.origin, `http://fixture.test:${upstreamPort}/socket`),
+            fireflyProxyWebSocketUrl(disabled.origin, `http://fixture.test:${upstreamPort}/socket`),
             { origin: disabled.origin }
         ), 404);
     } finally {
@@ -211,15 +211,15 @@ test("WebSocket Upgrade fails closed for disabled capability, foreign Origin and
         const entryResponse = await fetch(entry, { redirect: "manual" });
         const tightenedSession = entryResponse.headers.get("set-cookie").split(";", 1)[0];
         assert.equal(await rejectedUpgradeStatus(
-            proxyWebSocketUrl(enabled.origin, `http://fixture.test:${upstreamPort}/socket`),
+            fireflyProxyWebSocketUrl(enabled.origin, `http://fixture.test:${upstreamPort}/socket`),
             { origin: enabled.origin, headers: { cookie: tightenedSession } }
         ), 404);
         assert.equal(await rejectedUpgradeStatus(
-            proxyWebSocketUrl(enabled.origin, `http://fixture.test:${upstreamPort}/socket`),
+            fireflyProxyWebSocketUrl(enabled.origin, `http://fixture.test:${upstreamPort}/socket`),
             { origin: "https://attacker.test" }
         ), 403);
         assert.equal(await rejectedUpgradeStatus(
-            proxyWebSocketUrl(enabled.origin, "http://127.0.0.1:65530/socket"),
+            fireflyProxyWebSocketUrl(enabled.origin, "http://127.0.0.1:65530/socket"),
             { origin: enabled.origin }
         ), 403);
     } finally {
@@ -238,7 +238,7 @@ test("WebSocket payload and idle limits close established connections", async ()
     });
     try {
         const client = new WebSocket(
-            proxyWebSocketUrl(payloadProxy.origin, `http://fixture.test:${upstreamPort}/limit`),
+            fireflyProxyWebSocketUrl(payloadProxy.origin, `http://fixture.test:${upstreamPort}/limit`),
             { origin: payloadProxy.origin }
         );
         client.on("error", () => {});
@@ -260,7 +260,7 @@ test("WebSocket payload and idle limits close established connections", async ()
     });
     try {
         const client = new WebSocket(
-            proxyWebSocketUrl(idleProxy.origin, `http://fixture.test:${upstreamPort}/idle`),
+            fireflyProxyWebSocketUrl(idleProxy.origin, `http://fixture.test:${upstreamPort}/idle`),
             { origin: idleProxy.origin }
         );
         client.on("error", () => {});

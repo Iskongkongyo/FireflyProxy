@@ -1,8 +1,6 @@
-# proxyWeb 前端
+﻿# FireflyProxy 前端
 
 基于 Vue 3、Element Plus 和 Vue CLI 5 的浏览器 API 请求界面。它负责组装请求、展示响应和保存本地历史；跨域请求由 [Node.js 后端](../backend/nodejs/README.md) 转发。
-
-![界面预览](./review.png)
 
 ## 已实现功能
 
@@ -74,13 +72,13 @@ npm run build
 3. 在“请求参数”“请求头”“请求验证”和“重定向”中补充配置；每行可独立启停。Redirect 设置只能关闭或收紧后端全局策略。非 GET/HEAD 请求可在“请求体”中选择 none、Raw、JSON、URL 编码或 multipart，并为 multipart 文件字段逐项选择本地文件。需要复用目标或凭据时，可在“工作区”创建 Environment 并使用 `{{baseUrl}}`、`{{token}}` 等变量。
 4. 点击“发送请求”，在下方查看 Status、Final URL、Redirect Chain、Content-Type、total、实际数据大小、内容与响应头。
 
-“Import cURL”只解析静态 HTTP(S) cURL 文本，不运行 Shell、读取路径或发起请求；导入的 `@file` 必须在文件选择器中重新授权。它支持 `-L`/`--location` 与 0–20 的 `--max-redirs`。“Copy as cURL”输出 POSIX Shell 单引号转义格式，若包含 Auth 或敏感 Header 会先二次确认。PowerShell/`cmd.exe` 不能保证直接复用该格式，完整契约见 [请求编辑器与 cURL 契约](../docs/request-editor-curl-contract.md) 和 [Redirect/响应诊断契约](../docs/api-response-diagnostics-contract.md)。
+“Import cURL”只解析静态 HTTP(S) cURL 文本，不运行 Shell、读取路径或发起请求；导入的 `@file` 必须在文件选择器中重新授权。它支持 `-L`/`--location` 与 0–20 的 `--max-redirs`。“Copy as cURL”输出 POSIX Shell 单引号转义格式，若包含 Auth 或敏感 Header 会先二次确认。PowerShell/`cmd.exe` 不能保证直接复用该格式；详细边界记录在本地的请求编辑器、cURL 与响应诊断开发文档中。
 
 Duration 使用单调时钟统计 Axios 分派至完整响应体读取的客户端 total，不是服务端耗时，也不拆分 DNS/connect/TLS/TTFB。Response Size 是浏览器实际获得的 Blob/ArrayBuffer 字节数或文本/JSON 的 UTF-8 字节数，可能与压缩传输量或上游 Content-Length 不同。Final URL 与 Redirect Chain 可能包含目标 URL 自身的 Token，复制或截图前应检查。
 
 网页代理页位于 `/web/browser`：输入完整 HTTP(S) URL 后默认在无 opener 的新标签页打开。高级设置可以为当前 Browser Session 关闭 HTML/CSS Rewrite、Runtime Bridge、WebSocket Proxy、Cookie Jar 或 Compatibility Headers，但不能打开后端全局禁用的能力。Runtime Bridge 映射 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History 动态 URL；Runtime 与 WebSocket 后端能力均默认关闭，需分别显式启用。嵌入预览只有在 Browser Proxy 与管理 UI 不同 Origin 时可选，并可能受第三方 Cookie、目标站 CSP/防嵌入策略和浏览器隐私设置影响。
 
-手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值。发送时该值会放入 `X-ProxyWeb-Upstream-Authorization`，不会进入代理 URL；其他自定义 Header 直接作为到 proxyWeb 的 HTTP Header 发送。带自定义 Header 或上游认证的媒体请求会回退到 Axios Blob，只有无额外 Header 时才使用原生媒体 URL 流式加载。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
+手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值。发送时该值会放入 `X-FireflyProxy-Upstream-Authorization`，不会进入代理 URL；其他自定义 Header 直接作为到 FireflyProxy 的 HTTP Header 发送。带自定义 Header 或上游认证的媒体请求会回退到 Axios Blob，只有无额外 Header 时才使用原生媒体 URL 流式加载。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
 
 ## 分享与本地数据安全
 
@@ -101,10 +99,10 @@ API 请求页的手工 Cookie 输入仍属于旧兼容行为，不等价于 Brow
 
 “工作区”抽屉支持 Environment、Folder 和 Saved Request。环境变量只进行受限文本替换，不执行 JavaScript/Shell；缺失、重复、非法、未闭合或循环变量会阻止发送。实际发送和 Copy API/cURL 使用当前环境展开，页面分享与历史只保留原始模板，不携带活动环境值。
 
-Environment 可选择 IndexedDB 持久化或仅当前标签会话的 Session Storage。Collections 使用 `proxyweb-workspace` IndexedDB 保存 Name、Method、URL/Params、Headers、Body、Auth 和 Redirect。删除 Folder 会把内部请求移到未分类；multipart 只保存文件名占位，加载后必须重新选择文件。
+Environment 可选择 IndexedDB 持久化或仅当前标签会话的 Session Storage。Collections 使用 `fireflyproxy-workspace` IndexedDB 保存 Name、Method、URL/Params、Headers、Body、Auth 和 Redirect。删除 Folder 会把内部请求移到未分类；multipart 只保存文件名占位，加载后必须重新选择文件。
 
 > [!WARNING]
-> Secret 标记仅提供遮罩、风险识别与二次确认，不提供加密。IndexedDB 和 Session Storage 中的数据都可能被同源脚本、扩展或可访问浏览器资料的本机用户读取。本阶段没有账号/云同步、主密码、Keychain 或团队 Secret Vault。完整边界见 [Environment 与 Collections 契约](../docs/workspace-environment-collections-contract.md)。
+> Secret 标记仅提供遮罩、风险识别与二次确认，不提供加密。IndexedDB 和 Session Storage 中的数据都可能被同源脚本、扩展或可访问浏览器资料的本机用户读取。本阶段没有账号/云同步、主密码、Keychain 或团队 Secret Vault。完整边界记录在本地的 Environment 与 Collections 开发文档中。
 
 ## 构建与部署
 
@@ -158,4 +156,4 @@ vue-request-app/
 - 工作区没有多标签实时冲突合并、Collection 导入/导出、Runner、测试脚本、账号同步或加密；最后一次成功写入生效。
 - 项目只包含 Node.js 后端，没有 Python 后端。
 
-完整改造范围见 [vNext 开发计划](../proxyWeb%20vNext%20开发计划与技术方案.md)。
+完整改造范围记录在本地的 vNext 开发计划中。

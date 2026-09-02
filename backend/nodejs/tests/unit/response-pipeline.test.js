@@ -79,7 +79,8 @@ test("identity HTML is decoded as declared charset, transformed and emitted as U
             "content-type": "text/html; charset=windows-1252",
             "content-length": "4",
             etag: '"old"',
-            "content-md5": "old-md5"
+            "content-md5": "old-md5",
+            "last-modified": "Mon, 01 Jan 2024 00:00:00 GMT"
         },
         method: "GET",
         status: 200,
@@ -95,7 +96,48 @@ test("identity HTML is decoded as declared charset, transformed and emitted as U
     assert.equal(prepared.headers["content-length"], undefined);
     assert.equal(prepared.headers.etag, undefined);
     assert.equal(prepared.headers["content-md5"], undefined);
+    assert.equal(prepared.headers["last-modified"], undefined);
     assert.equal(prepared.transformed, true);
+});
+
+test("a policy hook can select bounded textual content without buffering binary media", async () => {
+    const textBody = Buffer.from("before", "utf8");
+    const prepared = await prepareResponse({
+        body: Readable.from([textBody]),
+        headers: { "content-type": "text/plain", "content-length": String(textBody.length) },
+        method: "GET",
+        status: 200,
+        mode: "browser",
+        config,
+        targetUrl: "https://example.test/app.txt",
+        shouldTransformText: ({ mediaType, targetUrl }) => (
+            mediaType === "text/plain" && targetUrl.endsWith("/app.txt")
+        ),
+        transformText: ({ text }) => text.replace("before", "after"),
+        logger
+    });
+    assert.equal((await readAll(prepared.body)).toString("utf8"), "after");
+    assert.equal(prepared.classification.reason, "scoped-response-transform");
+
+    for (const [contentType, binary] of [
+        ["application/octet-stream", Buffer.from([0, 1, 2, 3])],
+        ["text/event-stream", Buffer.from("data: safe\n\n")]
+    ]) {
+        const passthrough = await prepareResponse({
+            body: Readable.from([binary]),
+            headers: { "content-type": contentType, "content-length": String(binary.length) },
+            method: "GET",
+            status: 200,
+            mode: "browser",
+            config,
+            targetUrl: "https://example.test/resource",
+            shouldTransformText: () => true,
+            transformText: ({ text }) => `${text}!`,
+            logger
+        });
+        assert.deepEqual(await readAll(passthrough.body), binary);
+        assert.equal(passthrough.classification.reason, "streaming-media");
+    }
 });
 
 test("gzip, deflate and br HTML are decompressed, bounded and recompressed", async () => {
@@ -143,6 +185,23 @@ test("rewrite limits apply to decoded bytes and return a stable 413 error", asyn
             config,
             targetUrl: "https://example.test/large.css",
             transformText: ({ text }) => text,
+            logger
+        }),
+        error => error.code === "PROXY_REWRITE_LIMIT" && error.statusCode === 413
+    );
+});
+
+test("rewrite limits also apply to transformed UTF-8 output expansion", async () => {
+    await assert.rejects(
+        prepareResponse({
+            body: Readable.from([Buffer.from("small")]),
+            headers: { "content-type": "text/html" },
+            method: "GET",
+            status: 200,
+            mode: "browser",
+            config: { ...config, security: { maxRewriteBytes: 16 } },
+            targetUrl: "https://example.test/expand",
+            transformText: () => "x".repeat(17),
             logger
         }),
         error => error.code === "PROXY_REWRITE_LIMIT" && error.statusCode === 413

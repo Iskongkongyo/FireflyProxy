@@ -65,7 +65,31 @@ async function run() {
         browserPath = findBrowserExecutable();
         fixture = await createBrowserE2eFixture();
         proxy = await startProxy({
-            browser: { enabled: true }
+            browser: {
+                enabled: true,
+                responseTransform: {
+                    enabled: true,
+                    rules: [{
+                        id: "browser-core-page",
+                        hosts: ["fixture.test"],
+                        pathPrefix: "/site",
+                        contentTypes: ["text/html"],
+                        replacements: [{
+                            search: "Browser Core fixture",
+                            replacement: "Scoped Browser fixture",
+                            mode: "once",
+                            maxReplacements: 1
+                        }, {
+                            search: "http://legacy.invalid/escaped",
+                            replacement: "/link-result",
+                            mode: "once",
+                            maxReplacements: 1
+                        }],
+                        appendHead: "<script>window.__scopedTransformLoaded = true;</script>",
+                        prependBody: "<aside id=proxyweb-transform-marker>scoped</aside>"
+                    }]
+                }
+            }
         }, {
             fixtureHosts: ["fixture.test", "cdn.test"],
             dnsRecords: {
@@ -89,7 +113,13 @@ async function run() {
         const navigation = await page.goto(entryUrl.href, { waitUntil: "domcontentloaded" });
         assert.equal(navigation.status(), 200);
         assert.match(page.url(), /\/__proxyweb\/browser\/[^/]+\/site$/);
-        assert.equal(await page.locator("#static-page").textContent(), "Browser Core fixture");
+        assert.equal(await page.locator("#static-page").textContent(), "Scoped Browser fixture");
+        assert.equal(await page.locator("#proxyweb-transform-marker").textContent(), "scoped");
+        assert.equal(await page.evaluate(() => window.__scopedTransformLoaded), true);
+        assert.match(
+            await page.locator("#scoped-hardcoded").getAttribute("href"),
+            /^\/__proxyweb\/browser\/[^/]+\/link-result$/
+        );
         await page.waitForFunction(() => window.__cdnScriptLoaded && window.__e2e?.sse?.length === 2);
         await page.waitForFunction(() => [...document.images].every(image => image.complete && image.naturalWidth > 0));
 

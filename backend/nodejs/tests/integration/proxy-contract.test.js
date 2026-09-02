@@ -521,6 +521,7 @@ test("Browser response pipeline transforms bounded text while streaming SSE and 
         assert.equal(html.headers.get("content-length"), null);
         assert.equal(html.headers.get("etag"), null);
         assert.equal(html.headers.get("content-md5"), null);
+        assert.equal(html.headers.get("last-modified"), null);
         assert.equal(html.headers.get("content-type"), "text/html; charset=utf-8");
 
         const compressed = await fetch(new URL(
@@ -544,6 +545,124 @@ test("Browser response pipeline transforms bounded text while streaming SSE and 
         assert.equal(sse.headers.get("etag"), '"fixture-sse-etag"');
     } finally {
         await pipelineProxy.close();
+    }
+});
+
+test("Browser scoped response transform applies only to its literal host, path and MIME scope", async () => {
+    const transformProxy = await startProxy({
+        browser: {
+            enabled: true,
+            rewriteHtml: false,
+            responseTransform: {
+                enabled: true,
+                rules: [{
+                    id: "fixture-page",
+                    hosts: ["fixture.test"],
+                    pathPrefix: "/html",
+                    contentTypes: ["text/html"],
+                    replacements: [{
+                        search: "pipeline",
+                        replacement: "scoped-value",
+                        mode: "all",
+                        maxReplacements: 4
+                    }],
+                    appendHead: "<meta name=proxyweb-transform content=enabled>",
+                    prependBody: "<div id=proxyweb-injected>injected</div>"
+                }]
+            }
+        }
+    });
+    try {
+        const response = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/html`),
+            transformProxy.origin
+        ));
+        const $ = cheerio.load(await response.text());
+        assert.equal($("meta[name=proxyweb-transform]").attr("content"), "enabled");
+        assert.equal($("#proxyweb-injected").text(), "injected");
+        assert.match($("body").text(), /scoped-value/);
+        assert.equal(response.headers.get("content-length"), null);
+        assert.equal(response.headers.get("etag"), null);
+        assert.equal(response.headers.get("content-md5"), null);
+        assert.equal(response.headers.get("last-modified"), null);
+
+        const rewriteDisabled = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/html-relative`),
+            transformProxy.origin
+        ));
+        const disabled$ = cheerio.load(await rewriteDisabled.text());
+        assert.equal(disabled$("#navigation").attr("href"), "/json?via=html#result");
+        assert.equal(disabled$("script[data-fireflyproxy-runtime]").length, 0);
+        assert.equal(disabled$("meta[name=proxyweb-transform]").attr("content"), "enabled");
+
+        const nonMatching = await fetch(new URL(
+            toProxyUrl(`${fixture.origin}/gzip-html`),
+            transformProxy.origin
+        ));
+        assert.match(await nonMatching.text(), /compressed/);
+        assert.equal(nonMatching.headers.get("etag"), '"fixture-gzip-etag"');
+        assert.notEqual(nonMatching.headers.get("content-length"), null);
+    } finally {
+        await transformProxy.close();
+    }
+});
+
+test("Browser scoped response transform hot reloads and rejects invalid replacement rules atomically", async () => {
+    const hotTransformProxy = await startProxy({
+        browser: {
+            enabled: true,
+            rewriteHtml: false,
+            responseTransform: { enabled: false, rules: [] }
+        }
+    });
+    const target = `${fixture.origin}/html`;
+    const requestPage = () => fetch(new URL(toProxyUrl(target), hotTransformProxy.origin));
+    try {
+        assert.match(await (await requestPage()).text(), /pipeline/);
+
+        const enabledConfig = {
+            enabled: true,
+            rules: [{
+                id: "hot-page",
+                hosts: ["fixture.test"],
+                pathPrefix: "/html",
+                contentTypes: ["text/html"],
+                replacements: [{
+                    search: "pipeline",
+                    replacement: "hot-reloaded",
+                    mode: "once",
+                    maxReplacements: 1
+                }]
+            }]
+        };
+        let outputIndex = hotTransformProxy.getOutput().length;
+        await hotTransformProxy.updateConfig({
+            browser: { enabled: true, rewriteHtml: false, responseTransform: enabledConfig }
+        });
+        await hotTransformProxy.waitForOutput(/Configuration loaded/, outputIndex);
+        assert.match(await (await requestPage()).text(), /hot-reloaded/);
+
+        // Chokidar coalesces rapid writes on Windows. Cross that window so this
+        // test observes a distinct second reload instead of a merged change.
+        await new Promise(resolve => setTimeout(resolve, 150));
+        outputIndex = hotTransformProxy.getOutput().length;
+        await hotTransformProxy.updateConfig({
+            browser: {
+                enabled: true,
+                rewriteHtml: false,
+                responseTransform: {
+                    enabled: true,
+                    rules: [{
+                        ...enabledConfig.rules[0],
+                        replacements: [{ search: "", replacement: "invalid", mode: "once", maxReplacements: 1 }]
+                    }]
+                }
+            }
+        });
+        await hotTransformProxy.waitForOutput(/CONFIG_SCHEMA_INVALID/, outputIndex);
+        assert.match(await (await requestPage()).text(), /hot-reloaded/);
+    } finally {
+        await hotTransformProxy.close();
     }
 });
 

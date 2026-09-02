@@ -1,8 +1,8 @@
 <template>
-	<el-card style="margin-top: 20px;" class="response-card">
+	<el-card class="response-card" shadow="never">
 		<template #header>
 			<div class="response-header">
-				<span>响应内容</span>
+				<div class="response-title"><span class="response-indicator"></span><strong>响应结果</strong></div>
 				<div class="response-stats">
 					<el-tag v-if="status !== null" :type="statusTagType" size="small">
 						HTTP {{ status }}{{ statusText ? ` ${statusText}` : '' }}
@@ -19,20 +19,20 @@
 
 		<div v-if="hasDiagnostics && !loading" class="diagnostics-panel">
 			<el-descriptions :column="2" border size="small">
-				<el-descriptions-item label="Status">
+				<el-descriptions-item label="状态">
 					{{ status }}{{ statusText ? ` ${statusText}` : '' }}
 				</el-descriptions-item>
-				<el-descriptions-item label="Duration">{{ responseTime }} ms (total)</el-descriptions-item>
-				<el-descriptions-item label="Response Size">{{ formatSize(responseSize) }}</el-descriptions-item>
+				<el-descriptions-item label="总耗时">{{ responseTime }} ms</el-descriptions-item>
+				<el-descriptions-item label="响应大小">{{ formatSize(responseSize) }}</el-descriptions-item>
 				<el-descriptions-item label="Content-Type">{{ contentType || '未提供' }}</el-descriptions-item>
-				<el-descriptions-item label="Final URL" :span="2">
+				<el-descriptions-item label="最终 URL" :span="2">
 					<span class="diagnostic-url">{{ finalUrl || '未知' }}</span>
 				</el-descriptions-item>
 			</el-descriptions>
 			<el-alert v-if="diagnosticsTruncated" title="诊断响应头达到安全大小上限，部分 URL 或跳转项已截断。"
 				type="warning" :closable="false" show-icon />
 			<div v-if="redirectChain.length" class="redirect-chain">
-				<div class="redirect-chain-title">Redirect Chain</div>
+				<div class="redirect-chain-title">重定向链路</div>
 				<el-timeline>
 					<el-timeline-item v-for="(hop, index) in redirectChain" :key="`${index}-${hop.url}`"
 						:type="hop.followed ? 'primary' : 'warning'" :timestamp="`${hop.status} · ${hop.method}`">
@@ -42,7 +42,7 @@
 							{{ hop.followed ? '已跟随' : '未跟随' }}
 						</el-tag>
 					</el-timeline-item>
-					<el-timeline-item type="success" timestamp="Final">
+					<el-timeline-item type="success" timestamp="最终响应">
 						<div class="redirect-hop-url">{{ finalUrl }}</div>
 					</el-timeline-item>
 				</el-timeline>
@@ -117,8 +117,10 @@
 		
 		<!-- Empty / Default -->
 		<div v-else class="empty-state">
-			<div class="empty-icon">📭</div>
-			<p class="empty-text">发送请求以查看响应内容</p>
+			<div class="empty-icon">⇄</div>
+			<strong>等待发送请求</strong>
+			<p class="empty-text">响应状态、耗时、跳转链路和正文会显示在这里。</p>
+			<span class="empty-shortcut">Ctrl / ⌘ + Enter 快速发送</span>
 		</div>
 	</el-card>
 </template>
@@ -223,7 +225,10 @@ export default {
 
 <style scoped>
 .response-card {
-	border-radius: 8px;
+	margin-top: 16px;
+	border-color: #e4eaf2;
+	border-radius: 15px;
+	text-align: left;
 }
 
 .response-header {
@@ -239,6 +244,9 @@ export default {
 	gap: 8px;
 	flex-wrap: wrap;
 }
+
+.response-title { display: flex; align-items: center; gap: 9px; }
+.response-indicator { width: 8px; height: 8px; border-radius: 50%; background: #1677ff; box-shadow: 0 0 0 5px rgba(22, 119, 255, 0.1); }
 
 .diagnostics-panel { display: grid; gap: 14px; margin-bottom: 16px; }
 .diagnostic-url, .redirect-hop-url, .redirect-arrow { overflow-wrap: anywhere; font-family: monospace; }
@@ -416,19 +424,31 @@ export default {
 
 /* 空状态 */
 .empty-state {
+	display: grid;
+	justify-items: center;
 	text-align: center;
 	padding: 60px 20px;
 	color: #909399;
 }
 
 .empty-icon {
-	font-size: 64px;
+	display: grid;
+	width: 64px;
+	height: 64px;
 	margin-bottom: 16px;
+	place-items: center;
+	color: #8ab8f8;
+	font-size: 34px;
+	border-radius: 18px;
+	background: #eef5ff;
 }
 
 .empty-text {
-	font-size: 14px;
+	margin: 7px 0 12px;
+	font-size: 13px;
 }
+
+.empty-shortcut { padding: 5px 9px; color: #7b8798; font-size: 11px; border: 1px solid #e1e7ef; border-radius: 6px; background: #f8fafc; }
 
 /* 移动端适配 */
 @media (max-width: 768px) {

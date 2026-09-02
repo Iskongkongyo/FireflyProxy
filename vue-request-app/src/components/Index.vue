@@ -1,59 +1,46 @@
 <template>
-	<el-container v-if="isShow" @keydown.enter="sendRequest">
-		<el-header style="color:#409EFF;font-size: 40px" height="75px">
-			<el-row>
-				<el-col :span="24">
-					在线代理网站
-				</el-col>
-			</el-row>
-		</el-header>
-		<el-main>
-			<ModeSwitcher />
+	<main v-if="isShow" class="api-page" @keydown="handlePageKeydown">
+		<ModeSwitcher />
 
-			<!-- 移动端第一行: 请求方法、API URL 和发送按钮 -->
-			<!-- 移动端第一行: 请求方法、API URL 和发送按钮 (分行显示) -->
-			<div v-if="mobile" style="margin-bottom: 20px;">
-				<el-select v-model="method" placeholder="Request Method" style="width: 100%; margin-bottom: 10px;"
-					@change="method != 'GET' && method != 'HEAD' ? activeTab = 'body' : activeTab = 'params'">
-					<el-option v-for="option in methods" :key="option.value" :label="option.label"
-						:value="option.value">
+		<header class="page-hero">
+			<div>
+				<span class="eyebrow">HTTP CLIENT</span>
+				<h1>API 请求</h1>
+				<p>组合请求地址、参数、认证与请求体，并在同一页面查看响应状态、跳转链路和内容。</p>
+			</div>
+			<div class="environment-status">
+				<span class="status-dot"></span>
+				<div>
+					<strong>{{ activeEnvironment?.name || '未选择环境' }}</strong>
+					<small>{{ activeEnvironment ? '环境变量将在发送前解析' : '可在工作区中创建并切换环境' }}</small>
+				</div>
+				<el-button text type="primary" @click="openWorkspace">管理</el-button>
+			</div>
+		</header>
+
+		<section class="request-composer" aria-label="请求地址">
+			<div class="request-line">
+				<el-select v-model="method" class="method-select" size="large" placeholder="请求方法"
+					aria-label="请求方法"
+					@change="method !== 'GET' && method !== 'HEAD' ? activeTab = 'body' : activeTab = 'params'">
+					<el-option v-for="option in methods" :key="option.value" :label="option.label" :value="option.value">
 						<template #default>
-							<el-tag :type="option.type" style="width: 100%; text-align: center;">{{ option.label }}</el-tag>
+							<div class="method-option"><span :class="['method-dot', option.type]"></span>{{ option.label }}</div>
 						</template>
 					</el-option>
 				</el-select>
-				
-				<el-input v-model="url" placeholder="Enter API URL" clearable style="margin-bottom: 10px;" />
-				
-				<el-button type="primary" @click="sendRequest" style="width: 100%;">
-					<el-icon class="el-icon--left"><Search /></el-icon>
-					发送请求
+				<el-input v-model="url" class="url-input" size="large" clearable autocomplete="url"
+					placeholder="输入完整 API 地址，例如：https://api.example.com/v1/users" aria-label="API 请求地址" />
+				<el-button class="send-button" type="primary" size="large" :loading="isLoading" @click="sendRequest">
+					<el-icon v-if="!isLoading" class="el-icon--left"><Search /></el-icon>
+					{{ isLoading ? '请求中' : '发送请求' }}
 				</el-button>
 			</div>
-
-			<!-- PC端第一行: 请求方法、API URL 和发送按钮 -->
-			<el-row :gutter="10" style="margin-bottom: 20px;" v-if="!mobile">
-				<el-col :span="6">
-					<el-select v-model="method" placeholder="请求方法" style="width: 100%;"
-						@change="method != 'GET' && method != 'HEAD' ? activeTab = 'body' : activeTab = 'params'">
-						<el-option v-for="option in methods" :key="option.value" :label="option.label"
-							:value="option.value">
-							<template #default>
-								<el-tag :type="option.type"
-									style="width: 100%; text-align: center;">{{ option.label }}</el-tag>
-							</template>
-						</el-option>
-					</el-select>
-				</el-col>
-				<el-col :span="12">
-					<el-input v-model="url" clearable placeholder="Enter API URL" />
-				</el-col>
-				<el-col :span="1" justify="start">
-					<el-button type="primary" @click="sendRequest" block><el-icon class="el-icon--left">
-							<Search />
-						</el-icon>发送请求</el-button>
-				</el-col>
-			</el-row>
+			<div class="composer-help">
+				<span>仅支持 HTTP(S) 地址；所有请求仍受后端 SSRF 与 DNS 安全策略约束。</span>
+				<div><kbd>Ctrl / ⌘</kbd><span>+</span><kbd>Enter</kbd><span>快速发送</span></div>
+			</div>
+		</section>
 
 			<!-- 第二行: 操作按钮区 -->
 			<el-row :gutter="10" style="margin-bottom: 20px;">
@@ -76,7 +63,18 @@
 				</el-col>
 			</el-row>
 
-			<el-card>
+			<el-card class="request-editor-card" shadow="never">
+				<template #header>
+					<div class="editor-heading">
+						<div>
+							<strong>{{ tabMeta[activeTab]?.title }}</strong>
+							<span>{{ tabMeta[activeTab]?.description }}</span>
+						</div>
+						<el-tag v-if="['headers', 'params'].includes(activeTab)" type="info" effect="plain">
+							{{ tableData[activeTab].filter((row) => row.enabled && (row.key || row.value)).length }} 项启用
+						</el-tag>
+					</div>
+				</template>
 				<!-- 请求体 -->
 				<RequestBody v-show="activeTab === 'body'" @submit-payload="onReceiveBody" ref="body" />
 
@@ -84,14 +82,19 @@
 				<UserAuth v-show="activeTab === 'auth'" ref="userAuth" />
 
 				<div v-show="activeTab === 'redirect'" class="redirect-settings">
-					<el-form label-width="150px">
-						<el-form-item label="Follow Redirects">
-							<el-switch v-model="redirectSettings.followRedirects" />
+					<el-form label-position="top">
+						<div class="redirect-grid">
+						<el-form-item label="自动跟随重定向">
+							<el-select v-model="redirectSettings.followRedirects" class="boolean-select">
+								<el-option label="是，跟随安全的重定向" :value="true" />
+								<el-option label="否，返回首跳响应" :value="false" />
+							</el-select>
 						</el-form-item>
-						<el-form-item label="Max Redirects">
+						<el-form-item label="最大重定向次数">
 							<el-input-number v-model="redirectSettings.maxRedirects" :min="0" :max="20"
-								:disabled="!redirectSettings.followRedirects" />
+								:disabled="!redirectSettings.followRedirects" controls-position="right" />
 						</el-form-item>
+						</div>
 					</el-form>
 					<el-alert title="逐请求设置只能关闭或收紧服务端全局策略；每一跳仍执行 URL、DNS、SSRF 与 Pinning 校验。"
 						type="info" :closable="false" show-icon />
@@ -99,34 +102,31 @@
 
 				<!-- 动态表格 -->
 				<el-table v-if="['headers', 'params'].includes(activeTab)" :data="tableData[activeTab]"
-					style="margin-bottom: 20px;">
-					<el-table-column label="启用" width="76" align="center">
+					class="editor-table">
+					<el-table-column label="启用" width="68" align="center">
 						<template #default="scope">
-							<el-switch v-model="scope.row.enabled" />
+							<el-switch v-model="scope.row.enabled" :aria-label="`启用第 ${scope.$index + 1} 行`" />
 						</template>
 					</el-table-column>
-					<el-table-column prop="key" :label="'Key（'+buttons[activeTab]+')'">
+					<el-table-column prop="key" :label="'名称（'+buttons[activeTab]+')'" min-width="180">
 						<template #default="scope">
-							<el-input v-model="scope.row.key" clearable />
+							<el-input v-model="scope.row.key" clearable placeholder="名称" />
 						</template>
 					</el-table-column>
-					<el-table-column prop="value" :label="'Value（'+buttons[activeTab]+')'">
+					<el-table-column prop="value" :label="'值（'+buttons[activeTab]+')'" min-width="260">
 						<template #default="scope">
-							<el-input v-model="scope.row.value" clearable />
+							<el-input v-model="scope.row.value" clearable placeholder="值；支持 {{ variable }} 环境变量" />
 						</template>
 					</el-table-column>
-					<el-table-column :label="'操作（'+buttons[activeTab]+')'">
+					<el-table-column label="操作" width="88" align="center">
 						<template #default="{ $index }">
-							<el-button type="danger" @click="removeRow(activeTab, $index)"><el-icon
-									class="el-icon--left">
-									<Delete />
-								</el-icon>删除</el-button>
+							<el-button type="danger" link @click="removeRow(activeTab, $index)"><el-icon><Delete /></el-icon>删除</el-button>
 						</template>
 					</el-table-column>
 				</el-table>
 			</el-card>
 
-			<el-dialog v-model="curlDialogVisible" title="Import cURL" width="min(760px, 92vw)" destroy-on-close>
+			<el-dialog v-model="curlDialogVisible" title="导入 cURL" width="min(760px, 92vw)" destroy-on-close>
 				<el-alert title="仅解析静态文本，不执行命令、变量替换或文件读取。"
 					type="info" :closable="false" show-icon />
 				<el-input v-model="curlInput" type="textarea" :rows="12" class="curl-input"
@@ -168,8 +168,7 @@
 				</div>
 			</el-backtop>
 
-		</el-main>
-	</el-container>
+	</main>
 </template>
 
 <script>
@@ -235,6 +234,13 @@
 				mobile: false, //是否是移动端
 				isShow: false, //是否显示
 				activeTab: 'params',
+				tabMeta: {
+					params: { title: '请求参数', description: '这些键值对会追加到 URL 查询字符串中；关闭一行即可暂时停用。' },
+					headers: { title: '请求头', description: '设置发送给目标服务的 HTTP 请求头；敏感字段在分享前会提醒。' },
+					body: { title: '请求体', description: '根据接口要求选择 JSON、表单、文本或其他请求体格式。' },
+					auth: { title: '身份认证', description: '为当前请求配置 Basic 或 Bearer 认证信息。' },
+					redirect: { title: '重定向策略', description: '控制是否跟随跳转以及单次请求允许的最大跳转次数。' }
+				},
 				redirectSettings: { followRedirects: true, maxRedirects: 5 },
 				activeEnvironment: null,
 				curlDialogVisible: false,
@@ -338,6 +344,11 @@
 
 		},
 		methods: {
+			handlePageKeydown(event) {
+				if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey) || event.repeat) return;
+				event.preventDefault();
+				this.sendRequest();
+			},
 			addRow(tab) {
 				if (tab === 'body') return this.$refs.body?.addRow();
 				if (this.tableData[tab]) this.tableData[tab].push(createEditorRow());
@@ -1007,5 +1018,140 @@
 			opacity: 1;
 			transform: translateY(0);
 		}
+	}
+
+	/* API 工作台 */
+	.api-page {
+		width: min(1180px, calc(100% - 40px));
+		min-height: calc(100vh - 70px);
+		margin: 0 auto;
+		padding: 24px 0 34px;
+		text-align: left;
+	}
+
+	.page-hero {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: 24px;
+		margin-bottom: 18px;
+		padding: 18px 4px 4px;
+	}
+
+	.eyebrow {
+		color: #1677ff;
+		font-size: 11px;
+		font-weight: 800;
+		letter-spacing: 0.16em;
+	}
+
+	.page-hero h1 {
+		margin: 6px 0 7px;
+		font-size: clamp(28px, 4vw, 38px);
+		letter-spacing: -0.04em;
+	}
+
+	.page-hero p {
+		max-width: 700px;
+		margin: 0;
+		color: #667085;
+		line-height: 1.7;
+	}
+
+	.environment-status {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-width: 285px;
+		padding: 11px 10px 11px 15px;
+		border: 1px solid #dce7f5;
+		border-radius: 13px;
+		background: #f8fbff;
+	}
+
+	.environment-status .status-dot {
+		flex: 0 0 9px;
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		background: #24a148;
+		box-shadow: 0 0 0 5px rgba(36, 161, 72, 0.1);
+	}
+
+	.environment-status > div { display: grid; flex: 1; gap: 2px; }
+	.environment-status strong { font-size: 13px; }
+	.environment-status small { color: #7b8798; font-size: 11px; }
+
+	.request-composer {
+		margin-bottom: 14px;
+		padding: 14px;
+		border: 1px solid #dfe6ef;
+		border-radius: 15px;
+		background: #fff;
+		box-shadow: 0 9px 28px rgba(31, 45, 61, 0.06);
+	}
+
+	.request-line {
+		display: grid;
+		grid-template-columns: 132px minmax(0, 1fr) 132px;
+		gap: 10px;
+	}
+
+	.method-select { width: 100%; }
+	.method-option { display: flex; align-items: center; gap: 9px; font-weight: 700; }
+	.method-dot { width: 8px; height: 8px; border-radius: 50%; background: #8a94a6; }
+	.method-dot.success { background: #24a148; }
+	.method-dot.primary { background: #1677ff; }
+	.method-dot.warning { background: #e88900; }
+	.method-dot.danger { background: #d92d20; }
+
+	.composer-help {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		margin-top: 10px;
+		color: #8a94a6;
+		font-size: 11px;
+	}
+
+	.composer-help > div { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+	.composer-help kbd { padding: 2px 5px; border: 1px solid #d8dee8; border-bottom-width: 2px; border-radius: 5px; background: #f8fafc; font-family: inherit; }
+
+	.request-editor-card {
+		border-color: #e4eaf2;
+		border-radius: 15px !important;
+		box-shadow: none !important;
+	}
+
+	.request-editor-card:hover { box-shadow: none !important; }
+	.editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+	.editor-heading > div { display: grid; gap: 4px; }
+	.editor-heading strong { font-size: 16px; }
+	.editor-heading span { color: #7b8798; font-size: 12px; line-height: 1.5; }
+	.editor-table { width: 100%; margin-bottom: 4px; }
+	.redirect-settings { max-width: none; }
+	.redirect-grid { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(180px, 1fr); gap: 18px; max-width: 620px; }
+	.boolean-select { width: 100%; }
+	.curl-input { margin-top: 14px; }
+
+	.api-page > .el-row { margin-bottom: 14px !important; }
+
+	@media (max-width: 760px) {
+		.api-page { width: min(100% - 24px, 1180px); padding-top: 12px; }
+		.page-hero { align-items: flex-start; flex-direction: column; gap: 14px; padding-top: 10px; }
+		.environment-status { width: 100%; min-width: 0; }
+		.request-line { grid-template-columns: 110px minmax(0, 1fr); }
+		.send-button { grid-column: 1 / -1; width: 100%; }
+		.composer-help { align-items: flex-start; flex-direction: column; gap: 7px; }
+		.redirect-grid { grid-template-columns: 1fr; gap: 0; }
+		.request-editor-card { margin: 0 !important; }
+	}
+
+	@media (max-width: 480px) {
+		.request-line { grid-template-columns: 1fr; }
+		.method-select,
+		.send-button { grid-column: 1; }
+		.request-composer { padding: 11px; }
 	}
 </style>

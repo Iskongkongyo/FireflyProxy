@@ -7,7 +7,7 @@ const PNG_BYTES = Buffer.from(
 );
 const FONT_BYTES = Buffer.from("d09GMgABAAAAAAAsAAoAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "base64");
 const MEDIA_BYTES = Buffer.from("proxyweb-e2e-media-range-payload", "utf8");
-const DOWNLOAD_BYTES = Buffer.from("proxyWeb browser download fixture\n", "utf8");
+const DOWNLOAD_BYTES = Buffer.from("FireflyProxy browser download fixture\n", "utf8");
 
 function readBody(request) {
     return new Promise((resolve, reject) => {
@@ -50,7 +50,7 @@ function pageHtml(port) {
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>proxyWeb P1 fixture</title>
+    <title>FireflyProxy P1 fixture</title>
     <link id="base-css" rel="stylesheet" href="/assets/base.css">
     <link id="theme-css" rel="stylesheet" href="/assets/theme.css">
 </head>
@@ -62,6 +62,7 @@ function pageHtml(port) {
     <script id="cdn-script" src="http://cdn.test:${port}/assets/app.js"></script>
 
     <a id="navigation" target="_blank" href="/link-result">link</a>
+    <a id="scoped-hardcoded" href="http://legacy.invalid/escaped">scoped replacement</a>
     <a id="ssr-link" target="_blank" href="/ssr?name=Browser">ssr</a>
     <a id="protected-link" target="_blank" href="/protected">protected</a>
     <a id="download" href="/download/report.txt" download>download</a>
@@ -93,7 +94,7 @@ function pageHtml(port) {
 function runtimePageHtml(port) {
     return `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><base href="/runtime/base/"><title>proxyWeb Runtime Bridge fixture</title></head>
+<head><meta charset="utf-8"><base href="/runtime/base/"><title>FireflyProxy Runtime Bridge fixture</title></head>
 <body>
     <main id="runtime-page">Runtime Bridge fixture</main>
     <button id="runtime-popup" type="button">open popup</button>
@@ -101,7 +102,7 @@ function runtimePageHtml(port) {
         window.__runtimeResults = { events: [] };
         window.__runtimeDone = (async () => {
             const results = window.__runtimeResults;
-            results.markerCount = document.querySelectorAll("script[data-proxyweb-runtime]").length;
+            results.markerCount = document.querySelectorAll("script[data-fireflyproxy-runtime]").length;
             results.fetchPrototypeName = Object.getPrototypeOf(window.fetch).name;
             results.fetchName = window.fetch.name;
             results.fetchLength = window.fetch.length;

@@ -7,13 +7,13 @@ function runtimeBridgeBootstrap() {
     "use strict";
 
     const runtimeScript = document.currentScript;
-    const initialDocumentUrl = runtimeScript?.getAttribute("data-proxyweb-runtime");
-    const initialBaseUrl = runtimeScript?.getAttribute("data-proxyweb-base-url");
-    const scriptCookieBridgeEnabled = runtimeScript?.getAttribute("data-proxyweb-script-cookie-bridge") === "true";
-    const webSocketEnabled = runtimeScript?.getAttribute("data-proxyweb-websocket") === "true";
-    const webSocketOriginContext = runtimeScript?.getAttribute("data-proxyweb-origin-context");
-    const isolationBaseOriginValue = runtimeScript?.getAttribute("data-proxyweb-isolation-base-origin");
-    if (!runtimeScript || !initialDocumentUrl || runtimeScript.dataset.proxywebRuntimeActive === "true") return;
+    const initialDocumentUrl = runtimeScript?.getAttribute("data-fireflyproxy-runtime");
+    const initialBaseUrl = runtimeScript?.getAttribute("data-fireflyproxy-base-url");
+    const scriptCookieBridgeEnabled = runtimeScript?.getAttribute("data-fireflyproxy-script-cookie-bridge") === "true";
+    const webSocketEnabled = runtimeScript?.getAttribute("data-fireflyproxy-websocket") === "true";
+    const webSocketOriginContext = runtimeScript?.getAttribute("data-fireflyproxy-origin-context");
+    const isolationBaseOriginValue = runtimeScript?.getAttribute("data-fireflyproxy-isolation-base-origin");
+    if (!runtimeScript || !initialDocumentUrl || runtimeScript.dataset.fireflyproxyRuntimeActive === "true") return;
 
     const ROUTE_PREFIX = "/__proxyweb/browser";
     const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
@@ -200,7 +200,7 @@ function runtimeBridgeBootstrap() {
     currentUpstreamUrl = parseHttpUrl(initialDocumentUrl)?.href;
     if (!currentUpstreamUrl) return;
     fixedBaseUrl = parseHttpUrl(initialBaseUrl)?.href || null;
-    runtimeScript.dataset.proxywebRuntimeActive = "true";
+    runtimeScript.dataset.fireflyproxyRuntimeActive = "true";
 
     function installScriptCookieBridge() {
         if (!scriptCookieBridgeEnabled || typeof Document !== "function") return;
@@ -209,7 +209,7 @@ function runtimeBridgeBootstrap() {
             return;
         }
 
-        const prefix = `__proxyweb_sc_${encodeOrigin(new URL(currentUpstreamUrl).origin)}_`;
+        const prefix = `__fireflyproxy_sc_${encodeOrigin(new URL(currentUpstreamUrl).origin)}_`;
         const nativeGetter = descriptor.get;
         const nativeSetter = descriptor.set;
         Object.defineProperty(Document.prototype, "cookie", {
@@ -255,21 +255,21 @@ function runtimeBridgeBootstrap() {
 
     const NativeRequest = window.Request;
     if (typeof NativeRequest === "function") {
-        function ProxyWebRequest(input, init) {
+        function FireflyProxyRequest(input, init) {
             const mappedInput = input instanceof NativeRequest ? input : mapRuntimeUrl(input);
             const args = arguments.length > 1 ? [mappedInput, init] : [mappedInput];
             if (!new.target) return Reflect.apply(NativeRequest, this, args);
-            const constructorTarget = new.target === ProxyWebRequest ? NativeRequest : new.target;
+            const constructorTarget = new.target === FireflyProxyRequest ? NativeRequest : new.target;
             return Reflect.construct(NativeRequest, args, constructorTarget);
         }
-        preserveCallable(ProxyWebRequest, NativeRequest);
-        ProxyWebRequest.prototype = NativeRequest.prototype;
-        window.Request = ProxyWebRequest;
+        preserveCallable(FireflyProxyRequest, NativeRequest);
+        FireflyProxyRequest.prototype = NativeRequest.prototype;
+        window.Request = FireflyProxyRequest;
     }
 
     const nativeFetch = window.fetch;
     if (typeof nativeFetch === "function") {
-        function proxyWebFetch(input, init) {
+        function fireflyProxyFetch(input, init) {
             try {
                 let mappedInput = input;
                 if (typeof NativeRequest === "function" && input instanceof NativeRequest) {
@@ -284,39 +284,39 @@ function runtimeBridgeBootstrap() {
                 return Promise.reject(error);
             }
         }
-        preserveCallable(proxyWebFetch, nativeFetch);
-        window.fetch = proxyWebFetch;
+        preserveCallable(fireflyProxyFetch, nativeFetch);
+        window.fetch = fireflyProxyFetch;
     }
 
     const nativeXhrOpen = window.XMLHttpRequest?.prototype?.open;
     if (typeof nativeXhrOpen === "function") {
-        function proxyWebXhrOpen(method, url) {
+        function fireflyProxyXhrOpen(method, url) {
             const args = Array.from(arguments);
             args[1] = mapRuntimeUrl(url);
             return Reflect.apply(nativeXhrOpen, this, args);
         }
-        preserveCallable(proxyWebXhrOpen, nativeXhrOpen);
-        window.XMLHttpRequest.prototype.open = proxyWebXhrOpen;
+        preserveCallable(fireflyProxyXhrOpen, nativeXhrOpen);
+        window.XMLHttpRequest.prototype.open = fireflyProxyXhrOpen;
     }
 
     const NativeEventSource = window.EventSource;
     if (typeof NativeEventSource === "function") {
-        function ProxyWebEventSource(url, options) {
+        function FireflyProxyEventSource(url, options) {
             const args = arguments.length > 1 ? [mapRuntimeUrl(url), options] : [mapRuntimeUrl(url)];
             if (!new.target) return Reflect.apply(NativeEventSource, this, args);
-            const constructorTarget = new.target === ProxyWebEventSource ? NativeEventSource : new.target;
+            const constructorTarget = new.target === FireflyProxyEventSource ? NativeEventSource : new.target;
             return Reflect.construct(NativeEventSource, args, constructorTarget);
         }
-        preserveCallable(ProxyWebEventSource, NativeEventSource);
-        ProxyWebEventSource.prototype = NativeEventSource.prototype;
-        window.EventSource = ProxyWebEventSource;
+        preserveCallable(FireflyProxyEventSource, NativeEventSource);
+        FireflyProxyEventSource.prototype = NativeEventSource.prototype;
+        window.EventSource = FireflyProxyEventSource;
     }
 
     const NativeWebSocket = window.WebSocket;
     if (
         webSocketEnabled
         && typeof NativeWebSocket === "function"
-        && /^proxyweb-origin\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(webSocketOriginContext || "")
+        && /^fireflyproxy-origin\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(webSocketOriginContext || "")
     ) {
         function mapWebSocketUrl(value) {
             const raw = value instanceof URL ? value.href : String(value);
@@ -345,34 +345,34 @@ function runtimeBridgeBootstrap() {
             return [...protocols, webSocketOriginContext];
         }
 
-        function ProxyWebWebSocket(url, protocols) {
+        function FireflyProxyWebSocket(url, protocols) {
             const args = arguments.length > 1
                 ? [mapWebSocketUrl(url), appendOriginContext(protocols)]
                 : [mapWebSocketUrl(url), appendOriginContext(undefined)];
             if (!new.target) return Reflect.apply(NativeWebSocket, this, args);
-            const constructorTarget = new.target === ProxyWebWebSocket ? NativeWebSocket : new.target;
+            const constructorTarget = new.target === FireflyProxyWebSocket ? NativeWebSocket : new.target;
             return Reflect.construct(NativeWebSocket, args, constructorTarget);
         }
-        preserveCallable(ProxyWebWebSocket, NativeWebSocket);
-        ProxyWebWebSocket.prototype = NativeWebSocket.prototype;
-        window.WebSocket = ProxyWebWebSocket;
+        preserveCallable(FireflyProxyWebSocket, NativeWebSocket);
+        FireflyProxyWebSocket.prototype = NativeWebSocket.prototype;
+        window.WebSocket = FireflyProxyWebSocket;
     }
 
     const nativeWindowOpen = window.open;
     if (typeof nativeWindowOpen === "function") {
-        function proxyWebWindowOpen(url) {
+        function fireflyProxyWindowOpen(url) {
             const args = Array.from(arguments);
             if (args.length > 0 && url !== "") args[0] = mapRuntimeUrl(url);
             return Reflect.apply(nativeWindowOpen, this, args);
         }
-        preserveCallable(proxyWebWindowOpen, nativeWindowOpen);
-        window.open = proxyWebWindowOpen;
+        preserveCallable(fireflyProxyWindowOpen, nativeWindowOpen);
+        window.open = fireflyProxyWindowOpen;
     }
 
     function patchHistoryMethod(name) {
         const nativeMethod = window.history?.[name];
         if (typeof nativeMethod !== "function") return;
-        function proxyWebHistoryMethod(state, title, url) {
+        function fireflyProxyHistoryMethod(state, title, url) {
             if (arguments.length < 3 || url === undefined || url === null) {
                 return Reflect.apply(nativeMethod, this, arguments);
             }
@@ -388,8 +388,8 @@ function runtimeBridgeBootstrap() {
             currentUpstreamUrl = resolved.href;
             return result;
         }
-        preserveCallable(proxyWebHistoryMethod, nativeMethod);
-        window.history[name] = proxyWebHistoryMethod;
+        preserveCallable(fireflyProxyHistoryMethod, nativeMethod);
+        window.history[name] = fireflyProxyHistoryMethod;
     }
 
     patchHistoryMethod("pushState");
@@ -410,7 +410,7 @@ function createRuntimeBridgeHandler({ getConfig }) {
         const configuredRequest = getConfig();
         const requestConfig = applyBrowserPreferences(
             configuredRequest,
-            req.session?.proxyWebBrowserPreferences
+            req.session?.fireflyProxyBrowserPreferences
         );
         if (!requestConfig.browser.enabled || !requestConfig.browser.runtimeBridge) {
             return next(new ProxyError(ERROR_CODES.ROUTE_NOT_FOUND, "Runtime Bridge is not available", {

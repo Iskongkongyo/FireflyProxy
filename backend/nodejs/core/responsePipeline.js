@@ -60,7 +60,7 @@ function hasResponseBody(method, status) {
     return !((status >= 100 && status < 200) || [204, 205, 304].includes(status));
 }
 
-function classifyResponse({ mode, method, status, headers, config }) {
+function classifyResponse({ mode, method, status, headers, config, targetUrl, shouldTransformText }) {
     const { mediaType, charset } = parseContentType(getHeader(headers, "content-type"));
     const contentEncoding = normalizeContentEncoding(getHeader(headers, "content-encoding"));
     const contentDisposition = String(getHeader(headers, "content-disposition") || "");
@@ -92,6 +92,13 @@ function classifyResponse({ mode, method, status, headers, config }) {
     }
     if (mediaType === "text/css" && config.browser.rewriteCss) {
         return { kind: "transform", reason: "css-rewrite", mediaType, charset, contentEncoding };
+    }
+    if (typeof shouldTransformText === "function" && shouldTransformText({
+        mediaType,
+        targetUrl,
+        config
+    })) {
+        return { kind: "transform", reason: "scoped-response-transform", mediaType, charset, contentEncoding };
     }
     return { kind: "stream", reason: "content-passthrough", mediaType, charset, contentEncoding };
 }
@@ -156,10 +163,19 @@ async function prepareResponse(options) {
         config,
         targetUrl,
         transformText,
+        shouldTransformText,
         logger,
         requestId
     } = options;
-    const classification = classifyResponse({ mode, method, status, headers, config });
+    const classification = classifyResponse({
+        mode,
+        method,
+        status,
+        headers,
+        config,
+        targetUrl,
+        shouldTransformText
+    });
     const responseHeaders = cloneHeaders(headers);
 
     if (classification.kind !== "transform" || typeof transformText !== "function") {
@@ -220,12 +236,16 @@ async function prepareResponse(options) {
         if (typeof transformedText !== "string") {
             throw new TypeError("Response transformer must return a string");
         }
+        if (Buffer.byteLength(transformedText, "utf8") > config.security.maxRewriteBytes) {
+            throw rewriteLimitError(config.security.maxRewriteBytes);
+        }
 
         const utf8Body = Buffer.from(transformedText, "utf8");
         const outputBody = await encodeBody(utf8Body, classification.contentEncoding);
         deleteHeader(responseHeaders, "content-length");
         deleteHeader(responseHeaders, "etag");
         deleteHeader(responseHeaders, "content-md5");
+        deleteHeader(responseHeaders, "last-modified");
         if (classification.contentEncoding === "identity") {
             deleteHeader(responseHeaders, "content-encoding");
         }

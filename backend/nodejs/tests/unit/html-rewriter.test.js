@@ -132,12 +132,12 @@ test("Runtime Bridge is injected first exactly once with the upstream document U
 
     assert.equal(scripts.length, 2);
     assert.equal(scripts.first().attr("src"), "/__proxyweb/runtime.js");
-    assert.equal(scripts.first().attr("data-proxyweb-runtime"), documentUrl);
-    assert.equal(scripts.first().attr("data-proxyweb-script-cookie-bridge"), "true");
+    assert.equal(scripts.first().attr("data-fireflyproxy-runtime"), documentUrl);
+    assert.equal(scripts.first().attr("data-fireflyproxy-script-cookie-bridge"), "true");
     assert.equal(scripts.last().attr("id"), "upstream");
 
     const repeated = rewriteHtml({ html: output, documentUrl, runtimeBridge: true });
-    assert.equal(cheerio.load(repeated)("script[data-proxyweb-runtime]").length, 1);
+    assert.equal(cheerio.load(repeated)("script[data-fireflyproxy-runtime]").length, 1);
 
     const based = cheerio.load(rewriteHtml({
         html: "<!doctype html><html><head><base href='../assets/'></head><body></body></html>",
@@ -145,7 +145,7 @@ test("Runtime Bridge is injected first exactly once with the upstream document U
         runtimeBridge: true
     }));
     assert.equal(
-        based("script[data-proxyweb-runtime]").attr("data-proxyweb-base-url"),
+        based("script[data-fireflyproxy-runtime]").attr("data-fireflyproxy-base-url"),
         "https://site.test/assets/"
     );
 });
