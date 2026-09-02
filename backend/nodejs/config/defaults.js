@@ -42,7 +42,11 @@ function createDefaultConfig(env = process.env) {
         security: {
             ssrf: true,
             allowPrivateNetworks: false,
-            blockedHostnames: [],
+            accessControl: {
+                enabled: false,
+                allowed: [],
+                blocked: []
+            },
             maxRewriteBytes: 5242880
         },
         api: {

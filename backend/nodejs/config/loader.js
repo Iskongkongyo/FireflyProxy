@@ -81,19 +81,43 @@ function migrateLegacyConfig(input) {
 
     if (raw.blacklist !== undefined) {
         if (raw.security === undefined) raw.security = {};
-        if (isPlainObject(raw.security) && raw.security.blockedHostnames === undefined) {
+        if (
+            isPlainObject(raw.security)
+            && raw.security.accessControl === undefined
+            && raw.security.blockedHostnames === undefined
+        ) {
             raw.security = {
                 ...raw.security,
-                blockedHostnames: raw.blacklist
+                accessControl: {
+                    enabled: true,
+                    allowed: [],
+                    blocked: raw.blacklist
+                }
             };
         }
         warn(
             "blacklist",
-            "security.blockedHostnames",
-            "Rules now match exact hostnames or leading wildcard subdomains; regular expressions are not supported."
+            "security.accessControl.blocked",
+            "Rules support hostnames, wildcard subdomains, IP/CIDR values and optional ports; regular expressions are not supported."
         );
     }
     delete raw.blacklist;
+
+    if (isPlainObject(raw.security) && raw.security.blockedHostnames !== undefined) {
+        if (raw.security.accessControl === undefined) {
+            raw.security.accessControl = {
+                enabled: true,
+                allowed: [],
+                blocked: raw.security.blockedHostnames
+            };
+        }
+        warn(
+            "security.blockedHostnames",
+            "security.accessControl.blocked",
+            "Existing hostname rules remain enabled in the unified network access policy."
+        );
+        delete raw.security.blockedHostnames;
+    }
 
     if (raw.session) {
         const session = { ...raw.session };

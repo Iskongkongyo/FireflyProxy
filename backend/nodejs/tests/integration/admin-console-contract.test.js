@@ -36,6 +36,8 @@ test("admin console protects, redacts, validates and hot-moves its configuration
         const pageHtml = await page.text();
         assert.match(pageHtml, /FireflyProxy 管理面板/);
         assert.match(pageHtml, /系统配置/);
+        assert.match(pageHtml, /访问白名单与黑名单/);
+        assert.match(pageHtml, /security\.accessControl\.allowed/);
 
         const snapshotResponse = await fetch(`${proxy.origin}/control/api/config`, {
             headers: {

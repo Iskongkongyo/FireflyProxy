@@ -108,9 +108,32 @@ test('export skips disabled fields and represents multipart files explicitly', a
 	assert.match(command, /photo=@cat photo\.png/);
 });
 
+test('API Key auth exports to cURL header or query parameter without overriding manual values', async () => {
+	const { exportCurl, parseCurl } = await import('../src/utils/curl.mjs');
+	const headerCommand = exportCurl({
+		method: 'GET',
+		url: 'https://example.test/items',
+		headers: [],
+		auth: { type: 'apiKey', key: 'X-API-Key', value: 'header-secret', addTo: 'header' },
+		body: { type: 'none' }
+	});
+	const headerParsed = parseCurl(headerCommand);
+	assert.equal(headerParsed.headers.find(({ key }) => key === 'X-API-Key').value, 'header-secret');
+
+	const queryCommand = exportCurl({
+		method: 'GET',
+		url: 'https://example.test/items?api_key=manual',
+		headers: [],
+		auth: { type: 'apiKey', key: 'api_key', value: 'generated', addTo: 'query' },
+		body: { type: 'none' }
+	});
+	assert.deepEqual(new URL(parseCurl(queryCommand).url).searchParams.getAll('api_key'), ['manual']);
+});
+
 test('secret detection covers auth and credential headers', async () => {
 	const { requestContainsSecrets } = await import('../src/utils/curl.mjs');
 	assert.equal(requestContainsSecrets({ auth: { type: 'bearer', token: 'secret' }, headers: [] }), true);
+	assert.equal(requestContainsSecrets({ auth: { type: 'apiKey', value: 'secret' }, headers: [] }), true);
 	assert.equal(requestContainsSecrets({ auth: { type: 'none' }, headers: [{ key: 'Cookie', value: 'sid=1' }] }), true);
 	assert.equal(requestContainsSecrets({ auth: { type: 'none' }, headers: [{ key: 'X-Access-Token', value: 'secret' }] }), true);
 	assert.equal(requestContainsSecrets({ auth: { type: 'none' }, headers: [{ key: 'Accept', value: 'json' }] }), false);

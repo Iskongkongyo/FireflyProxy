@@ -336,7 +336,7 @@ function createWebSocketProxy(options) {
             const targetHttpUrl = toHttpUrl(webSocketUrl);
             validateTargetProxyOrigin(req, targetHttpUrl.origin, requestConfig.browser.originIsolation);
             const target = await validateTarget(targetHttpUrl.href, {
-                blockedHostnames: requestConfig.security.blockedHostnames,
+                accessControl: requestConfig.security.accessControl,
                 resolveHostname: hostname => dnsResolver.resolve(hostname)
             });
             state.connection = connectionFactory(target, {

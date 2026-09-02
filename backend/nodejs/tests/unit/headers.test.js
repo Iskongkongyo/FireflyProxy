@@ -5,6 +5,7 @@ const {
     filterUpstreamResponseHeaders,
     isHopByHopHeader,
     isProxyAuthenticationHeader,
+    SENSITIVE_UPSTREAM_HEADERS,
     UPSTREAM_AUTHORIZATION_HEADER,
     UPSTREAM_HEADERS_HEADER,
     UPSTREAM_REFERER_HEADER
@@ -126,6 +127,19 @@ test("malformed or unsafe structured API header values are ignored", () => {
         }, {}, { allowUpstreamHeaders: true });
         assert.deepEqual(headers, {});
     }
+});
+
+test("structured API headers retain explicit sensitive names for redirect policy", () => {
+    const headers = buildUpstreamRequestHeaders({
+        [UPSTREAM_HEADERS_HEADER]: encodeUpstreamHeaders([
+            ["X-Custom-Credential", "secret", true],
+            ["X-Safe", "keep"]
+        ])
+    }, {}, { allowUpstreamHeaders: true });
+
+    assert.deepEqual(headers[SENSITIVE_UPSTREAM_HEADERS], new Set(["x-custom-credential"]));
+    assert.equal(headers["x-custom-credential"], "secret");
+    assert.equal(headers["x-safe"], "keep");
 });
 
 test("response header filter removes transport metadata and preserves end-to-end headers", () => {

@@ -118,11 +118,16 @@ export function decodeUpstreamHeadersEnvelope(value) {
     return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-export function buildProxyTransport(baseUrl, targetUrl, headers = {}, upstreamAuthorization = "") {
+export function buildProxyTransport(baseUrl, targetUrl, headers = {}, upstreamAuthorization = "", options = {}) {
     const transportHeaders = {};
     let authorization = upstreamAuthorization;
     const upstreamHeaders = [];
     const ignoredHeaders = [];
+    const sensitiveHeaderNames = new Set(
+        (Array.isArray(options.sensitiveHeaderNames) ? options.sensitiveHeaderNames : [])
+            .map(normalizeHeaderName)
+            .filter(Boolean)
+    );
 
     for (const [name, value] of Object.entries(headers)) {
         const normalizedName = normalizeHeaderName(name);
@@ -131,7 +136,9 @@ export function buildProxyTransport(baseUrl, targetUrl, headers = {}, upstreamAu
         } else if (isUnsupportedUpstreamHeaderName(name) || !isValidUpstreamHeaderValue(name, value)) {
             ignoredHeaders.push(name);
         } else {
-            upstreamHeaders.push([String(name).trim(), String(value ?? "")]);
+            const entry = [String(name).trim(), String(value ?? "")];
+            if (sensitiveHeaderNames.has(normalizedName)) entry.push(true);
+            upstreamHeaders.push(entry);
         }
     }
     while (

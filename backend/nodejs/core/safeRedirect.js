@@ -15,6 +15,7 @@ const ENTITY_HEADERS = new Set([
     "transfer-encoding"
 ]);
 const SENSITIVE_REDIRECT_HEADER = /^(?:authorization|cookie2?|proxy-authorization|x-(?:fireflyproxy|proxyweb)-upstream-authorization|.*(?:token|password|passwd|secret|api[-_]?key).*)$/i;
+const SENSITIVE_UPSTREAM_HEADERS = Symbol.for("fireflyproxy.sensitiveUpstreamHeaders");
 
 function redirectMethod(status, method) {
     const normalized = String(method || "GET").toUpperCase();
@@ -28,12 +29,25 @@ function redirectHeaders(headers, fromUrl, toUrl, fromMethod, toMethod) {
     const dropsBody = !NO_BODY_METHODS.has(String(fromMethod).toUpperCase())
         && NO_BODY_METHODS.has(String(toMethod).toUpperCase());
     const result = {};
+    const explicitlySensitive = headers?.[SENSITIVE_UPSTREAM_HEADERS] instanceof Set
+        ? headers[SENSITIVE_UPSTREAM_HEADERS]
+        : new Set();
 
     for (const [name, value] of Object.entries(headers || {})) {
         const normalizedName = name.toLowerCase();
-        if (crossOrigin && SENSITIVE_REDIRECT_HEADER.test(normalizedName)) continue;
+        if (crossOrigin && (
+            SENSITIVE_REDIRECT_HEADER.test(normalizedName)
+            || explicitlySensitive.has(normalizedName)
+        )) continue;
         if (dropsBody && ENTITY_HEADERS.has(normalizedName)) continue;
         result[name] = value;
+    }
+    const remainingSensitive = new Set([...explicitlySensitive].filter(name => name in result));
+    if (remainingSensitive.size) {
+        Object.defineProperty(result, SENSITIVE_UPSTREAM_HEADERS, {
+            value: remainingSensitive,
+            enumerable: true
+        });
     }
     return result;
 }

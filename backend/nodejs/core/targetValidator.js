@@ -6,6 +6,7 @@ const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
 const INVALID_PERCENT_ENCODING = /%(?![0-9A-Fa-f]{2})/;
 const RAW_WHITESPACE_OR_CONTROL = /[\u0000-\u0020\u007f]/;
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const ACCESS_RULE_CACHE = new WeakMap();
 
 const NON_PUBLIC_CIDRS = Object.freeze([
     "0.0.0.0/8",
@@ -110,6 +111,169 @@ function normalizeHostnameRule(value) {
     return hostname ? `${wildcard ? "*." : ""}${hostname}` : null;
 }
 
+function parseAccessRule(value) {
+    if (typeof value !== "string" || !value || value !== value.trim()) return null;
+
+    let target = value;
+    let port = null;
+    if (value.startsWith("[")) {
+        const bracketed = value.match(/^\[([^\]]+)\](?::(\d+))?$/u);
+        if (!bracketed) return null;
+        target = bracketed[1];
+        port = bracketed[2] === undefined ? null : Number(bracketed[2]);
+    } else {
+        const separator = value.lastIndexOf(":");
+        if (separator > -1 && value.indexOf(":") === separator) {
+            const possiblePort = value.slice(separator + 1);
+            if (!/^\d+$/u.test(possiblePort)) return null;
+            target = value.slice(0, separator);
+            port = Number(possiblePort);
+        }
+    }
+    if (port !== null && (!Number.isInteger(port) || port < 1 || port > 65535)) return null;
+
+    if (target.includes("/")) {
+        let parsed;
+        try {
+            parsed = ipaddr.parseCIDR(target);
+        } catch {
+            return null;
+        }
+        const [network, prefix] = parsed;
+        const processed = ipaddr.process(network.toString());
+        if (processed.kind() !== network.kind()) return null;
+        const address = processed.toString();
+        const normalizedTarget = `${address}/${prefix}`;
+        return Object.freeze({
+            type: "cidr",
+            address,
+            family: processed.kind() === "ipv4" ? 4 : 6,
+            prefix,
+            port,
+            normalized: port === null
+                ? normalizedTarget
+                : `${processed.kind() === "ipv6" ? `[${normalizedTarget}]` : normalizedTarget}:${port}`
+        });
+    }
+
+    const unwrapped = stripIpv6Brackets(target);
+    const ip = normalizeIpAddress(unwrapped);
+    if (ip) {
+        const normalizedTarget = ip.family === 6 && port !== null ? `[${ip.address}]` : ip.address;
+        return Object.freeze({
+            type: "ip",
+            address: ip.address,
+            family: ip.family,
+            port,
+            normalized: `${normalizedTarget}${port === null ? "" : `:${port}`}`
+        });
+    }
+
+    const hostnameRule = normalizeHostnameRule(target);
+    if (!hostnameRule || normalizeIpAddress(hostnameRule)) return null;
+    return Object.freeze({
+        type: "hostname",
+        hostname: hostnameRule,
+        port,
+        normalized: `${hostnameRule}${port === null ? "" : `:${port}`}`
+    });
+}
+
+function normalizeAccessRule(value) {
+    return parseAccessRule(value)?.normalized || null;
+}
+
+function hostnameRuleMatches(hostname, rule) {
+    if (!rule.hostname.startsWith("*.")) return hostname === rule.hostname;
+    const suffix = rule.hostname.slice(1);
+    return hostname.endsWith(suffix) && hostname.length > suffix.length;
+}
+
+function addressRuleMatches(address, rule) {
+    const normalized = normalizeIpAddress(address);
+    if (!normalized || normalized.family !== rule.family) return false;
+    if (rule.type === "ip") return normalized.address === rule.address;
+    const parsedAddress = ipaddr.parse(normalized.address);
+    const parsedNetwork = ipaddr.parse(rule.address);
+    return parsedAddress.match(parsedNetwork, rule.prefix);
+}
+
+function accessRuleMatches(rule, target) {
+    if (rule.port !== null && rule.port !== target.port) return false;
+    if (rule.type === "hostname") return hostnameRuleMatches(target.hostname, rule);
+    return target.addresses.some(record => addressRuleMatches(record.address, rule));
+}
+
+function compileAccessControl(accessControl) {
+    if (!accessControl || typeof accessControl !== "object") {
+        return { enabled: false, allowed: [], blocked: [] };
+    }
+    if (Object.isFrozen(accessControl) && ACCESS_RULE_CACHE.has(accessControl)) {
+        return ACCESS_RULE_CACHE.get(accessControl);
+    }
+    const compiled = {
+        enabled: accessControl.enabled === true,
+        allowed: (Array.isArray(accessControl.allowed) ? accessControl.allowed : [])
+            .map(parseAccessRule).filter(Boolean),
+        blocked: (Array.isArray(accessControl.blocked) ? accessControl.blocked : [])
+            .map(parseAccessRule).filter(Boolean)
+    };
+    if (Object.isFrozen(accessControl)) ACCESS_RULE_CACHE.set(accessControl, compiled);
+    return compiled;
+}
+
+function enforceHostnameBlock(hostname, port, accessControl = {}) {
+    const { enabled, blocked } = compileAccessControl(accessControl);
+    if (!enabled) return;
+    if (!blocked.some(rule => (
+        rule.type === "hostname"
+        && (rule.port === null || rule.port === port)
+        && hostnameRuleMatches(hostname, rule)
+    ))) return;
+    throw createValidationError(
+        ERROR_CODES.SSRF_BLOCKED,
+        "Target is blocked by the network access policy",
+        403,
+        { hostname, port, reason: "access-control-blocked" }
+    );
+}
+
+function enforceAccessControl(target, accessControl = {}) {
+    const { enabled, allowed, blocked } = compileAccessControl(accessControl);
+    if (!enabled) return;
+
+    if (blocked.some(rule => accessRuleMatches(rule, target))) {
+        throw createValidationError(
+            ERROR_CODES.SSRF_BLOCKED,
+            "Target is blocked by the network access policy",
+            403,
+            { hostname: target.hostname, port: target.port, reason: "access-control-blocked" }
+        );
+    }
+    if (allowed.length === 0) return;
+
+    const hostnameAllowed = allowed.some(rule => (
+        rule.type === "hostname"
+        && (rule.port === null || rule.port === target.port)
+        && hostnameRuleMatches(target.hostname, rule)
+    ));
+    const addressesAllowed = target.addresses.length > 0 && target.addresses.every(record => (
+        allowed.some(rule => (
+            rule.type !== "hostname"
+            && (rule.port === null || rule.port === target.port)
+            && addressRuleMatches(record.address, rule)
+        ))
+    ));
+    if (!hostnameAllowed && !addressesAllowed) {
+        throw createValidationError(
+            ERROR_CODES.SSRF_BLOCKED,
+            "Target is not included in the network access allowlist",
+            403,
+            { hostname: target.hostname, port: target.port, reason: "access-control-not-allowed" }
+        );
+    }
+}
+
 function isHostnameBlocked(hostname, rules = []) {
     return rules.some(value => {
         const rule = normalizeHostnameRule(value);
@@ -160,6 +324,7 @@ function parseTargetUrl(value) {
 
 async function validateTarget(value, context = {}) {
     const url = parseTargetUrl(value);
+    const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
     const rawHostname = stripIpv6Brackets(url.hostname);
     const ip = normalizeIpAddress(rawHostname);
 
@@ -194,6 +359,7 @@ async function validateTarget(value, context = {}) {
         url.hostname = hostname;
     }
 
+    enforceHostnameBlock(hostname, port, context.accessControl);
     if (isHostnameBlocked(hostname, context.blockedHostnames)) {
         throw createValidationError(
             ERROR_CODES.SSRF_BLOCKED,
@@ -279,19 +445,23 @@ async function validateTarget(value, context = {}) {
         selectedAddress = addresses[0].address;
     }
 
-    return Object.freeze({
+    const target = {
         url: url.href,
         protocol: url.protocol,
         hostname,
-        port: Number(url.port || (url.protocol === "https:" ? 443 : 80)),
+        port,
         addresses: Object.freeze(addresses),
         selectedAddress
-    });
+    };
+    enforceAccessControl(target, context.accessControl);
+    return Object.freeze(target);
 }
 
 module.exports = {
+    enforceAccessControl,
     isPublicAddress,
     isHostnameBlocked,
+    normalizeAccessRule,
     normalizeHostnameRule,
     normalizeIpAddress,
     parseTargetUrl,

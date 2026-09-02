@@ -232,6 +232,7 @@
 		responseByteLength
 	} from '../utils/responseDiagnostics.mjs';
 	import {
+		applyApiKeyAuth,
 		buildAuthorizationHeader,
 		requestUsesSecretVariables,
 		resolveRequestDraft
@@ -474,13 +475,13 @@
 				const draft = resolveRequestDraft(this.getEditorDraft(), this.activeEnvironment);
 				const preserveExistingWhenEmpty = queryRowsFromUrl(this.url) === null
 					&& !hasMeaningfulEditorRows(this.tableData.params);
-				return {
+				return applyApiKeyAuth({
 					...draft,
 					url: replaceQueryRows(draft.url, draft.params, {
 						stripHash: true,
 						preserveExistingWhenEmpty
 					})
-				};
+				});
 			},
 			openWorkspace() {
 				this.$refs.workspace?.open(this.getEditorDraft());
@@ -522,18 +523,28 @@
 					const editorDraft = this.getEditorDraft();
 					const resolvedDraft = this.getResolvedRequestDraft();
 					if (!this.patt.test(resolvedDraft.url)) throw new Error('解析后的 URL 不是有效 HTTP(S) 地址。');
+					const auth = resolvedDraft.auth || { type: 'none' };
+					const requiresAuthHeader = (auth.type === 'basic' && (auth.username || auth.password))
+						|| (auth.type === 'bearer' && auth.token)
+						|| (auth.type === 'apiKey' && auth.addTo === 'header' && auth.key && auth.value);
+					if (requiresAuthHeader) {
+						throw new Error('当前认证需要请求头，浏览器直达链接无法携带；请使用“复制 cURL”。');
+					}
 					const apiLink = buildDirectApiLink({
 						apiBaseUrl: PROXY_CONFIG.API_BASE_URL,
 						targetUrl: resolvedDraft.url,
 						method: resolvedDraft.method,
 						redirect: resolvedDraft.redirect
 					});
-					if (requestUsesSecretVariables({
+					const includesQueryApiKey = auth.type === 'apiKey'
+						&& auth.addTo === 'query' && auth.key && auth.value;
+					if (includesQueryApiKey || requestUsesSecretVariables({
 						url: editorDraft.url,
-						params: editorDraft.params
+						params: editorDraft.params,
+						auth: editorDraft.auth
 					}, this.activeEnvironment)) {
 						await ElMessageBox.confirm(
-							'API 链接会包含已展开的 Secret URL/Params 变量，并可能进入剪贴板或浏览器历史。是否继续？',
+							'API 链接会包含 API Key 或已展开的 Secret URL/Params 变量，并可能进入剪贴板、浏览器历史和访问日志。是否继续？',
 							'Secret URL 提醒',
 							{ type: 'warning', confirmButtonText: '继续复制', cancelButtonText: '取消' }
 						);
@@ -706,7 +717,13 @@
 					PROXY_CONFIG.BASE_URL,
 					requestUrl,
 					finHeaders,
-					upstreamAuthorization
+					upstreamAuthorization,
+					{
+						sensitiveHeaderNames: resolvedDraft.auth?.type === 'apiKey'
+							&& resolvedDraft.auth.addTo === 'header'
+							? [resolvedDraft.auth.key]
+							: []
+					}
 				);
 				if (proxyTransport.ignoredHeaders.length) {
 					ElMessage.warning(`以下请求头格式无效或不允许由客户端指定，已忽略：${proxyTransport.ignoredHeaders.join('、')}`);

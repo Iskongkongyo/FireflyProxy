@@ -25,6 +25,7 @@ const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const MAX_UPSTREAM_HEADER_ENVELOPE_BYTES = 8 * 1024;
 const MAX_UPSTREAM_HEADER_COUNT = 100;
 const MAX_UPSTREAM_HEADER_VALUE_BYTES = 4 * 1024;
+const SENSITIVE_UPSTREAM_HEADERS = Symbol.for("fireflyproxy.sensitiveUpstreamHeaders");
 
 const PROXY_RESPONSE_CONTROL_HEADERS = new Set([
     "x-proxyweb-final-url",
@@ -164,13 +165,22 @@ function decodeUpstreamHeaders(value) {
         if (!Array.isArray(entries) || entries.length > MAX_UPSTREAM_HEADER_COUNT) return {};
 
         const headers = {};
+        const sensitiveHeaderNames = new Set();
         for (const entry of entries) {
-            if (!Array.isArray(entry) || entry.length !== 2) continue;
+            if (!Array.isArray(entry) || ![2, 3].includes(entry.length)) continue;
             const [name, rawValue] = entry;
             if (typeof name !== "string" || isBlockedUpstreamHeader(name)) continue;
             const normalizedValue = normalizeUpstreamHeaderValue(name, rawValue);
             if (normalizedValue === undefined) continue;
-            headers[normalizeHeaderName(name)] = normalizedValue;
+            const normalizedName = normalizeHeaderName(name);
+            headers[normalizedName] = normalizedValue;
+            if (entry[2] === true) sensitiveHeaderNames.add(normalizedName);
+        }
+        if (sensitiveHeaderNames.size) {
+            Object.defineProperty(headers, SENSITIVE_UPSTREAM_HEADERS, {
+                value: sensitiveHeaderNames,
+                enumerable: true
+            });
         }
         return headers;
     } catch {
@@ -236,6 +246,7 @@ module.exports = {
     LEGACY_UPSTREAM_AUTHORIZATION_HEADER,
     UPSTREAM_REFERER_HEADER,
     UPSTREAM_HEADERS_HEADER,
+    SENSITIVE_UPSTREAM_HEADERS,
     buildUpstreamRequestHeaders,
     decodeUpstreamHeaders,
     filterUpstreamResponseHeaders,

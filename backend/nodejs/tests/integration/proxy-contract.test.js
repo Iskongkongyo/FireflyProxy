@@ -1417,7 +1417,7 @@ test("authentication configuration hot reload affects later requests", async () 
     }
 });
 
-test("stored session targets are revalidated against hot-loaded hostname rules", async () => {
+test("stored session targets are revalidated against hot-loaded network access rules", async () => {
     const hotProxy = await startProxy();
     try {
         const initial = await fetch(`${hotProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`);
@@ -1427,7 +1427,13 @@ test("stored session targets are revalidated against hot-loaded hostname rules",
 
         const outputIndex = hotProxy.getOutput().length;
         await hotProxy.updateConfig({
-            security: { blockedHostnames: ["fixture.test"] }
+            security: {
+                accessControl: {
+                    enabled: true,
+                    allowed: [],
+                    blocked: ["fixture.test"]
+                }
+            }
         });
         await hotProxy.waitForOutput(/Configuration loaded/, outputIndex);
 
@@ -1515,7 +1521,7 @@ test("reserved security flags cannot disable literal address validation", async 
         security: {
             ssrf: false,
             allowPrivateNetworks: true,
-            blockedHostnames: []
+            accessControl: { enabled: false, allowed: [], blocked: [] }
         }
     });
     try {
@@ -1543,9 +1549,15 @@ test("URL credentials are rejected without reaching request or error logs", asyn
     }
 });
 
-test("configured hostname rules block exact hosts and wildcard subdomains", async () => {
+test("configured network rules block exact hosts and wildcard subdomains", async () => {
     const blockedProxy = await startProxy({
-        security: { blockedHostnames: ["blocked.test", "*.internal.test"] }
+        security: {
+            accessControl: {
+                enabled: true,
+                allowed: [],
+                blocked: ["blocked.test", "*.internal.test"]
+            }
+        }
     });
     try {
         for (const target of ["http://blocked.test/", "https://api.internal.test/path"]) {
@@ -1555,6 +1567,55 @@ test("configured hostname rules block exact hosts and wildcard subdomains", asyn
         }
     } finally {
         await blockedProxy.close();
+    }
+});
+
+test("network allowlist supports ports and resolved IP ranges", async () => {
+    const fixturePort = Number(new URL(fixture.origin).port);
+    const allowedProxy = await startProxy({
+        security: {
+            accessControl: {
+                enabled: true,
+                allowed: [`fixture.test:${fixturePort}`],
+                blocked: []
+            }
+        }
+    }, {
+        fixtureHosts: ["fixture.test", "other.test"],
+        dnsRecords: { "other.test": [{ address: "93.184.216.35", family: 4 }] }
+    });
+    try {
+        const allowed = await fetch(`${allowedProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`);
+        assert.equal(allowed.status, 200);
+
+        const wrongPort = await fetch(`${allowedProxy.origin}/?url=${encodeURIComponent(`http://fixture.test:${fixturePort + 1}/json`)}`);
+        assert.equal(wrongPort.status, 403);
+        assert.equal((await wrongPort.json()).error.code, "PROXY_SSRF_BLOCKED");
+
+        const redirected = await fetch(`${allowedProxy.origin}/?url=${encodeURIComponent(
+            fixtureRedirect(`http://other.test:${fixturePort}/json`)
+        )}`);
+        assert.equal(redirected.status, 403);
+        assert.equal((await redirected.json()).error.code, "PROXY_SSRF_BLOCKED");
+    } finally {
+        await allowedProxy.close();
+    }
+
+    const blockedAddressProxy = await startProxy({
+        security: {
+            accessControl: {
+                enabled: true,
+                allowed: [],
+                blocked: ["93.184.216.0/24"]
+            }
+        }
+    });
+    try {
+        const blocked = await fetch(`${blockedAddressProxy.origin}/?url=${encodeURIComponent(`${fixture.origin}/json`)}`);
+        assert.equal(blocked.status, 403);
+        assert.equal((await blocked.json()).error.code, "PROXY_SSRF_BLOCKED");
+    } finally {
+        await blockedAddressProxy.close();
     }
 });
 
@@ -1697,6 +1758,22 @@ test("cross-origin redirects remove authentication, cookies and token-like heade
         assert.equal(payload.headers["x-api-key"], undefined);
         assert.equal(payload.headers["x-upstream-token"], undefined);
         assert.equal(payload.headers["x-safe"], "keep");
+
+        const structuredHeaders = Buffer.from(JSON.stringify([
+            ["X-Custom-Credential", "cross-origin-secret", true],
+            ["X-Safe", "keep"]
+        ]), "utf8").toString("base64url");
+        const structuredResponse = await fetch(modeUrl(
+            crossOriginProxy.origin,
+            "api",
+            fixtureRedirect(crossOriginTarget)
+        ), {
+            headers: { "x-fireflyproxy-upstream-headers": structuredHeaders }
+        });
+        const structuredPayload = await structuredResponse.json();
+        assert.equal(structuredResponse.status, 200);
+        assert.equal(structuredPayload.headers["x-custom-credential"], undefined);
+        assert.equal(structuredPayload.headers["x-safe"], "keep");
     } finally {
         await crossOriginProxy.close();
     }

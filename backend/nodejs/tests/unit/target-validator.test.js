@@ -3,6 +3,7 @@ const { test } = require("node:test");
 const {
     isPublicAddress,
     isHostnameBlocked,
+    normalizeAccessRule,
     normalizeHostnameRule,
     validateTarget
 } = require("../../core/targetValidator");
@@ -201,6 +202,82 @@ test("hostname rules use exact or leading-wildcard matching without regex", asyn
         }),
         error => error.code === "PROXY_SSRF_BLOCKED" && error.statusCode === 403
     );
+});
+
+test("network access rules normalize domains, IPs, CIDRs and optional ports", () => {
+    assert.equal(normalizeAccessRule("Example.COM.:443"), "example.com:443");
+    assert.equal(normalizeAccessRule("*.Example.COM"), "*.example.com");
+    assert.equal(normalizeAccessRule("8.8.8.8:53"), "8.8.8.8:53");
+    assert.equal(normalizeAccessRule("8.8.8.0/24"), "8.8.8.0/24");
+    assert.equal(
+        normalizeAccessRule("[2001:4860:4860::8888]:443"),
+        "[2001:4860:4860::8888]:443"
+    );
+    assert.equal(
+        normalizeAccessRule("[2606:4700:4700::/48]:8443"),
+        "[2606:4700:4700::/48]:8443"
+    );
+    for (const invalid of ["", "http://example.com", "*example.com", "example.com:0", "8.8.8.0/99"]) {
+        assert.equal(normalizeAccessRule(invalid), null, invalid);
+    }
+});
+
+test("network access blacklist wins and supports host, resolved IP and port matching", async () => {
+    const resolveHostname = async () => [{ address: "93.184.216.34", family: 4 }];
+    const enabled = (allowed, blocked) => ({ enabled: true, allowed, blocked });
+
+    await assert.rejects(
+        validateTarget("https://api.example.com/", {
+            resolveHostname,
+            accessControl: enabled(["*.example.com"], ["api.example.com"])
+        }),
+        error => error.code === "PROXY_SSRF_BLOCKED" && error.details.reason === "access-control-blocked"
+    );
+    await assert.rejects(
+        validateTarget("https://safe.example.com/", {
+            resolveHostname,
+            accessControl: enabled([], ["93.184.216.0/24"])
+        }),
+        error => error.code === "PROXY_SSRF_BLOCKED" && error.details.reason === "access-control-blocked"
+    );
+    await validateTarget("https://api.example.com:8443/", {
+        resolveHostname,
+        accessControl: enabled([], ["api.example.com:443"])
+    });
+});
+
+test("non-empty allowlist defaults to deny and requires a host match or all resolved IPs", async () => {
+    const enabled = allowed => ({ enabled: true, allowed, blocked: [] });
+    const mixedResolver = async () => [
+        { address: "93.184.216.34", family: 4 },
+        { address: "8.8.8.8", family: 4 }
+    ];
+
+    await validateTarget("https://api.example.com/", {
+        resolveHostname: mixedResolver,
+        accessControl: enabled(["*.example.com:443"])
+    });
+    await assert.rejects(
+        validateTarget("https://api.example.com:8443/", {
+            resolveHostname: mixedResolver,
+            accessControl: enabled(["*.example.com:443"])
+        }),
+        error => error.code === "PROXY_SSRF_BLOCKED" && error.details.reason === "access-control-not-allowed"
+    );
+    await assert.rejects(
+        validateTarget("https://other.test/", {
+            resolveHostname: mixedResolver,
+            accessControl: enabled(["93.184.216.0/24"])
+        }),
+        error => error.code === "PROXY_SSRF_BLOCKED" && error.details.reason === "access-control-not-allowed"
+    );
+    await validateTarget("https://other.test/", {
+        resolveHostname: async () => [
+            { address: "93.184.216.34", family: 4 },
+            { address: "93.184.216.35", family: 4 }
+        ],
+        accessControl: enabled(["93.184.216.0/24"])
+    });
 });
 
 test("localhost and its reserved subdomains are always blocked", async () => {

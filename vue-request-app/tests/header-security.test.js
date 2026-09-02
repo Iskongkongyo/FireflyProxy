@@ -90,6 +90,22 @@ test("proxy transport rejects malformed names, invalid Origin and header injecti
 	]);
 });
 
+test("proxy transport marks API Key headers as sensitive redirect metadata", async () => {
+	const { buildProxyTransport, decodeUpstreamHeadersEnvelope, UPSTREAM_HEADERS_HEADER } = await loadSecurityHelpers();
+	const transport = buildProxyTransport(
+		"http://proxy.test",
+		"https://upstream.test",
+		{ "X-Custom-Credential": "secret", Accept: "application/json" },
+		"",
+		{ sensitiveHeaderNames: ["x-custom-credential"] }
+	);
+
+	assert.deepEqual(decodeUpstreamHeadersEnvelope(transport.headers[UPSTREAM_HEADERS_HEADER]), [
+		["X-Custom-Credential", "secret", true],
+		["Accept", "application/json"]
+	]);
+});
+
 test("proxy transport normalizes a trailing slash before the API route", async () => {
     const { buildProxyTransport } = await loadSecurityHelpers();
     const transport = buildProxyTransport(

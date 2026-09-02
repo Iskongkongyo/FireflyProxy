@@ -1,5 +1,6 @@
 import { activeEditorRows, createEditorRow, normalizeEditorRows } from './requestEditor.mjs';
 import { isSensitiveHeaderName } from './headerSecurity.mjs';
+import { applyApiKeyAuth } from './workspaceModel.mjs';
 
 const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const HTTP_METHOD = /^[A-Z][A-Z0-9._-]*$/;
@@ -315,13 +316,14 @@ function normalizeMultipartRows(rows) {
 }
 
 export function exportCurl(request) {
-	const method = String(request?.method || 'GET').toUpperCase();
+	const authenticatedRequest = applyApiKeyAuth(request);
+	const method = String(authenticatedRequest?.method || 'GET').toUpperCase();
 	if (!HTTP_METHOD.test(method)) throw new Error('HTTP Method 格式无效。');
-	const url = validateImportedUrl(request?.url);
-	const headers = activeEditorRows(request?.headers || []);
-	const body = request?.body || { type: 'none' };
+	const url = validateImportedUrl(authenticatedRequest?.url);
+	const headers = activeEditorRows(authenticatedRequest?.headers || []);
+	const body = authenticatedRequest?.body || { type: 'none' };
 	const tokens = ['curl', '--request', method, url];
-	const redirect = request?.redirect || {};
+	const redirect = authenticatedRequest?.redirect || {};
 	if (redirect.followRedirects === true) {
 		const maxRedirects = Number(redirect.maxRedirects ?? 5);
 		if (!Number.isInteger(maxRedirects) || maxRedirects < 0 || maxRedirects > 20) {
@@ -341,7 +343,7 @@ export function exportCurl(request) {
 
 	exportHeaders.forEach(({ key, value }) => tokens.push('--header', `${key}: ${value}`));
 
-	const auth = request?.auth || { type: 'none' };
+	const auth = authenticatedRequest?.auth || { type: 'none' };
 	if (auth.type === 'basic') {
 		tokens.push('--user', `${auth.username || ''}:${auth.password || ''}`);
 	} else if (auth.type === 'bearer' && !hasHeader(exportHeaders, 'authorization')) {

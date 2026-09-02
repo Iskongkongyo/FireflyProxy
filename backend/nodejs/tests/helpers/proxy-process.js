@@ -152,7 +152,9 @@ async function startProxy(overrides = {}, options = {}) {
             Object.assign(config, patch);
             config.session = nextSession;
             config.limiter = nextLimiter;
-            await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+            const temporaryConfigPath = path.join(tempDir, "main.json.next");
+            await fs.writeFile(temporaryConfigPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+            await fs.rename(temporaryConfigPath, configPath);
         },
         async waitForOutput(pattern, startIndex = 0) {
             const deadline = Date.now() + 5000;

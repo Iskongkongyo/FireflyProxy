@@ -227,6 +227,27 @@ test("WebSocket Upgrade fails closed for disabled capability, foreign Origin and
     }
 });
 
+test("WebSocket Upgrade applies the shared hostname and port access policy", async () => {
+    const proxy = await startProxy({
+        browser: { enabled: true, webSocket: true },
+        security: {
+            accessControl: {
+                enabled: true,
+                allowed: [`fixture.test:${upstreamPort + 1}`],
+                blocked: []
+            }
+        }
+    });
+    try {
+        assert.equal(await rejectedUpgradeStatus(
+            fireflyProxyWebSocketUrl(proxy.origin, `http://fixture.test:${upstreamPort}/socket`),
+            { origin: proxy.origin }
+        ), 403);
+    } finally {
+        await proxy.close();
+    }
+});
+
 test("WebSocket payload and idle limits close established connections", async () => {
     const payloadProxy = await startProxy({
         browser: {

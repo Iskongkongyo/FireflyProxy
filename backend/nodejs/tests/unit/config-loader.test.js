@@ -57,7 +57,11 @@ test("default configuration uses explicit millisecond fields", () => {
         allowedOrigins: ["http://localhost:8080"],
         allowCredentials: true
     });
-    assert.deepEqual(config.security.blockedHostnames, []);
+    assert.deepEqual(config.security.accessControl, {
+        enabled: false,
+        allowed: [],
+        blocked: []
+    });
 });
 
 test("legacy flat and snake_case fields migrate without mutating input", () => {
@@ -91,7 +95,11 @@ test("legacy flat and snake_case fields migrate without mutating input", () => {
     assert.equal(result.config.session.httpOnly, false);
     assert.equal(result.config.limiter.windowMs, 60000);
     assert.deepEqual(result.config.cors.allowedOrigins, ["http://legacy.test"]);
-    assert.deepEqual(result.config.security.blockedHostnames, ["legacy.example", "*.blocked.example"]);
+    assert.deepEqual(result.config.security.accessControl, {
+        enabled: true,
+        allowed: [],
+        blocked: ["legacy.example", "*.blocked.example"]
+    });
     assert.equal(result.config.api.maxRedirects, 3);
     assert.ok(result.warnings.length >= 7);
 });
@@ -193,7 +201,7 @@ test("admin console requires credentials and a non-reserved absolute path when e
     }
 });
 
-test("hostname block rules reject legacy regular expressions", () => {
+test("network access rules reject regular expressions and malformed ports", () => {
     assert.throws(
         () => parseConfigObject({
             security: { blockedHostnames: ["internal\\.example"] }
@@ -201,11 +209,46 @@ test("hostname block rules reject legacy regular expressions", () => {
         error => {
             assert.ok(error instanceof ConfigLoadError);
             assert.equal(error.code, "CONFIG_SCHEMA_INVALID");
-            assert.match(error.message, /security\.blockedHostnames\.0/);
-            assert.match(error.message, /exact hostname or a leading wildcard/);
+            assert.match(error.message, /security\.accessControl\.blocked\.0/);
+            assert.match(error.message, /hostname, wildcard hostname, IP or CIDR/);
             return true;
         }
     );
+    assert.throws(
+        () => parseConfigObject({
+            security: {
+                accessControl: {
+                    enabled: true,
+                    allowed: ["example.com:70000"],
+                    blocked: []
+                }
+            }
+        }, { env: {} }),
+        error => error instanceof ConfigLoadError && /security\.accessControl\.allowed\.0/.test(error.message)
+    );
+});
+
+test("network access policy accepts host, wildcard, IP, CIDR and port rules", () => {
+    const accessControl = parseConfigObject({
+        security: {
+            accessControl: {
+                enabled: true,
+                allowed: [
+                    "api.example.com",
+                    "*.trusted.example.com:443",
+                    "8.8.8.8:53",
+                    "8.8.8.0/24",
+                    "[2001:4860:4860::8888]:443",
+                    "[2606:4700:4700::/48]:8443"
+                ],
+                blocked: ["blocked.example.com"]
+            }
+        }
+    }, { env: {} }).config.security.accessControl;
+
+    assert.equal(accessControl.enabled, true);
+    assert.equal(accessControl.allowed.length, 6);
+    assert.deepEqual(accessControl.blocked, ["blocked.example.com"]);
 });
 
 test("legacy migration emits structured deprecation records", () => {

@@ -54,7 +54,7 @@ function createProxyExecutor(options) {
 
     async function resolveTarget(value, requestConfig = getConfig()) {
         return validateTarget(value, {
-            blockedHostnames: requestConfig.security.blockedHostnames,
+            accessControl: requestConfig.security.accessControl,
             resolveHostname: hostname => dnsResolver.resolve(hostname)
         });
     }

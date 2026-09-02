@@ -86,7 +86,11 @@ npm start
   "security": {
     "ssrf": true,
     "allowPrivateNetworks": false,
-    "blockedHostnames": [],
+    "accessControl": {
+      "enabled": false,
+      "allowed": [],
+      "blocked": []
+    },
     "maxRewriteBytes": 5242880
   },
   "api": {
@@ -99,7 +103,7 @@ npm start
 }
 ```
 
-完整模板还包含 `browser` 段。`browser.enabled`、`browser.headerPolicy`、`browser.cookieJar`、`rewriteHtml`、`rewriteCss`、`responseTransform`、`publicCache`、`runtimeBridge`、WebSocket 与 `originIsolation` 字段已用于 Browser Route；Scoped Response Transform、Public Static Cache、Runtime Bridge、WebSocket 和 Origin Isolation 默认关闭。`browser.maxRedirects` 为旧 Browser 服务端跟随行为兼容保留；当前 Browser 3xx 只验证并改写 Location，由客户端逐跳处理。`security.blockedHostnames` 已用于目标主机校验；任何模式和动态请求都不能绕过现有安全检查。
+完整模板还包含 `browser` 段。`browser.enabled`、`browser.headerPolicy`、`browser.cookieJar`、`rewriteHtml`、`rewriteCss`、`responseTransform`、`publicCache`、`runtimeBridge`、WebSocket 与 `originIsolation` 字段已用于 Browser Route；Scoped Response Transform、Public Static Cache、Runtime Bridge、WebSocket、Origin Isolation 和目标访问控制默认关闭。`browser.maxRedirects` 为旧 Browser 服务端跟随行为兼容保留；当前 Browser 3xx 只验证并改写 Location，由客户端逐跳处理。`security.accessControl` 统一用于 API、Browser、WebSocket、Session 恢复和重定向目标校验；任何模式和动态请求都不能绕过现有安全检查。
 
 | 字段 | 类型/单位 | 当前行为 |
 | --- | --- | --- |
@@ -120,7 +124,9 @@ npm start
 | `limiter.enabled` | Boolean | 是否启用按客户端 IP 的窗口限流；保存配置后热加载，默认 `true` |
 | `limiter.windowMs` | Number，毫秒 | 限流窗口；保存配置后重建限流器 |
 | `limiter.max` | Number | 每个窗口允许的请求数 |
-| `security.blockedHostnames` | String[] | 精确 hostname 或 `*.example.com` 子域规则；不接受正则，可热加载 |
+| `security.accessControl.enabled` | Boolean | 是否启用目标白/黑名单；默认 `false`，可热加载 |
+| `security.accessControl.allowed` | String[] | 白名单；非空时未命中目标默认拒绝，支持域名、IP、CIDR 与端口 |
+| `security.accessControl.blocked` | String[] | 黑名单；始终优先于白名单，支持域名、IP、CIDR 与端口 |
 | `security.maxRewriteBytes` | Number，字节 | Browser 文本变换解压后输入及 UTF-8 输出的共同上限；超限返回 413；可热加载 |
 | `api.followRedirects` | Boolean | 是否启用 FireflyProxy 安全逐跳循环；Axios 自身始终禁止自动跳转；可热加载 |
 | `api.maxRedirects` | Number | 安全逐跳循环的最大次数；可热加载 |
@@ -148,6 +154,19 @@ npm start
 | `browser.originIsolation.enabled` | Boolean | 启用每 upstream 独立子域；默认 `false`；部署级开关，修改后需重启 |
 | `browser.originIsolation.baseOrigin` | HTTP(S) Origin | 专用 Browser DNS namespace，例如 `https://browse.example.com`；需匹配 DNS/TLS/Session 部署并重启 |
 
+目标访问规则每行（数组中每项）填写一个目标，不接受 URL、路径、查询参数或正则：
+
+| 示例 | 含义 |
+| --- | --- |
+| `api.example.com` | 仅匹配该域名的任意端口 |
+| `*.example.com:443` | 匹配子域的 443 端口，不包含根域 `example.com` |
+| `8.8.8.8:53` | 匹配指定 IPv4 与端口 |
+| `[2001:4860:4860::8888]:443` | 匹配指定 IPv6 与端口；带端口的 IPv6 必须使用方括号 |
+| `8.8.8.0/24` | 匹配 IPv4 CIDR；CIDR 同样可附加端口 |
+| `[2606:4700:4700::/48]:8443` | 匹配指定端口的 IPv6 CIDR |
+
+规则启用后，黑名单先判定并拒绝。白名单为空时只执行黑名单；白名单非空时，仅当请求 hostname 命中域名规则，或该域名的全部 DNS 地址均命中 IP/CIDR 白名单时才允许。IP/CIDR 黑名单只要命中任一 DNS 结果就拒绝，避免多地址域名随机落到未授权地址。访问规则不会关闭 HTTP(S)、公网地址、DNS 全量校验、Redirect 逐跳校验或连接 Pinning，因此白名单不能用来放行 localhost 和私网地址。
+
 ### 旧配置迁移
 
 | 旧字段 | 新字段 | 迁移单位 |
@@ -159,13 +178,14 @@ npm start
 | `session.cookie_secure` | `session.secure` | 不变 |
 | `session.cookie_httponly` | `session.httpOnly` | 不变 |
 | `max_redirects` | `api.maxRedirects` | 不变 |
-| `blacklist` | `security.blockedHostnames` | 按精确 hostname / 前导通配子域规则重新校验，不再执行正则 |
+| `blacklist` | `security.accessControl.blocked` | 自动启用访问控制并迁移为黑名单，不再执行正则 |
+| `security.blockedHostnames` | `security.accessControl.blocked` | 自动启用访问控制并保留现有精确域名/通配子域规则 |
 
 若配置包含旧字段且 `limiter.windowMs <= 1000`，迁移器会把它视为旧版秒值并乘以 1000。每次加载旧字段都会输出弃用警告，但现有服务不会因此中断。
 
-字符串支持 `${FIREFLYPROXY_SESSION_SECRET}` 形式的环境变量插值；旧的 `${PROXYWEB_SESSION_SECRET}` 仍可在迁移期使用。缺少被引用的变量会拒绝配置。Schema 会拒绝未知字段、错误类型、非法端口、非正数时间、越界 Redirect 数，以及包含正则语法或非前导通配符的 hostname 规则。
+字符串支持 `${FIREFLYPROXY_SESSION_SECRET}` 形式的环境变量插值；旧的 `${PROXYWEB_SESSION_SECRET}` 仍可在迁移期使用。缺少被引用的变量会拒绝配置。Schema 会拒绝未知字段、错误类型、非法端口、非正数时间、越界 Redirect 数，以及包含 URL、路径、正则语法或非法通配符的目标访问规则；每个白名单或黑名单最多 1000 条。
 
-配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。请求/连接超时、请求体/并发上限、认证、CORS、hostname 规则、API/Browser 模式策略和限流可以热加载；已有 Legacy Session 目标会在下一次请求时重新校验。端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
+配置文件由 Chokidar 监听。只有 JSON 解析、环境变量插值、Schema 校验和限流器创建全部成功后，才会原子替换当前配置；失败时继续使用最后一份有效配置。请求/连接超时、请求体/并发上限、认证、CORS、目标访问规则、API/Browser 模式策略和限流可以热加载；已有 Session 目标会在下一次请求时重新校验，新 WebSocket 握手也会读取最新规则。端口、`trustProxy` 和已经创建的 Session 中间件需要重启。
 
 ## 请求接口
 
@@ -179,7 +199,7 @@ ANY /__proxyweb/api?url=<percent-encoded-target>&method=<optional-method>&follow
 - 未提供 `method` 时使用客户端实际 HTTP 方法；提供时只接受 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS。
 - `followRedirects` 只接受精确的 `true`/`false`，`maxRedirects` 只接受 0–20 整数；重复或非法值返回 400 `PROXY_REQUEST_CONTROL_INVALID`。两者只能关闭或收紧全局 `api` 策略。
 - 非 GET/HEAD 请求体以流的方式转发。
-- 非浏览器客户端可继续直接发送自定义上游 Header。浏览器前端把请求头条目编码为 Base64URL UTF-8 JSON 二元数组，通过 `X-FireflyProxy-Upstream-Headers` 发送；解码内容最多 8 KiB、100 项、单值 4 KiB。API Route 逐项验证后转发 `Referer`、`Origin`、`Cookie`、`User-Agent` 与其他端到端字段，同时拒绝 `Host`、`Content-Length`、hop-by-hop、`Sec-*`、`Access-Control-*`、`Forwarded`/`X-Forwarded-*` 和 FireflyProxy 控制字段。
+- 非浏览器客户端可继续直接发送自定义上游 Header。浏览器前端把请求头条目编码为 Base64URL UTF-8 JSON 数组，通过 `X-FireflyProxy-Upstream-Headers` 发送；普通条目为 `[name, value]`，敏感条目可带第三个 `true`。解码内容最多 8 KiB、100 项、单值 4 KiB。API Route 逐项验证后转发 `Referer`、`Origin`、`Cookie`、`User-Agent` 与其他端到端字段，同时拒绝 `Host`、`Content-Length`、hop-by-hop、`Sec-*`、`Access-Control-*`、`Forwarded`/`X-Forwarded-*` 和 FireflyProxy 控制字段。前端生成的 API Key Header 会附加敏感标记，服务端据此保证任意自定义名称的密钥都不会跟随跨 Origin Redirect。
 - 上游 Bearer/Basic 使用 `X-FireflyProxy-Upstream-Authorization`，后端会将其转换为上游 `Authorization`。旧 `X-FireflyProxy-Upstream-Referer` 仍兼容：只接受不含凭据和 Fragment、长度不超过 4096 字符的绝对 HTTP(S) Referer。所有控制头都会在转发前移除；Browser Route 不接受这些覆盖，仍只从可信 Canonical 来源恢复来源字段。
 - 普通 `Authorization` 专用于 FireflyProxy 自身 Basic Auth，鉴权后立即从请求中删除。即使代理未启用认证，它也不会被隐式转发；需要上游认证时必须使用上述专用头。
 - 旧 `headers=<percent-encoded-json>` 查询参数仍兼容，响应会携带 `Deprecation: true` 与 HTTP `Warning: 299`；新调用方不得继续生成该参数。
@@ -396,7 +416,7 @@ location /__proxyweb/ {
 - 400 `PROXY_INVALID_URL`：目标 URL 格式、编码或 credentials 非法。
 - 400 `PROXY_REQUEST_CONTROL_INVALID`：API Redirect 控制重复、类型错误或超出规定范围。
 - 403 `PROXY_PROTOCOL_BLOCKED`：目标不是 HTTP(S) URL。
-- 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP、域名的任一 DNS 结果为非公网地址，或命中 `security.blockedHostnames`。
+- 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP、域名的任一 DNS 结果为非公网地址、命中黑名单，或未命中非空白名单。
 - 502 `PROXY_DNS_FAILED`：域名解析失败、超时、返回空列表或非法地址记录。
 - 502 `PROXY_REDIRECT_BLOCKED`：上游返回无法解析的 Redirect `Location`。
 - 504 `PROXY_CONNECT_TIMEOUT` / `PROXY_REQUEST_TIMEOUT`：连接阶段或上游请求超过配置上限。
@@ -437,6 +457,6 @@ location /__proxyweb/ {
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射、Runtime Bridge、WebSocket Upgrade、Origin Isolation Host 双绑定与 SQLite Shared Runtime State，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE、脚本动态 URL、WebSocket、独立 Origin/Storage 与 SOP 边界。
 
-后端当前 261 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，可热加载限流开关、请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、结构化浏览器受限请求头、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Scoped Response Transform、Public Static Cache、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SQLite 多进程状态共享、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 269 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，IP/域名/CIDR/端口白黑名单、可热加载限流开关、请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、结构化浏览器受限请求头、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Scoped Response Transform、Public Static Cache、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SQLite 多进程状态共享、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.4 的 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E；路线图 5.3 的 P3 门禁继续复用 P2，并追加本地工作区 IndexedDB E2E。逐项证据记录在本地的 P0/P1/P2 自动化验收矩阵、工作区契约与 Origin Isolation 威胁模型中。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

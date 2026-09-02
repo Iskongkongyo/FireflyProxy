@@ -12,6 +12,7 @@ const MAX_VALUE_LENGTH = 16384;
 const MAX_BODY_LENGTH = 1024 * 1024;
 const MAX_VARIABLES = 100;
 const MAX_ROWS = 500;
+const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 export class WorkspaceValidationError extends Error {
 	constructor(message) {
@@ -143,6 +144,12 @@ function normalizeAuth(auth = {}) {
 		type: 'bearer',
 		token: boundedText(auth.token, 'Bearer Token')
 	};
+	if (auth.type === 'apiKey') return {
+		type: 'apiKey',
+		key: boundedText(auth.key, 'API Key 名称', 256),
+		value: boundedText(auth.value, 'API Key 值'),
+		addTo: auth.addTo === 'query' ? 'query' : 'header'
+	};
 	return { type: 'none' };
 }
 
@@ -229,7 +236,12 @@ export function resolveRequestDraft(draft = {}, environment = null) {
 	if (auth.type === 'basic') {
 		auth.username = resolver.resolveString(auth.username);
 		auth.password = resolver.resolveString(auth.password);
-	} else if (auth.type === 'bearer') auth.token = resolver.resolveString(auth.token);
+	} else if (auth.type === 'bearer') {
+		auth.token = resolver.resolveString(auth.token);
+	} else if (auth.type === 'apiKey') {
+		auth.key = resolver.resolveString(auth.key);
+		auth.value = resolver.resolveString(auth.value);
+	}
 	return {
 		method: String(draft.method || 'GET').toUpperCase(),
 		url: resolver.resolveString(draft.url),
@@ -239,6 +251,41 @@ export function resolveRequestDraft(draft = {}, environment = null) {
 		auth,
 		redirect: normalizeRedirectSettings(draft.redirect)
 	};
+}
+
+export function applyApiKeyAuth(draft = {}) {
+	const auth = normalizeAuth(draft.auth);
+	const headers = normalizeEditorRows(draft.headers, { ensureEmptyRow: false });
+	const output = { ...draft, headers, auth };
+	if (auth.type !== 'apiKey') return output;
+
+	const key = auth.key.trim();
+	if (!key && !auth.value) return output;
+	if (!key || !auth.value) {
+		throw new WorkspaceValidationError('API Key 的名称和值都需要填写。');
+	}
+
+	if (auth.addTo === 'query') {
+		let target;
+		try {
+			target = new URL(draft.url);
+		} catch {
+			throw new WorkspaceValidationError('添加 API Key 查询参数前，请先填写有效的 HTTP(S) URL。');
+		}
+		if (!['http:', 'https:'].includes(target.protocol)) {
+			throw new WorkspaceValidationError('API Key 查询参数只能添加到 HTTP(S) URL。');
+		}
+		if (!target.searchParams.has(key)) target.searchParams.append(key, auth.value);
+		return { ...output, url: target.href };
+	}
+
+	if (!HEADER_NAME_PATTERN.test(key)) {
+		throw new WorkspaceValidationError('API Key 请求头名称不是有效的 HTTP Header 名称。');
+	}
+	const hasManualHeader = headers.some(row =>
+		row.enabled !== false && row.key.trim().toLowerCase() === key.toLowerCase());
+	if (!hasManualHeader) headers.push({ enabled: true, key, value: auth.value });
+	return output;
 }
 
 export function buildAuthorizationHeader(auth = {}) {

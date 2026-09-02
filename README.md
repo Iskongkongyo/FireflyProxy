@@ -37,14 +37,14 @@ FireflyProxy 是一个面向本地开发与受信网络的浏览器代理调试�
 
 | 模块 | 能力 |
 | --- | --- |
-| API 请求 | GET、POST、PUT、DELETE、PATCH、HEAD；查询参数、请求头、请求体、认证与重定向控制 |
+| API 请求 | GET、POST、PUT、DELETE、PATCH、HEAD；查询参数、请求头、请求体、Basic/Bearer/API Key 认证与重定向控制 |
 | 请求体 | JSON、原始文本、URL 编码表单、multipart 文本与文件 |
 | 响应检查 | HTTP 状态、总耗时、响应大小、Content-Type、最终 URL、重定向链及媒体/文件预览 |
 | 网页代理 | HTML/CSS/Location 重写、Cookie Jar、Runtime Bridge、WebSocket 与可选 Origin Isolation |
 | 本地工作区 | 环境变量、Session/持久化作用域、文件夹、已保存请求与敏感变量提醒 |
 | 请求历史 | 本地搜索、复制、重新打开、损坏数据容错和移动端卡片视图 |
-| 管理控制台 | 中文设置说明、配置搜索、明暗主题、单位换算、规则模板、原子写入和热加载 |
-| 安全内核 | HTTP(S) 限制、URL credentials 拒绝、DNS 全量校验、SSRF 防护、连接 Pinning、并发与大小上限 |
+| 管理控制台 | 中文设置说明、配置搜索、明暗主题、单位换算、目标白/黑名单、规则模板、原子写入和热加载 |
+| 安全内核 | HTTP(S) 限制、URL credentials 拒绝、DNS 全量校验、IP/域名/端口访问策略、SSRF 防护、连接 Pinning、并发与大小上限 |
 
 ### 前端体验
 
@@ -115,7 +115,7 @@ npm run build
 | `admin.*` | 管理控制台开关、路径与独立认证 |
 | `session.*` | Session Cookie 名称、生命周期与安全属性 |
 | `cors.allowedOrigins` | 允许访问 API 的浏览器 Origin |
-| `security.blockedHostnames` | 精确主机或 `*.example.com` 子域阻止规则 |
+| `security.accessControl.*` | 可热加载的目标白/黑名单；支持域名、通配子域、IP、CIDR 与可选端口 |
 | `api.*` | API 重定向、连接超时、请求体与并发限制 |
 | `browser.*` | 网页代理、重写、Cookie、Runtime、WebSocket 与来源隔离 |
 | `browser.responseTransform.*` | 按 Host、路径和 MIME 限定的内容替换规则 |
@@ -148,6 +148,7 @@ X-FireflyProxy-Upstream-Headers: <Base64URL UTF-8 JSON entries>
 - DNS 校验覆盖全部 A/AAAA 结果，拒绝 loopback、private、link-local、multicast、reserved 等非公网地址。
 - 每次实际连接都绑定已验证地址，并保持原始 Host、SNI 与 TLS 证书校验。
 - API 重定向逐跳重新执行 URL、DNS、SSRF 与 Pinning 校验；跨 Origin 会删除认证和敏感请求头。
+- 目标访问控制的黑名单优先；白名单非空时默认拒绝未命中目标，且不会放宽 SSRF 公网地址限制。
 - Browser Proxy 会执行目标站点提供的不可信 JavaScript，生产环境必须与管理界面使用不同 Origin。
 - 工作区的持久化变量、请求集合和历史记录没有加密；“敏感”标记仅负责遮罩与风险提醒。
 - 公共静态缓存、Runtime Bridge、Script Cookie Bridge、WebSocket 和 Origin Isolation 均需按部署需要显式配置。

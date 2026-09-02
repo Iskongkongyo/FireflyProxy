@@ -37,6 +37,35 @@ test("cross-origin redirects remove secrets and body-changing redirects remove e
     });
 });
 
+test("cross-origin redirects remove explicitly marked API Key headers with arbitrary names", () => {
+    const sensitiveHeaders = Symbol.for("fireflyproxy.sensitiveUpstreamHeaders");
+    const source = {
+        "x-custom-credential": "secret",
+        "x-safe": "keep"
+    };
+    Object.defineProperty(source, sensitiveHeaders, {
+        value: new Set(["x-custom-credential"]),
+        enumerable: true
+    });
+
+    assert.deepEqual(redirectHeaders(
+        source,
+        "https://one.test/start",
+        "https://two.test/next",
+        "GET",
+        "GET"
+    ), { "x-safe": "keep" });
+    const sameOrigin = redirectHeaders(
+        source,
+        "https://one.test/start",
+        "https://one.test/next",
+        "GET",
+        "GET"
+    );
+    assert.equal(sameOrigin["x-custom-credential"], "secret");
+    assert.deepEqual(sameOrigin[sensitiveHeaders], new Set(["x-custom-credential"]));
+});
+
 test("replayable body streams the first hop and only fails when oversized content is replayed", async () => {
     const replayable = createReplayableBody(Readable.from(["hello", "-world"]), 32);
     const firstHop = [];

@@ -6,7 +6,7 @@
 
 - GET、POST、PUT、DELETE、PATCH、HEAD 请求。
 - URL 查询串与可逐行启停的请求参数表双向同步；自定义请求头支持常用名称联想和中文筛选说明。
-- Basic Auth、Bearer Token 上游认证。
+- Basic Auth、Bearer Token 和 API Key 上游认证；API Key 可加入请求头或查询参数，默认使用请求头。
 - URL 编码表单、multipart 文件、JSON 和纯文本请求体。
 - 逐请求 Follow Redirects/Max Redirects，以及可信 Final URL 与 Redirect Chain。
 - HTTP Status、可靠 total、实际响应大小、Content-Type、JSON/文本、响应头、图片、音视频和下载响应展示。
@@ -69,7 +69,7 @@ npm run build
 
 1. 输入包含 `http://` 或 `https://` 的完整目标 URL。
 2. 选择 HTTP 方法。
-3. 在“请求参数”“请求头”“请求验证”和“重定向”中补充配置；每行可独立启停。Redirect 设置只能关闭或收紧后端全局策略。非 GET/HEAD 请求可在“请求体”中选择 none、Raw、JSON、URL 编码或 multipart，并为 multipart 文件字段逐项选择本地文件。需要复用目标或凭据时，可在“工作区”创建 Environment 并使用 `{{baseUrl}}`、`{{token}}` 等变量。
+3. 在“请求参数”“请求头”“身份认证”和“重定向”中补充配置；每行可独立启停。身份认证支持 Basic、Bearer 和 API Key，API Key 默认添加到请求头，也可按目标接口要求添加到查询参数。Redirect 设置只能关闭或收紧后端全局策略。非 GET/HEAD 请求可在“请求体”中选择 none、Raw、JSON、URL 编码或 multipart，并为 multipart 文件字段逐项选择本地文件。需要复用目标或凭据时，可在“工作区”创建 Environment 并使用 `{{baseUrl}}`、`{{token}}` 等变量。
 4. 点击“发送请求”，在下方查看 Status、Final URL、Redirect Chain、Content-Type、total、实际数据大小、内容与响应头。
 
 “Import cURL”只解析静态 HTTP(S) cURL 文本，不运行 Shell、读取路径或发起请求；导入的 `@file` 必须在文件选择器中重新授权。它支持 `-L`/`--location` 与 0–20 的 `--max-redirs`。“Copy as cURL”输出 POSIX Shell 单引号转义格式，若包含 Auth 或敏感 Header 会先二次确认。PowerShell/`cmd.exe` 不能保证直接复用该格式；详细边界记录在本地的请求编辑器、cURL 与响应诊断开发文档中。
@@ -79,6 +79,8 @@ Duration 使用单调时钟统计 Axios 分派至完整响应体读取的客户�
 网页代理页位于 `/web/browser`：输入完整 HTTP(S) URL 后默认在无 opener 的新标签页打开。高级设置可以为当前 Browser Session 关闭 HTML/CSS Rewrite、Runtime Bridge、WebSocket Proxy、Cookie Jar 或 Compatibility Headers，但不能打开后端全局禁用的能力。Runtime Bridge 映射 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History 动态 URL；Runtime 与 WebSocket 后端能力均默认关闭，需分别显式启用。嵌入预览只有在 Browser Proxy 与管理 UI 不同 Origin 时可选，并可能受第三方 Cookie、目标站 CSP/防嵌入策略和浏览器隐私设置影响。
 
 手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值，发送时会放入 `X-FireflyProxy-Upstream-Authorization`，不会进入代理 URL。其他编辑器 Header 会集中编码到 `X-FireflyProxy-Upstream-Headers`，因此 `Referer`、`Origin`、`Cookie`、`User-Agent` 等浏览器受限字段也能由后端验证后转发；Cookie 不再写入 FireflyProxy 自身站点。`Host`、`Content-Length`、连接级字段、浏览器安全元数据和代理身份字段仍会被忽略并提示。单个值上限 4 KiB，请求头信封解码后上限 8 KiB/100 项；HTTP/1 请求头值不能直接包含中文等非 Latin-1 字符，应按目标协议编码。带自定义 Header 或上游认证的媒体请求会回退到 Axios Blob，只有无额外 Header 时才使用原生媒体 URL 流式加载。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
+
+API Key 认证包含名称、值和添加位置，支持 Environment 模板、Saved Request 与 Copy as cURL。同名的手工请求头或请求参数优先于认证面板生成值。请求头模式会把密钥标记为敏感字段，跨 Origin Redirect 时即使名称不含 `key`/`token` 也会删除；查询参数模式无法避免密钥进入目标 URL、重定向诊断或外部访问日志，因此只应在接口明确要求时使用。页面分享和历史不会保存 Auth；复制包含查询参数 API Key 的直达链接前会二次确认，依赖请求头的认证则只允许使用 Copy as cURL。
 
 ## 分享与本地数据安全
 
@@ -147,7 +149,7 @@ vue-request-app/
 
 ## 当前限制
 
-- 已有 41 项零依赖 Node Test 覆盖敏感 Header、结构化上游 Header、请求头联想筛选、URL/参数双向同步、分享过滤、GET 直达 API/页面链接分流、请求行/Body/cURL、Redirect/诊断、Environment 解析/Secret 传播、IndexedDB Schema/CRUD、Browser URL/偏好构造和 iframe Origin 边界；P3 门禁在完整 P2 回归后通过真实 Edge 验证 Session Environment、刷新恢复、Folder、IndexedDB Saved Request、直达 API 链接与页面分享链接。Vue 组件挂载级测试仍未单独引入。
+- 已有 45 项零依赖 Node Test 覆盖 Basic/Bearer/API Key、敏感 Header、结构化上游 Header、请求头联想筛选、URL/参数双向同步、分享过滤、GET 直达 API/页面链接分流、请求行/Body/cURL、Redirect/诊断、Environment 解析/Secret 传播、IndexedDB Schema/CRUD、Browser URL/偏好构造和 iframe Origin 边界；P3 门禁在完整 P2 回归后通过真实 Edge 验证 Session Environment、刷新恢复、Folder、IndexedDB Saved Request、直达 API 链接与页面分享链接。Vue 组件挂载级测试仍未单独引入。
 - Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
 - 无自定义 Header 的扩展名音视频会由原生媒体元素直接流式加载，不经 Axios，因此当前不显示可靠的 Status、Final URL、Redirect Chain、Duration 或 Response Size；可使用浏览器 Network 面板诊断。

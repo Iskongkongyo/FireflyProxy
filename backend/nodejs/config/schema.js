@@ -1,6 +1,6 @@
 const { z } = require("zod");
 const { getPublicSuffix } = require("tough-cookie");
-const { normalizeHostnameRule } = require("../core/targetValidator");
+const { normalizeAccessRule, normalizeHostnameRule } = require("../core/targetValidator");
 
 const originSchema = z.string().refine(value => {
     if (value === "*") return true;
@@ -72,13 +72,19 @@ const limiterSchema = z.object({
     statusCode: z.number().int().min(400).max(599)
 }).strict();
 
+const accessRuleSchema = z.string().refine(
+    value => normalizeAccessRule(value) !== null,
+    "Expected a hostname, wildcard hostname, IP or CIDR with an optional port"
+);
+
 const securitySchema = z.object({
     ssrf: z.boolean(),
     allowPrivateNetworks: z.boolean(),
-    blockedHostnames: z.array(z.string().refine(
-        value => normalizeHostnameRule(value) !== null,
-        "Expected an exact hostname or a leading wildcard such as *.example.com"
-    )),
+    accessControl: z.object({
+        enabled: z.boolean(),
+        allowed: z.array(accessRuleSchema).max(1000),
+        blocked: z.array(accessRuleSchema).max(1000)
+    }).strict(),
     maxRewriteBytes: z.number().int().positive()
 }).strict();
 

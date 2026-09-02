@@ -27,7 +27,7 @@ const HTTP_ERROR_MESSAGES = {
 
 // 代理特定错误信息
 const PROXY_ERROR_MESSAGES = {
-    SSRF_BLOCKED: '安全限制：禁止访问内网/本地地址',
+    SSRF_BLOCKED: '目标被网络安全策略拒绝，请检查白名单、黑名单与 SSRF 设置',
     BLACKLISTED: '此域名在黑名单中，禁止访问',
     INVALID_URL: 'URL 格式无效，请输入正确的网址',
     CONNECTION_REFUSED: '无法连接到目标服务器',
@@ -65,6 +65,12 @@ export function parseError(error) {
                 } else if (data.includes('blacklist')) {
                     result.message = PROXY_ERROR_MESSAGES.BLACKLISTED;
                 }
+            } else if (error.response.data.error?.code) {
+                const proxyCode = String(error.response.data.error.code).replace(/^PROXY_/, '');
+                if (proxyCode === 'SSRF_BLOCKED') {
+                    result.message = PROXY_ERROR_MESSAGES.SSRF_BLOCKED;
+                }
+                result.details = error.response.data.error.message || error.response.data.error.code;
             } else if (error.response.data.message) {
                 result.details = error.response.data.message;
             }
