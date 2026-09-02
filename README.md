@@ -27,6 +27,22 @@ FireflyProxy 是一个面向本地开发与受信网络的浏览器代理调试�
 > [!WARNING]
 > FireflyProxy 不是可直接暴露到公网的开放代理。生产部署前必须配置身份认证、HTTPS、可信 CORS Origin、独立 Browser Origin、强 Session Secret，并理解下文列出的安全边界。
 
+## 🖼️ 界面预览
+
+<p align="center">
+  <a href="./pictures/主页.png">
+    <img src="./pictures/主页.png" width="23%">
+  </a>
+  <a href="./pictures/网页代理.png">
+    <img src="./pictures/网页代理.png" width="23%">
+  </a>
+  <a href="./pictures/请求历史.png">
+    <img src="./pictures/请求历史.png" width="23%">
+  </a>
+  <a href="./pictures/后端管理.png">
+    <img src="./pictures/后端管理.png" width="23%">
+  </a>
+</p>
 ## ✨ 主要能力
 
 | 模块 | 能力 |

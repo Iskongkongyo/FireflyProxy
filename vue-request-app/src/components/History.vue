@@ -51,7 +51,7 @@
 				@selection-change="handleSelectionChange"
 			>
 				<el-table-column type="selection" width="48" />
-				<el-table-column label="保存时间" min-width="180" sortable :sort-method="sortByDate">
+				<el-table-column label="保存时间" min-width="160" sortable :sort-method="sortByDate">
 					<template #default="scope">
 						<div class="date-cell">
 							<strong>{{ formatDate(scope.row.date) }}</strong>
@@ -59,7 +59,7 @@
 						</div>
 					</template>
 				</el-table-column>
-				<el-table-column label="请求页面" min-width="360">
+				<el-table-column label="请求页面" min-width="270">
 					<template #default="scope">
 						<div class="url-cell">
 							<el-tag size="small" type="info" effect="plain">{{ requestMethod(scope.row.url) }}</el-tag>
@@ -70,14 +70,16 @@
 						</div>
 					</template>
 				</el-table-column>
-				<el-table-column label="操作" width="174" fixed="right">
+				<el-table-column label="操作" width="224" align="center" fixed="right">
 					<template #default="scope">
-						<el-button type="primary" link @click="copyUrl(scope.row.url)">
-							<el-icon><CopyDocument /></el-icon>复制
-						</el-button>
-						<el-button type="primary" @click="jumpUrl(scope.row.url)">
-							重新打开<el-icon class="el-icon--right"><TopRight /></el-icon>
-						</el-button>
+						<div class="table-actions">
+							<el-button type="primary" plain @click="copyUrl(scope.row.url)">
+								<el-icon><CopyDocument /></el-icon>复制
+							</el-button>
+							<el-button type="primary" @click="jumpUrl(scope.row.url)">
+								重新打开<el-icon class="el-icon--right"><TopRight /></el-icon>
+							</el-button>
+						</div>
 					</template>
 				</el-table-column>
 				<template #empty>
@@ -336,6 +338,8 @@ h1 { margin: 6px 0 7px; font-size: clamp(28px, 4vw, 38px); letter-spacing: -0.04
 .toolbar-actions { display: flex; align-items: center; }
 .history-table { width: 100%; border-top: 1px solid #edf0f5; }
 .mobile-history-list { display: none; }
+.table-actions { display: flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
+.table-actions :deep(.el-button) { margin: 0; }
 
 .date-cell,
 .url-cell > div { display: grid; min-width: 0; gap: 4px; }
