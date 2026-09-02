@@ -30,19 +30,9 @@ FireflyProxy 是一个面向本地开发与受信网络的浏览器代理调试�
 ## 🖼️ 界面预览
 
 <p align="center">
-  <a href="./pictures/主页.png">
-    <img src="./pictures/主页.png" width="23%">
-  </a>
-  <a href="./pictures/网页代理.png">
-    <img src="./pictures/网页代理.png" width="23%">
-  </a>
-  <a href="./pictures/请求历史.png">
-    <img src="./pictures/请求历史.png" width="23%">
-  </a>
-  <a href="./pictures/后端管理.png">
-    <img src="./pictures/后端管理.png" width="23%">
-  </a>
+  <img src="./pictures/主页.png" width="1200" alt="FireflyProxy API 请求主页">
 </p>
+
 ## ✨ 主要能力
 
 | 模块 | 能力 |
