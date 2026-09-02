@@ -179,12 +179,13 @@ ANY /__proxyweb/api?url=<percent-encoded-target>&method=<optional-method>&follow
 - 未提供 `method` 时使用客户端实际 HTTP 方法；提供时只接受 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS。
 - `followRedirects` 只接受精确的 `true`/`false`，`maxRedirects` 只接受 0–20 整数；重复或非法值返回 400 `PROXY_REQUEST_CONTROL_INVALID`。两者只能关闭或收紧全局 `api` 策略。
 - 非 GET/HEAD 请求体以流的方式转发。
-- 自定义上游 Header 直接作为该 HTTP 请求的 Header 发送；上游 Bearer/Basic 使用 `X-FireflyProxy-Upstream-Authorization`，后端会将其转换为上游 `Authorization`，且不会把控制头本身转发出去。
+- 非浏览器客户端可继续直接发送自定义上游 Header。浏览器前端把请求头条目编码为 Base64URL UTF-8 JSON 二元数组，通过 `X-FireflyProxy-Upstream-Headers` 发送；解码内容最多 8 KiB、100 项、单值 4 KiB。API Route 逐项验证后转发 `Referer`、`Origin`、`Cookie`、`User-Agent` 与其他端到端字段，同时拒绝 `Host`、`Content-Length`、hop-by-hop、`Sec-*`、`Access-Control-*`、`Forwarded`/`X-Forwarded-*` 和 FireflyProxy 控制字段。
+- 上游 Bearer/Basic 使用 `X-FireflyProxy-Upstream-Authorization`，后端会将其转换为上游 `Authorization`。旧 `X-FireflyProxy-Upstream-Referer` 仍兼容：只接受不含凭据和 Fragment、长度不超过 4096 字符的绝对 HTTP(S) Referer。所有控制头都会在转发前移除；Browser Route 不接受这些覆盖，仍只从可信 Canonical 来源恢复来源字段。
 - 普通 `Authorization` 专用于 FireflyProxy 自身 Basic Auth，鉴权后立即从请求中删除。即使代理未启用认证，它也不会被隐式转发；需要上游认证时必须使用上述专用头。
 - 旧 `headers=<percent-encoded-json>` 查询参数仍兼容，响应会携带 `Deprecation: true` 与 HTTP `Warning: 299`；新调用方不得继续生成该参数。
 - 入站和兼容 Header 合并后会统一移除 hop-by-hop、`Proxy-Authorization` 及其 `Connection` 扩展字段。
 - 上游状态码和大多数响应头会透传，响应体以流方式管道输出；API 响应另带有界 Final URL、Redirect Chain 与有效控制值诊断头。
-- API Route 不写入 Legacy Session，保留上游的 `X-Frame-Options` 与 `Content-Security-Policy`，并使用显式 API CORS 策略。
+- API Route 不写入 Legacy Session，保留上游的 `X-Frame-Options` 与 `Content-Security-Policy`，并使用显式 API CORS 策略。上游返回的 `Access-Control-*` 会在 API/Legacy 响应中移除，避免覆盖 FireflyProxy 对前端 Origin 和凭据的授权；Browser Route 仍保留目标站 CORS 语义。
 
 每个请求都会获得服务端生成的 request ID，并通过 `X-Request-ID` 响应头返回。代理自身产生的 JSON 错误使用稳定格式：
 
@@ -383,7 +384,7 @@ location /__proxyweb/ {
 - `error.log`：error。
 - 控制台：与文件一致的结构化文本日志。
 
-应用不再覆写全局 `console`；`core/logger.js` 统一创建 Winston Logger。每条请求日志包含 request ID，并在写入任何 transport 前递归脱敏 Authorization、`X-FireflyProxy-Upstream-Authorization`、Cookie、Token、密码、Secret、API Key、`headers` 查询参数及多层编码目标 URL 中的敏感查询值。代理认证隔离、前端凭据迁移、Redirect Chain 以及真实子进程日志快照均已进入强制测试。
+应用不再覆写全局 `console`；`core/logger.js` 统一创建 Winston Logger。每条请求日志包含 request ID，并在写入任何 transport 前递归脱敏 Authorization、`X-FireflyProxy-Upstream-Authorization`、`X-FireflyProxy-Upstream-Headers`、旧 Referer 控制头、Cookie、Token、密码、Secret、API Key、`headers` 查询参数及多层编码目标 URL 中的敏感查询值。代理认证隔离、前端凭据迁移、Redirect Chain 以及真实子进程日志快照均已进入强制测试。
 
 常见检查：
 
@@ -436,6 +437,6 @@ location /__proxyweb/ {
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射、Runtime Bridge、WebSocket Upgrade、Origin Isolation Host 双绑定与 SQLite Shared Runtime State，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE、脚本动态 URL、WebSocket、独立 Origin/Storage 与 SOP 边界。
 
-后端当前 255 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，可热加载限流开关、请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Scoped Response Transform、Public Static Cache、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SQLite 多进程状态共享、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 261 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，可热加载限流开关、请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、结构化浏览器受限请求头、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Scoped Response Transform、Public Static Cache、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SQLite 多进程状态共享、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.4 的 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E；路线图 5.3 的 P3 门禁继续复用 P2，并追加本地工作区 IndexedDB E2E。逐项证据记录在本地的 P0/P1/P2 自动化验收矩阵、工作区契约与 Origin Isolation 威胁模型中。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

@@ -30,7 +30,8 @@
 					</el-option>
 				</el-select>
 				<el-input v-model="url" class="url-input" size="large" clearable autocomplete="url"
-					placeholder="输入完整 API 地址，例如：https://api.example.com/v1/users" aria-label="API 请求地址" />
+					placeholder="输入完整 API 地址，例如：https://api.example.com/v1/users" aria-label="API 请求地址"
+					@input="syncParamsFromUrl" />
 				<el-button class="send-button" type="primary" size="large" :loading="isLoading" @click="sendRequest">
 					<el-icon v-if="!isLoading" class="el-icon--left"><Search /></el-icon>
 					{{ isLoading ? '请求中' : '发送请求' }}
@@ -100,22 +101,45 @@
 						type="info" :closable="false" show-icon />
 				</div>
 
+				<el-alert
+					v-if="activeTab === 'headers'"
+					class="header-proxy-tip"
+					title="浏览器受控请求头会由代理安全处理"
+					description="Referer、Origin、Cookie、User-Agent 等浏览器受限字段会通过安全通道转发；Host、Content-Length、连接级和代理身份字段会被忽略。"
+					type="info"
+					:closable="false"
+					show-icon
+				/>
+
 				<!-- 动态表格 -->
 				<el-table v-if="['headers', 'params'].includes(activeTab)" :data="tableData[activeTab]"
 					class="editor-table">
 					<el-table-column label="启用" width="68" align="center">
 						<template #default="scope">
-							<el-switch v-model="scope.row.enabled" :aria-label="`启用第 ${scope.$index + 1} 行`" />
+							<el-switch v-model="scope.row.enabled" :aria-label="`启用第 ${scope.$index + 1} 行`"
+								@change="activeTab === 'params' && syncUrlFromParams()" />
 						</template>
 					</el-table-column>
 					<el-table-column prop="key" :label="'名称（'+buttons[activeTab]+')'" min-width="180">
 						<template #default="scope">
-							<el-input v-model="scope.row.key" clearable placeholder="名称" />
+							<el-autocomplete v-if="activeTab === 'headers'" v-model="scope.row.key"
+								class="header-name-autocomplete" clearable placeholder="选择或输入请求头"
+								:fetch-suggestions="queryHeaderNames" :trigger-on-focus="true" select-when-unmatched>
+								<template #default="{ item }">
+									<div class="header-suggestion">
+										<strong>{{ item.value }}</strong>
+										<span>{{ item.description }}</span>
+									</div>
+								</template>
+							</el-autocomplete>
+							<el-input v-else v-model="scope.row.key" clearable placeholder="参数名称"
+								@input="syncUrlFromParams" />
 						</template>
 					</el-table-column>
 					<el-table-column prop="value" :label="'值（'+buttons[activeTab]+')'" min-width="260">
 						<template #default="scope">
-							<el-input v-model="scope.row.value" clearable placeholder="值；支持 {{ variable }} 环境变量" />
+							<el-input v-model="scope.row.value" clearable placeholder="值；支持 {{ variable }} 环境变量"
+								@input="activeTab === 'params' && syncUrlFromParams()" />
 						</template>
 					</el-table-column>
 					<el-table-column label="操作" width="88" align="center">
@@ -187,13 +211,16 @@
 	import { PROXY_CONFIG, URL_PATTERN } from '../config.js';
 	import { parseError } from '../utils/errorHandler.js';
 	import { buildProxyTransport } from '../utils/headerSecurity.mjs';
+	import { filterHeaderSuggestions } from '../utils/headerCatalog.mjs';
 	import {
 		activeEditorRows,
-		appendQueryRows,
 		createEditorRow,
 		editorRowsToHeaders,
+		hasMeaningfulEditorRows,
 		normalizeEditorRows,
-		parseEditorRows
+		parseEditorRows,
+		queryRowsFromUrl,
+		replaceQueryRows
 	} from '../utils/requestEditor.mjs';
 	import { exportCurl, parseCurl, requestContainsSecrets, supportsRequestBody } from '../utils/curl.mjs';
 	import { buildRequestBody } from '../utils/requestBody.mjs';
@@ -235,7 +262,7 @@
 				isShow: false, //是否显示
 				activeTab: 'params',
 				tabMeta: {
-					params: { title: '请求参数', description: '这些键值对会追加到 URL 查询字符串中；关闭一行即可暂时停用。' },
+					params: { title: '请求参数', description: '这些键值对与 URL 查询字符串双向同步；关闭一行即可暂时停用。' },
 					headers: { title: '请求头', description: '设置发送给目标服务的 HTTP 请求头；敏感字段在分享前会提醒。' },
 					body: { title: '请求体', description: '根据接口要求选择 JSON、表单、文本或其他请求体格式。' },
 					auth: { title: '身份认证', description: '为当前请求配置 Basic 或 Bearer 认证信息。' },
@@ -324,7 +351,13 @@
 				this.url = decodeURIComponent(this.queryParams.url || '');
 				this.method = (this.queryParams.method || 'GET').toUpperCase();
 				this.tableData.headers = parseEditorRows(this.queryParams.headers);
-				this.tableData.params = parseEditorRows(this.queryParams.params);
+				const sharedParams = parseEditorRows(this.queryParams.params);
+				if (hasMeaningfulEditorRows(sharedParams)) {
+					this.tableData.params = sharedParams;
+					this.syncUrlFromParams();
+				} else {
+					this.syncParamsFromUrl(this.url);
+				}
 				this.redirectSettings = normalizeRedirectSettings({
 					followRedirects: this.queryParams.followRedirects,
 					maxRedirects: this.queryParams.maxRedirects
@@ -344,6 +377,24 @@
 
 		},
 		methods: {
+			queryHeaderNames(query, callback) {
+				callback(filterHeaderSuggestions(query));
+			},
+			syncParamsFromUrl(value = this.url) {
+				if (!String(value || '').trim()) {
+					this.tableData.params = [createEditorRow()];
+					return;
+				}
+				const rows = queryRowsFromUrl(value);
+				if (rows) this.tableData.params = rows;
+			},
+			syncUrlFromParams() {
+				try {
+					this.url = replaceQueryRows(this.url, this.tableData.params);
+				} catch {
+					// URL 尚未输入完整或包含环境变量时，保留参数表，发送前再解析。
+				}
+			},
 			handlePageKeydown(event) {
 				if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey) || event.repeat) return;
 				event.preventDefault();
@@ -378,6 +429,7 @@
 			removeRow(tab, index) {
 				if (tab) {
 					this.tableData[tab].splice(index, 1);
+					if (tab === 'params') this.syncUrlFromParams();
 				}
 			},
 			openCurlImport() {
@@ -389,6 +441,7 @@
 					const imported = parseCurl(this.curlInput);
 					this.method = imported.method;
 					this.url = imported.url;
+					this.syncParamsFromUrl(imported.url);
 					this.tableData.headers = imported.headers;
 					this.redirectSettings = normalizeRedirectSettings(imported.redirect, {
 						followRedirects: false,
@@ -419,7 +472,15 @@
 			},
 			getResolvedRequestDraft() {
 				const draft = resolveRequestDraft(this.getEditorDraft(), this.activeEnvironment);
-				return { ...draft, url: appendQueryRows(draft.url, draft.params) };
+				const preserveExistingWhenEmpty = queryRowsFromUrl(this.url) === null
+					&& !hasMeaningfulEditorRows(this.tableData.params);
+				return {
+					...draft,
+					url: replaceQueryRows(draft.url, draft.params, {
+						stripHash: true,
+						preserveExistingWhenEmpty
+					})
+				};
 			},
 			openWorkspace() {
 				this.$refs.workspace?.open(this.getEditorDraft());
@@ -428,6 +489,8 @@
 				this.method = request.method;
 				this.url = request.url;
 				this.tableData.params = normalizeEditorRows(request.params);
+				if (hasMeaningfulEditorRows(this.tableData.params)) this.syncUrlFromParams();
+				else this.syncParamsFromUrl(this.url);
 				this.tableData.headers = normalizeEditorRows(request.headers);
 				this.redirectSettings = normalizeRedirectSettings(request.redirect);
 				this.$refs.userAuth?.applyDraft(request.auth);
@@ -619,23 +682,15 @@
 					return ElMessage.error(error.message || '请检查请求 URL、Body 和环境变量。');
 				}
 
-				let headers = [];
+				const headers = [];
 				let upstreamAuthorization = display ? '' : buildAuthorizationHeader(resolvedDraft.auth);
 
-
-				// 处理自定义Cookie，因Cookie无法手动修改，通过document.cookie将Cookie写入客户端
-				for (let obj of activeEditorRows(resolvedDraft.headers)) {
-					// 末尾添加“;domain=;path=/;”使得Cookie在当前域名和根目录下生效
-					if (obj && obj.key) { // 确保 obj 和 obj.key 存在
+				for (const obj of activeEditorRows(resolvedDraft.headers)) {
+					if (obj?.key) {
 						if (obj.key.toLowerCase() === 'authorization') {
 							upstreamAuthorization = obj.value || '';
-						} else if (obj.key.toUpperCase() === 'COOKIE' || obj.key.toUpperCase() === 'COOKIES') {
-							document.cookie = obj.value + ';domain=;path=/;';
 						} else {
-							headers.push({
-								"key": obj.key,
-								"value": obj.value
-							});
+							headers.push({ key: obj.key, value: obj.value });
 						}
 					}
 				}
@@ -653,6 +708,9 @@
 					finHeaders,
 					upstreamAuthorization
 				);
+				if (proxyTransport.ignoredHeaders.length) {
+					ElMessage.warning(`以下请求头格式无效或不允许由客户端指定，已忽略：${proxyTransport.ignoredHeaders.join('、')}`);
+				}
 				const finReqUrl = applyRedirectSettings(proxyTransport.url, resolvedDraft.redirect);
 
 				const records = JSON.parse(localStorage.getItem('history') || "[]");
@@ -1130,6 +1188,11 @@
 	.editor-heading strong { font-size: 16px; }
 	.editor-heading span { color: #7b8798; font-size: 12px; line-height: 1.5; }
 	.editor-table { width: 100%; margin-bottom: 4px; }
+	.header-name-autocomplete { width: 100%; }
+	.header-suggestion { display: grid; gap: 2px; padding: 5px 0; line-height: 1.35; }
+	.header-suggestion strong { color: var(--el-text-color-primary); font-size: 13px; }
+	.header-suggestion span { overflow: hidden; color: var(--el-text-color-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+	.header-proxy-tip { margin-bottom: 12px; }
 	.redirect-settings { max-width: none; }
 	.redirect-grid { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(180px, 1fr); gap: 18px; max-width: 620px; }
 	.boolean-select { width: 100%; }

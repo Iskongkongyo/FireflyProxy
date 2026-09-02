@@ -133,13 +133,14 @@ ANY /__proxyweb/api?url=<percent-encoded-target>
 GET /__proxyweb/browser?url=<percent-encoded-target>
 ```
 
-`/__proxyweb/*` 和 `X-ProxyWeb-*` 是早期版本已经公开的线协议标识。项目品牌已更名为 FireflyProxy，但这些标识会继续保留兼容，避免旧分享链接、客户端和诊断工具失效。新前端发送上游认证时使用：
+`/__proxyweb/*` 和 `X-ProxyWeb-*` 是早期版本已经公开的线协议标识。项目品牌已更名为 FireflyProxy，但这些标识会继续保留兼容，避免旧分享链接、客户端和诊断工具失效。新前端使用以下控制头安全传递上游认证和浏览器受限请求头：
 
 ```text
 X-FireflyProxy-Upstream-Authorization: Bearer <token>
+X-FireflyProxy-Upstream-Headers: <Base64URL UTF-8 JSON entries>
 ```
 
-后端仍接受旧的 `X-ProxyWeb-Upstream-Authorization`，仅用于兼容迁移。
+前端会把 `Authorization` 单独隔离，并把 `Referer`、`Origin`、`Cookie`、`User-Agent` 等编辑器字段编码到统一请求头信封；后端逐项校验后设置真正的上游字段，控制头本身不会继续转发。`Host`、`Content-Length`、连接级、浏览器安全元数据和代理身份字段禁止覆盖。后端仍接受旧的 `X-ProxyWeb-Upstream-Authorization` 与 `X-FireflyProxy-Upstream-Referer`，仅用于兼容迁移。
 
 ## 🛡️ 安全边界
 

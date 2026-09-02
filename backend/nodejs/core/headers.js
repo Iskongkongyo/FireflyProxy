@@ -1,3 +1,5 @@
+const { validateHeaderValue } = require("node:http");
+
 const HOP_BY_HOP_HEADERS = new Set([
     "connection",
     "keep-alive",
@@ -17,6 +19,12 @@ const PROXY_AUTHENTICATION_HEADERS = new Set([
 
 const UPSTREAM_AUTHORIZATION_HEADER = "x-fireflyproxy-upstream-authorization";
 const LEGACY_UPSTREAM_AUTHORIZATION_HEADER = "x-proxyweb-upstream-authorization";
+const UPSTREAM_REFERER_HEADER = "x-fireflyproxy-upstream-referer";
+const UPSTREAM_HEADERS_HEADER = "x-fireflyproxy-upstream-headers";
+const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+const MAX_UPSTREAM_HEADER_ENVELOPE_BYTES = 8 * 1024;
+const MAX_UPSTREAM_HEADER_COUNT = 100;
+const MAX_UPSTREAM_HEADER_VALUE_BYTES = 4 * 1024;
 
 const PROXY_RESPONSE_CONTROL_HEADERS = new Set([
     "x-proxyweb-final-url",
@@ -75,10 +83,111 @@ function getHeader(headers, targetName) {
     return entry ? entry[1] : undefined;
 }
 
-function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}) {
+function normalizeUpstreamReferer(value) {
+    if (typeof value !== "string" || !value || value.length > 4096) return undefined;
+    try {
+        const referer = new URL(value);
+        if (!["http:", "https:"].includes(referer.protocol)) return undefined;
+        if (referer.username || referer.password || referer.hash) return undefined;
+        return referer.href;
+    } catch {
+        return undefined;
+    }
+}
+
+function normalizeUpstreamOrigin(value) {
+    if (value === "null") return "null";
+    if (typeof value !== "string" || !value || value.length > 4096) return undefined;
+    try {
+        const origin = new URL(value);
+        if (
+            !["http:", "https:"].includes(origin.protocol)
+            || origin.username
+            || origin.password
+            || origin.pathname !== "/"
+            || origin.search
+            || origin.hash
+        ) return undefined;
+        return origin.origin;
+    } catch {
+        return undefined;
+    }
+}
+
+function isBlockedUpstreamHeader(name) {
+    const normalized = normalizeHeaderName(name);
+    return !HEADER_NAME_PATTERN.test(String(name || ""))
+        || HOP_BY_HOP_HEADERS.has(normalized)
+        || [
+            "host",
+            "content-length",
+            "authorization",
+            "set-cookie",
+            "forwarded",
+            "x-real-ip"
+        ].includes(normalized)
+        || normalized.startsWith("proxy-")
+        || normalized.startsWith("sec-")
+        || normalized.startsWith("access-control-")
+        || normalized.startsWith("x-forwarded-")
+        || normalized.startsWith("x-fireflyproxy-")
+        || normalized.startsWith("x-proxyweb-");
+}
+
+function normalizeUpstreamHeaderValue(name, value) {
+    if (typeof value !== "string") return undefined;
+    if (Buffer.byteLength(value, "utf8") > MAX_UPSTREAM_HEADER_VALUE_BYTES || /[\r\n\0]/.test(value)) {
+        return undefined;
+    }
+    const normalized = normalizeHeaderName(name);
+    if (normalized === "referer") return normalizeUpstreamReferer(value);
+    if (normalized === "origin") return normalizeUpstreamOrigin(value);
+    try {
+        validateHeaderValue(normalized, value);
+    } catch {
+        return undefined;
+    }
+    return value;
+}
+
+function decodeUpstreamHeaders(value) {
+    const maxEncodedLength = Math.ceil(MAX_UPSTREAM_HEADER_ENVELOPE_BYTES / 3) * 4;
+    if (typeof value !== "string" || !value || value.length > maxEncodedLength) {
+        return {};
+    }
+    if (!/^[A-Za-z0-9_-]+$/.test(value)) return {};
+
+    try {
+        const decoded = Buffer.from(value, "base64url");
+        if (decoded.length > MAX_UPSTREAM_HEADER_ENVELOPE_BYTES) return {};
+        const entries = JSON.parse(decoded.toString("utf8"));
+        if (!Array.isArray(entries) || entries.length > MAX_UPSTREAM_HEADER_COUNT) return {};
+
+        const headers = {};
+        for (const entry of entries) {
+            if (!Array.isArray(entry) || entry.length !== 2) continue;
+            const [name, rawValue] = entry;
+            if (typeof name !== "string" || isBlockedUpstreamHeader(name)) continue;
+            const normalizedValue = normalizeUpstreamHeaderValue(name, rawValue);
+            if (normalizedValue === undefined) continue;
+            headers[normalizeHeaderName(name)] = normalizedValue;
+        }
+        return headers;
+    } catch {
+        return {};
+    }
+}
+
+function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}, options = {}) {
     const merged = { ...(inboundHeaders || {}), ...(customHeaders || {}) };
     const upstreamAuthorization = getHeader(inboundHeaders, UPSTREAM_AUTHORIZATION_HEADER)
         || getHeader(inboundHeaders, LEGACY_UPSTREAM_AUTHORIZATION_HEADER);
+    const upstreamReferer = options.allowUpstreamReferer
+        ? normalizeUpstreamReferer(getHeader(inboundHeaders, UPSTREAM_REFERER_HEADER))
+        : undefined;
+    const structuredHeaders = options.allowUpstreamHeaders
+        ? decodeUpstreamHeaders(getHeader(inboundHeaders, UPSTREAM_HEADERS_HEADER))
+        : {};
     const legacyAuthorization = getHeader(customHeaders, "authorization");
     const excluded = new Set([
         ...HOP_BY_HOP_HEADERS,
@@ -86,12 +195,22 @@ function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}) {
         "authorization",
         UPSTREAM_AUTHORIZATION_HEADER,
         LEGACY_UPSTREAM_AUTHORIZATION_HEADER,
+        UPSTREAM_REFERER_HEADER,
+        UPSTREAM_HEADERS_HEADER,
         ...connectionHeaderNames(inboundHeaders),
         ...connectionHeaderNames(customHeaders)
     ]);
     const result = omitHeaders(merged, excluded);
+    for (const name of Object.keys(result)) {
+        const normalized = normalizeHeaderName(name);
+        if (normalized.startsWith("sec-") || normalized.startsWith("access-control-")) {
+            delete result[name];
+        }
+    }
+    Object.assign(result, structuredHeaders);
     const authorization = upstreamAuthorization || legacyAuthorization;
     if (authorization) result.authorization = authorization;
+    if (upstreamReferer && !result.referer) result.referer = upstreamReferer;
     return result;
 }
 
@@ -102,7 +221,11 @@ function filterUpstreamResponseHeaders(headers, options = {}) {
         ...connectionHeaderNames(headers)
     ]);
     if (!options.preserveContentLength) excluded.add("content-length");
-    return omitHeaders(headers, excluded);
+    const result = omitHeaders(headers, excluded);
+    if (!options.stripCors) return result;
+    return Object.fromEntries(
+        Object.entries(result).filter(([name]) => !normalizeHeaderName(name).startsWith("access-control-"))
+    );
 }
 
 module.exports = {
@@ -111,11 +234,17 @@ module.exports = {
     PROXY_AUTHENTICATION_HEADERS,
     UPSTREAM_AUTHORIZATION_HEADER,
     LEGACY_UPSTREAM_AUTHORIZATION_HEADER,
+    UPSTREAM_REFERER_HEADER,
+    UPSTREAM_HEADERS_HEADER,
     buildUpstreamRequestHeaders,
+    decodeUpstreamHeaders,
     filterUpstreamResponseHeaders,
     getHeader,
     isHopByHopHeader,
     isProxyAuthenticationHeader,
     normalizeHeaderName,
+    normalizeUpstreamOrigin,
+    normalizeUpstreamReferer,
+    isBlockedUpstreamHeader,
     omitHeaders
 };

@@ -5,7 +5,7 @@
 ## 已实现功能
 
 - GET、POST、PUT、DELETE、PATCH、HEAD 请求。
-- 可逐行启停的查询参数和自定义请求头。
+- URL 查询串与可逐行启停的请求参数表双向同步；自定义请求头支持常用名称联想和中文筛选说明。
 - Basic Auth、Bearer Token 上游认证。
 - URL 编码表单、multipart 文件、JSON 和纯文本请求体。
 - 逐请求 Follow Redirects/Max Redirects，以及可信 Final URL 与 Redirect Chain。
@@ -41,7 +41,7 @@ npm run serve
 
 ### 已验证状态
 
-2026-08-29 使用 Node.js 22.19.0 / npm 11.6.2 验证：`npm test`、`npm run lint` 和 `npm run build` 均成功。生产依赖已更新到兼容版本，`npm audit --omit=dev` 为 0 个已知漏洞。当前构建仍有以下状态需要跟踪：
+2026-09-03 使用 Node.js 22.19.0 / npm 11.6.2 验证：`npm test`、`npm run lint` 和 `npm run build` 均成功。生产依赖已更新到兼容版本，`npm audit --omit=dev` 为 0 个已知漏洞。当前构建仍有以下状态需要跟踪：
 
 - 生产入口约 1.74 MiB，vendor JS 约 1.33 MiB，超过 Webpack 的性能建议阈值。
 - 不带 `--omit=dev` 的完整审计仍报告 Vue CLI 5/Webpack 开发工具链中的 17 个间接公告（11 moderate、6 high）；npm 的 `--force` 建议会破坏性降级到 Vue CLI 3，因此未采用。后续应迁移到仍受维护的构建工具链，而不是强制改锁文件。
@@ -78,7 +78,7 @@ Duration 使用单调时钟统计 Axios 分派至完整响应体读取的客户�
 
 网页代理页位于 `/web/browser`：输入完整 HTTP(S) URL 后默认在无 opener 的新标签页打开。高级设置可以为当前 Browser Session 关闭 HTML/CSS Rewrite、Runtime Bridge、WebSocket Proxy、Cookie Jar 或 Compatibility Headers，但不能打开后端全局禁用的能力。Runtime Bridge 映射 Request/fetch、XHR、EventSource、WebSocket、window.open 与 History 动态 URL；Runtime 与 WebSocket 后端能力均默认关闭，需分别显式启用。嵌入预览只有在 Browser Proxy 与管理 UI 不同 Origin 时可选，并可能受第三方 Cookie、目标站 CSP/防嵌入策略和浏览器隐私设置影响。
 
-手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值。发送时该值会放入 `X-FireflyProxy-Upstream-Authorization`，不会进入代理 URL；其他自定义 Header 直接作为到 FireflyProxy 的 HTTP Header 发送。带自定义 Header 或上游认证的媒体请求会回退到 Axios Blob，只有无额外 Header 时才使用原生媒体 URL 流式加载。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
+手工填写的 `Authorization` 请求头优先于“请求验证”面板生成的值，发送时会放入 `X-FireflyProxy-Upstream-Authorization`，不会进入代理 URL。其他编辑器 Header 会集中编码到 `X-FireflyProxy-Upstream-Headers`，因此 `Referer`、`Origin`、`Cookie`、`User-Agent` 等浏览器受限字段也能由后端验证后转发；Cookie 不再写入 FireflyProxy 自身站点。`Host`、`Content-Length`、连接级字段、浏览器安全元数据和代理身份字段仍会被忽略并提示。单个值上限 4 KiB，请求头信封解码后上限 8 KiB/100 项；HTTP/1 请求头值不能直接包含中文等非 Latin-1 字符，应按目标协议编码。带自定义 Header 或上游认证的媒体请求会回退到 Axios Blob，只有无额外 Header 时才使用原生媒体 URL 流式加载。项目没有集成 HLS 播放器，因此 `.m3u8` 并非在所有浏览器中都可直接播放。
 
 ## 分享与本地数据安全
 
@@ -93,7 +93,7 @@ Duration 使用单调时钟统计 Axios 分派至完整响应体读取的客户�
 
 后端仍兼容旧代理 URL 的 `headers` 查询参数，但会返回弃用提示；新版前端不再生成它。清理旧数据时可在“历史”页面点击“清空所有”，也可清除该站点的浏览器存储。
 
-API 请求页的手工 Cookie 输入仍属于旧兼容行为，不等价于 Browser Cookie Jar。网页代理页使用后端按 Session 隔离的 upstream Cookie Jar，但服务端 Jar 无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
+API 请求页的手工 Cookie 会作为当前单次 API 请求的上游 Header 转发，不会持久化，也不等价于 Browser Cookie Jar。网页代理页使用后端按 Session 隔离的 upstream Cookie Jar，但服务端 Jar 无法让目标脚本通过 `document.cookie` 读取 upstream Cookie。
 
 ## Environment 与 Collections
 
@@ -147,12 +147,12 @@ vue-request-app/
 
 ## 当前限制
 
-- 已有 36 项零依赖 Node Test 覆盖敏感 Header、分享过滤、GET 直达 API/页面链接分流、安全 API 传输、请求行/Body/cURL、Redirect/诊断、Environment 解析/Secret 传播、IndexedDB Schema/CRUD、Browser URL/偏好构造和 iframe Origin 边界；P3 门禁在完整 P2 回归后通过真实 Edge 验证 Session Environment、刷新恢复、Folder、IndexedDB Saved Request、直达 API 链接与页面分享链接。Vue 组件挂载级测试仍未单独引入。
+- 已有 41 项零依赖 Node Test 覆盖敏感 Header、结构化上游 Header、请求头联想筛选、URL/参数双向同步、分享过滤、GET 直达 API/页面链接分流、请求行/Body/cURL、Redirect/诊断、Environment 解析/Secret 传播、IndexedDB Schema/CRUD、Browser URL/偏好构造和 iframe Origin 边界；P3 门禁在完整 P2 回归后通过真实 Edge 验证 Session Environment、刷新恢复、Folder、IndexedDB Saved Request、直达 API 链接与页面分享链接。Vue 组件挂载级测试仍未单独引入。
 - Vue CLI 5 开发工具链仍有上述仅开发依赖审计项；生产依赖审计已清零。
 - 普通 GET 响应会先完整读取为 Blob；除按扩展名识别的媒体外，不属于真正的浏览器端流式展示。
 - 无自定义 Header 的扩展名音视频会由原生媒体元素直接流式加载，不经 Axios，因此当前不显示可靠的 Status、Final URL、Redirect Chain、Duration 或 Response Size；可使用浏览器 Network 面板诊断。
 - API 请求页仍把 HTML 响应作为文本或 Blob 处理；只有独立网页代理页会进入后端 HTML/CSS/Location Rewrite。
-- API 请求页手工 Cookie 仍是旧兼容行为，不能完整复现 cURL Cookie 语义；网页代理 Cookie 请使用后端 Session Jar。
+- API 请求页手工 Cookie 只作用于当前请求，不维护跨请求 Cookie Jar；网页代理 Cookie 请使用后端 Session Jar。
 - 工作区没有多标签实时冲突合并、Collection 导入/导出、Runner、测试脚本、账号同步或加密；最后一次成功写入生效。
 - 项目只包含 Node.js 后端，没有 Python 后端。
 

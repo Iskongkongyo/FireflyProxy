@@ -5,6 +5,8 @@ const SENSITIVE_KEYS = new Set([
     "proxyauthorization",
     "xproxywebupstreamauthorization",
     "xfireflyproxyupstreamauthorization",
+    "xfireflyproxyupstreamheaders",
+    "xfireflyproxyupstreamreferer",
     "cookie",
     "setcookie",
     "token",

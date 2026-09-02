@@ -24,6 +24,8 @@ test("redact removes secrets from nested objects, URLs and errors without mutati
     assert.equal(input.nested.api_key, secret);
     assert.equal(isSensitiveKey("Proxy-Authorization"), true);
     assert.equal(isSensitiveKey("X-ProxyWeb-Upstream-Authorization"), true);
+    assert.equal(isSensitiveKey("X-FireflyProxy-Upstream-Headers"), true);
+    assert.equal(isSensitiveKey("X-FireflyProxy-Upstream-Referer"), true);
     assert.equal(isSensitiveKey("x-request-id"), false);
     assert.doesNotMatch(redactString("https://user:credential@example.test/path"), /user|credential/);
     assert.doesNotMatch(

@@ -64,6 +64,19 @@ async function handleRequest(req, res) {
         }, { "x-fixture": "json" });
     }
 
+    if (url.pathname === "/cors-headers") {
+        return sendJson(res, 200, { cors: "upstream" }, {
+            "access-control-allow-origin": "*",
+            "access-control-allow-credentials": "true",
+            "access-control-allow-methods": "GET, POST",
+            "access-control-allow-headers": "x-upstream-only",
+            "access-control-expose-headers": "x-upstream-policy-only",
+            "access-control-max-age": "86400",
+            vary: "Accept-Encoding",
+            "x-upstream-secret": "fixture"
+        });
+    }
+
     if (url.pathname === "/cache/stats") {
         return sendJson(res, 200, Object.fromEntries(CACHE_REQUEST_COUNTS));
     }

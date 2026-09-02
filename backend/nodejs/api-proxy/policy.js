@@ -6,11 +6,15 @@ const apiPolicy = Object.freeze({
     mode: "api",
     exposeCors: true,
     buildRequestHeaders(inboundHeaders, customHeaders) {
-        return buildUpstreamRequestHeaders(inboundHeaders, customHeaders);
+        return buildUpstreamRequestHeaders(inboundHeaders, customHeaders, {
+            allowUpstreamReferer: true,
+            allowUpstreamHeaders: true
+        });
     },
     filterResponseHeaders(upstreamHeaders, config, context = {}) {
         return filterUpstreamResponseHeaders(upstreamHeaders, {
-            preserveContentLength: context.preserveContentLength
+            preserveContentLength: context.preserveContentLength,
+            stripCors: true
         });
     },
     redirectOptions(config, context = {}) {

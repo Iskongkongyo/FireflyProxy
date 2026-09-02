@@ -31,6 +31,34 @@ export function activeEditorRows(rows) {
 		.filter((row) => row.enabled && row.key);
 }
 
+export function hasMeaningfulEditorRows(rows) {
+	return normalizeEditorRows(rows, { ensureEmptyRow: false })
+		.some((row) => row.key || row.value);
+}
+
+export function queryRowsFromUrl(rawUrl) {
+	try {
+		const target = new URL(rawUrl);
+		if (!['http:', 'https:'].includes(target.protocol)) return null;
+		const rows = [...target.searchParams.entries()].map(([key, value]) => createEditorRow({ key, value }));
+		return normalizeEditorRows(rows);
+	} catch {
+		return null;
+	}
+}
+
+export function replaceQueryRows(rawUrl, rows, { stripHash = false, preserveExistingWhenEmpty = false } = {}) {
+	const target = new URL(rawUrl);
+	if (!(preserveExistingWhenEmpty && !hasMeaningfulEditorRows(rows))) {
+		target.search = '';
+		activeEditorRows(rows).forEach(({ key, value }) => {
+			target.searchParams.append(key, value);
+		});
+	}
+	if (stripHash) target.hash = '';
+	return target.href;
+}
+
 export function appendQueryRows(rawUrl, rows) {
 	const target = new URL(rawUrl);
 	target.hash = '';

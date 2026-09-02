@@ -76,13 +76,14 @@ export function parseError(error) {
             result.message = PROXY_ERROR_MESSAGES.TIMEOUT;
             result.type = 'warning';
         } else if (error.message?.includes('Network Error')) {
-            result.message = '网络连接失败，请检查网络或代理服务器是否运行';
+            result.message = '无法读取代理响应，请检查代理服务与 CORS 配置';
             result.type = 'error';
+            result.details = 'Network Error（浏览器可能因跨域策略拦截响应）';
         } else {
             result.message = '无法连接到代理服务器';
             result.type = 'error';
         }
-        result.details = error.message || '请检查网络连接';
+        if (!result.details) result.details = error.message || '请检查网络连接';
     }
     // 其他错误
     else if (error.message) {

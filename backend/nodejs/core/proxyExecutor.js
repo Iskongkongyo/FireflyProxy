@@ -15,6 +15,18 @@ const { validateTarget } = require("./targetValidator");
 const VALID_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]);
 const HEADERS_QUERY_WARNING = '299 FireflyProxy "headers query parameter is deprecated; send upstream Authorization with X-FireflyProxy-Upstream-Authorization"';
 
+function setResponseHeader(res, name, value) {
+    if (String(name).toLowerCase() !== "vary") {
+        res.setHeader(name, value);
+        return;
+    }
+    const values = Array.isArray(value) ? value : String(value).split(",");
+    for (const item of values) {
+        const token = String(item).trim();
+        if (token) res.vary(token);
+    }
+}
+
 function validatePolicy(policy) {
     if (
         !policy
@@ -118,7 +130,7 @@ function createProxyExecutor(options) {
                 + Math.max(0, Math.floor((Date.now() - cached.metadata.createdAt) / 1000))
             );
             responseHeaders["x-proxyweb-cache"] = "HIT";
-            for (const [key, value] of Object.entries(responseHeaders)) res.setHeader(key, value);
+            for (const [key, value] of Object.entries(responseHeaders)) setResponseHeader(res, key, value);
             res.status(cached.metadata.status);
             flushStreamingHeaders(res, prepared.classification);
             logCache("Hit", "fresh");
@@ -331,7 +343,7 @@ function createProxyExecutor(options) {
                     ...redirectOptions
                 }));
             }
-            for (const [key, value] of Object.entries(responseHeaders)) res.setHeader(key, value);
+            for (const [key, value] of Object.entries(responseHeaders)) setResponseHeader(res, key, value);
             if (requestConfig.browser?.publicCache?.enabled && policy.mode === "browser") {
                 res.setHeader("x-proxyweb-cache", cacheResponse?.eligible ? "MISS" : "BYPASS");
             }

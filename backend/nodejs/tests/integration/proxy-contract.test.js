@@ -80,6 +80,35 @@ test("new API route forwards requests without creating legacy session state", as
     assert.equal(payload.body, "api-route-body");
 });
 
+test("new API route safely forwards structured browser-restricted request headers", async () => {
+    const structuredHeaders = Buffer.from(JSON.stringify([
+        ["Referer", "https://qifu.baidu.com/search"],
+        ["Origin", "https://qifu.baidu.com"],
+        ["Cookie", "upstreamSession=alpha"],
+        ["User-Agent", "FireflyProxy-Integration/1.0"],
+        ["X-Trace-ID", "trace-structured"],
+        ["Host", "attacker.test"],
+        ["X-Forwarded-For", "127.0.0.1"]
+    ]), "utf8").toString("base64url");
+    const response = await fetch(modeUrl(proxy.origin, "api", `${fixture.origin}/echo`), {
+        headers: {
+            origin: "http://frontend.test",
+            cookie: "proxySession=must-not-leak",
+            "x-fireflyproxy-upstream-headers": structuredHeaders
+        }
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.headers.referer, "https://qifu.baidu.com/search");
+    assert.equal(payload.headers.origin, "https://qifu.baidu.com");
+    assert.equal(payload.headers.cookie, "upstreamSession=alpha");
+    assert.equal(payload.headers["user-agent"], "FireflyProxy-Integration/1.0");
+    assert.equal(payload.headers["x-trace-id"], "trace-structured");
+    assert.equal(payload.headers.host, `fixture.test:${fixture.port}`);
+    assert.equal(payload.headers["x-forwarded-for"], undefined);
+});
+
 test("legacy route remains compatible and advertises its successor", async () => {
     const target = `${fixture.origin}/json?route=legacy`;
     const response = await fetch(`${proxy.origin}/?url=${encodeURIComponent(target)}`, {
@@ -1191,7 +1220,7 @@ test("CORS preflight returns configured origin and credentials policy", async ()
         headers: {
             origin: "http://frontend.test",
             "access-control-request-method": "POST",
-            "access-control-request-headers": "content-type,x-requested-with"
+            "access-control-request-headers": "content-type,x-requested-with,x-fireflyproxy-upstream-referer"
         }
     });
 
@@ -1199,7 +1228,24 @@ test("CORS preflight returns configured origin and credentials policy", async ()
     assert.equal(response.headers.get("access-control-allow-origin"), "http://frontend.test");
     assert.equal(response.headers.get("access-control-allow-credentials"), "true");
     assert.match(response.headers.get("access-control-allow-headers"), /x-requested-with/);
+    assert.match(response.headers.get("access-control-allow-headers"), /x-fireflyproxy-upstream-referer/);
     assert.match(response.headers.get("vary"), /Origin/);
+});
+
+test("API response CORS policy cannot be overwritten by upstream CORS headers", async () => {
+    const response = await fetch(modeUrl(proxy.origin, "api", `${fixture.origin}/cors-headers`), {
+        headers: { origin: "http://frontend.test" }
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("access-control-allow-origin"), "http://frontend.test");
+    assert.equal(response.headers.get("access-control-allow-credentials"), "true");
+    assert.equal(response.headers.get("access-control-allow-methods"), null);
+    assert.equal(response.headers.get("access-control-allow-headers"), null);
+    assert.equal(response.headers.get("access-control-max-age"), null);
+    assert.doesNotMatch(response.headers.get("access-control-expose-headers") || "", /x-upstream-policy-only/i);
+    assert.match(response.headers.get("vary"), /Origin/i);
+    assert.match(response.headers.get("vary"), /Accept-Encoding/i);
 });
 
 test("credentialed CORS rejects arbitrary and malformed Origins", async () => {
@@ -1554,6 +1600,22 @@ test("proxy Basic Auth credentials are removed while dedicated upstream auth is 
     } finally {
         await authProxy.close();
     }
+});
+
+test("API Referer uses a dedicated control header without trusting the browser Referer", async () => {
+    const target = `${fixture.origin}/echo`;
+    const response = await fetch(modeUrl(proxy.origin, "api", target), {
+        headers: {
+            origin: "http://frontend.test",
+            referer: "http://frontend.test/editor",
+            "x-fireflyproxy-upstream-referer": "https://qifu.baidu.com/"
+        }
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.headers.referer, "https://qifu.baidu.com/");
+    assert.equal(payload.headers["x-fireflyproxy-upstream-referer"], undefined);
 });
 
 test("legacy headers query remains compatible and advertises deprecation", async () => {

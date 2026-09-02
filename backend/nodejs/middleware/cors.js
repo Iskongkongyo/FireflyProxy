@@ -14,6 +14,8 @@ const DEFAULT_ALLOWED_HEADERS = Object.freeze([
     "content-type",
     "authorization",
     "x-fireflyproxy-upstream-authorization",
+    "x-fireflyproxy-upstream-headers",
+    "x-fireflyproxy-upstream-referer",
     "x-proxyweb-upstream-authorization"
 ]);
 

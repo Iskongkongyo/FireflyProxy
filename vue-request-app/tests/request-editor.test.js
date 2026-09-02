@@ -26,6 +26,41 @@ test('query rows preserve existing values and duplicate order while skipping dis
 	assert.equal(result.searchParams.has('skip'), false);
 });
 
+test('URL query parameters populate editor rows with duplicate order intact', async () => {
+	const { queryRowsFromUrl } = await import('../src/utils/requestEditor.mjs');
+	assert.deepEqual(queryRowsFromUrl('https://example.test/search?q=firefly&q=proxy&empty=#result'), [
+		{ enabled: true, key: 'q', value: 'firefly' },
+		{ enabled: true, key: 'q', value: 'proxy' },
+		{ enabled: true, key: 'empty', value: '' }
+	]);
+	assert.equal(queryRowsFromUrl('not-a-complete-url'), null);
+});
+
+test('editor query rows replace URL parameters without duplication and preserve the editor fragment', async () => {
+	const { replaceQueryRows } = await import('../src/utils/requestEditor.mjs');
+	const result = new URL(replaceQueryRows('https://example.test/path?old=1#fragment', [
+		{ enabled: true, key: 'q', value: 'one' },
+		{ enabled: false, key: 'skip', value: 'secret' },
+		{ enabled: true, key: 'q', value: 'two' }
+	]));
+
+	assert.equal(result.hash, '#fragment');
+	assert.equal(result.searchParams.has('old'), false);
+	assert.deepEqual(result.searchParams.getAll('q'), ['one', 'two']);
+	assert.equal(result.searchParams.has('skip'), false);
+});
+
+test('request URL can preserve resolved template parameters when the editor has no rows', async () => {
+	const { replaceQueryRows } = await import('../src/utils/requestEditor.mjs');
+	assert.equal(
+		replaceQueryRows('https://example.test/path?token=resolved#fragment', [], {
+			stripHash: true,
+			preserveExistingWhenEmpty: true
+		}),
+		'https://example.test/path?token=resolved'
+	);
+});
+
 test('serialized editor rows exclude disabled and blank keys', async () => {
 	const { serializeEditorRows } = await import('../src/utils/requestEditor.mjs');
 	assert.equal(serializeEditorRows([
