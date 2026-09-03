@@ -43,7 +43,7 @@ FireflyProxy 是一个面向本地开发与受信网络的浏览器代理调试�
 | 网页代理 | HTML/CSS/Location 重写、Cookie Jar、Runtime Bridge、WebSocket 与可选 Origin Isolation |
 | 本地工作区 | 环境变量、Session/持久化作用域、文件夹、已保存请求与敏感变量提醒 |
 | 请求历史 | 本地搜索、复制、重新打开、损坏数据容错和移动端卡片视图 |
-| 管理控制台 | 中文设置说明、配置搜索、明暗主题、单位换算、目标白/黑名单、规则模板、原子写入和热加载 |
+| 管理控制台 | 中文设置说明、配置搜索、明暗主题、单位换算、目标白/黑名单、审计记录、客户端 IP/CIDR 封禁、规则模板、原子写入和热加载 |
 | 安全内核 | HTTP(S) 限制、URL credentials 拒绝、DNS 全量校验、IP/域名/端口访问策略、SSRF 防护、连接 Pinning、并发与大小上限 |
 
 ### 前端体验
@@ -121,6 +121,8 @@ npm run build
 | `browser.responseTransform.*` | 按 Host、路径和 MIME 限定的内容替换规则 |
 | `browser.publicCache.*` | 匿名公开静态资源缓存；默认关闭 |
 | `runtimeState.*` | `memory` 或单机多进程共享的 `sqlite` 状态后端 |
+| `audit.*` | 隐私最小化审计；可选内存或独立 SQLite、保留天数、条数上限及目标 Origin 开关 |
+| `clientAccessControl.*` | 来源 IP/CIDR 封禁开关及永不封禁列表；活动封禁在管理面板维护 |
 
 管理控制台默认关闭。设置 `admin.enabled: true` 并配置独立的 `admin.user`、`admin.pwd` 后，可访问默认地址 `http://localhost:8082/admin`。
 
@@ -149,6 +151,9 @@ X-FireflyProxy-Upstream-Headers: <Base64URL UTF-8 JSON entries>
 - 每次实际连接都绑定已验证地址，并保持原始 Host、SNI 与 TLS 证书校验。
 - API 重定向逐跳重新执行 URL、DNS、SSRF 与 Pinning 校验；跨 Origin 会删除认证和敏感请求头。
 - 目标访问控制的黑名单优先；白名单非空时默认拒绝未命中目标，且不会放宽 SSRF 公网地址限制。
+- 客户端封禁与目标访问控制相互独立：前者限制谁能访问 FireflyProxy，后者限制 FireflyProxy 能访问哪里。
+- 审计默认关闭；启用后只记录时间、来源 IP、方法、模式、目标 Origin、状态、耗时和 request ID，不保存 Header、Body、Cookie、凭据、URL 路径或查询参数。
+- loopback、服务器网卡、本次连接的本机地址、当前执行封禁的管理员 IP 及 `neverBlock` 规则不能被管理页面封禁，避免误锁 VPS 管理入口。
 - Browser Proxy 会执行目标站点提供的不可信 JavaScript，生产环境必须与管理界面使用不同 Origin。
 - 工作区的持久化变量、请求集合和历史记录没有加密；“敏感”标记仅负责遮罩与风险提醒。
 - 公共静态缓存、Runtime Bridge、Script Cookie Bridge、WebSocket 和 Origin Isolation 均需按部署需要显式配置。

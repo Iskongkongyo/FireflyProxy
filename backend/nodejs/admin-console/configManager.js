@@ -74,6 +74,10 @@ function changedRestartFields(previous, next) {
     for (const field of ["port", "trustProxy", "session", "runtimeState"]) {
         if (JSON.stringify(previous[field]) !== JSON.stringify(next[field])) fields.push(field);
     }
+    if (
+        previous.audit.backend !== next.audit.backend
+        || previous.audit.sqlitePath !== next.audit.sqlitePath
+    ) fields.push("audit.backend/sqlitePath");
     if (previous.browser.publicCache.directory !== next.browser.publicCache.directory) {
         fields.push("browser.publicCache.directory");
     }

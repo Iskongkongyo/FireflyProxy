@@ -2,6 +2,12 @@ const { randomUUID } = require("node:crypto");
 const { STATUS_CODES } = require("node:http");
 const { WebSocket, WebSocketServer } = require("ws");
 const { ERROR_CODES, ProxyError, errorPayload, normalizeProxyError } = require("../core/errors");
+const {
+    clientRuleMatches,
+    localInterfaceAddresses,
+    protectedClientRules,
+    resolveUpgradeClientIp
+} = require("../core/clientAccess");
 const { validateTarget } = require("../core/targetValidator");
 const {
     isolatedProxyOrigin,
@@ -261,13 +267,26 @@ function createWebSocketProxy(options) {
         connectionFactory,
         sessionMiddleware,
         sessionStateStore,
+        auditStore,
         logger
     } = options;
     const connections = new Set();
+    const serverAddresses = localInterfaceAddresses();
     let attachedServer = null;
     let closed = false;
 
+    function recordAudit(input, requestId) {
+        try {
+            auditStore.record(input);
+        } catch (error) {
+            logger.error("[Audit] Unable to record WebSocket event", { requestId, error });
+        }
+    }
+
     async function handleUpgrade(req, socket, head) {
+        const startedAt = Date.now();
+        let clientIp = "";
+        let targetOrigin = "";
         const state = {
             upstream: null,
             connection: null,
@@ -292,6 +311,35 @@ function createWebSocketProxy(options) {
         try {
             if (closed) throw new ProxyError(ERROR_CODES.UPSTREAM_ERROR, "WebSocket proxy is shutting down", { statusCode: 503 });
             const configuredRequest = getConfig();
+            clientIp = resolveUpgradeClientIp(req, configuredRequest.trustProxy) || "";
+            if (configuredRequest.clientAccessControl.enabled && clientIp) {
+                const protectedRules = protectedClientRules({
+                    serverAddresses,
+                    localAddress: req.socket?.localAddress,
+                    neverBlock: configuredRequest.clientAccessControl.neverBlock
+                });
+                const protectedClient = protectedRules.some(rule => clientRuleMatches(rule, clientIp));
+                let ban = null;
+                if (!protectedClient) {
+                    try {
+                        ban = auditStore.findActiveBan(clientIp);
+                    } catch (error) {
+                        throw new ProxyError(
+                            ERROR_CODES.AUDIT_UNAVAILABLE,
+                            "Client access storage is unavailable",
+                            { statusCode: 503, cause: error }
+                        );
+                    }
+                }
+                if (ban) {
+                    try {
+                        auditStore.recordBanHit(ban.id);
+                    } catch (error) {
+                        logger.error("[Audit] Unable to update client ban hit", { requestId, error });
+                    }
+                    throw new ProxyError(ERROR_CODES.CLIENT_BLOCKED, "Client IP is blocked", { statusCode: 403 });
+                }
+            }
             if (!configuredRequest.browser.enabled || !configuredRequest.browser.webSocket) {
                 throw new ProxyError(ERROR_CODES.WEBSOCKET_DISABLED, "Browser WebSocket proxy is disabled", {
                     statusCode: 404
@@ -334,6 +382,7 @@ function createWebSocketProxy(options) {
             validateInboundOrigin(req, source.origin, requestConfig);
             const webSocketUrl = fromWebSocketProxyRequest(req);
             const targetHttpUrl = toHttpUrl(webSocketUrl);
+            targetOrigin = targetHttpUrl.origin;
             validateTargetProxyOrigin(req, targetHttpUrl.origin, requestConfig.browser.originIsolation);
             const target = await validateTarget(targetHttpUrl.href, {
                 accessControl: requestConfig.security.accessControl,
@@ -433,6 +482,19 @@ function createWebSocketProxy(options) {
                     targetOrigin: targetHttpUrl.origin,
                     protocol: upstream.protocol || null
                 });
+                recordAudit({
+                    timestamp: startedAt,
+                    category: "request",
+                    action: "websocket.handshake",
+                    outcome: "success",
+                    ip: clientIp,
+                    method: "GET",
+                    mode: "websocket",
+                    targetOrigin: getConfig().audit.recordTargetOrigin ? targetOrigin : "",
+                    status: 101,
+                    durationMs: Date.now() - startedAt,
+                    requestId
+                }, requestId);
             });
         } catch (error) {
             state.upstream?.terminate();
@@ -443,6 +505,19 @@ function createWebSocketProxy(options) {
                 code: normalized.code,
                 error: normalized.cause || error
             });
+            recordAudit({
+                timestamp: startedAt,
+                category: normalized.code === ERROR_CODES.CLIENT_BLOCKED ? "security" : "request",
+                action: normalized.code === ERROR_CODES.CLIENT_BLOCKED ? "client.blocked" : "websocket.handshake",
+                outcome: normalized.code === ERROR_CODES.CLIENT_BLOCKED ? "blocked" : "failed",
+                ip: clientIp,
+                method: "GET",
+                mode: "websocket",
+                targetOrigin: getConfig().audit.recordTargetOrigin ? targetOrigin : "",
+                status: normalized.statusCode,
+                durationMs: Date.now() - startedAt,
+                requestId
+            }, requestId);
             writeUpgradeError(socket, normalized, error?.upgradeHeaders);
         }
     }

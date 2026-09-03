@@ -3,6 +3,11 @@ const basicAuth = require("basic-auth");
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const { ConfigLoadError } = require("../config/loader");
+const {
+    assertClientRuleCanBeBlocked,
+    localInterfaceAddresses,
+    normalizeClientIp
+} = require("../core/clientAccess");
 const { ERROR_CODES, ProxyError } = require("../core/errors");
 const { requestOrigin } = require("../core/originIsolation");
 const { clearProxyAuthorization } = require("../middleware/auth");
@@ -107,7 +112,62 @@ function adminError(code, message, statusCode, cause) {
     return new ProxyError(code, message, { statusCode, cause });
 }
 
-function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
+function auditUnavailable(error) {
+    return adminError(
+        ERROR_CODES.AUDIT_UNAVAILABLE,
+        "Audit storage is unavailable",
+        503,
+        error
+    );
+}
+
+function recordAdminEvent(auditStore, req, input) {
+    try {
+        return auditStore.record({
+            category: "admin",
+            ip: normalizeClientIp(req.ip || req.socket?.remoteAddress) || "",
+            method: req.method,
+            mode: "admin",
+            requestId: req.id,
+            ...input
+        });
+    } catch {
+        return null;
+    }
+}
+
+function changedConfigPaths(previous, next, prefix = "", output = []) {
+    if (output.length >= 100) return output;
+    const left = previous && typeof previous === "object" ? previous : {};
+    const right = next && typeof next === "object" ? next : {};
+    for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
+        const path = prefix ? `${prefix}.${key}` : key;
+        const leftValue = left[key];
+        const rightValue = right[key];
+        if (
+            leftValue && rightValue
+            && typeof leftValue === "object" && typeof rightValue === "object"
+            && !Array.isArray(leftValue) && !Array.isArray(rightValue)
+        ) {
+            changedConfigPaths(leftValue, rightValue, path, output);
+        } else if (JSON.stringify(leftValue) !== JSON.stringify(rightValue)) {
+            output.push(path);
+        }
+        if (output.length >= 100) break;
+    }
+    return output;
+}
+
+function mutationSourceAllowed(req) {
+    const expectedOrigin = requestOrigin(req);
+    return Boolean(
+        expectedOrigin
+        && req.headers.origin === expectedOrigin
+        && req.headers["x-fireflyproxy-admin"] === "1"
+    );
+}
+
+function createAdminRouter({ getConfig, saveConfig, publicStaticCache, auditStore, logger }) {
     const jsonParser = express.json({ limit: "256kb", strict: true, type: "application/json" });
     const loginLimiter = rateLimit({
         windowMs: 15 * 60 * 1000,
@@ -116,6 +176,11 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
         legacyHeaders: false,
         skipSuccessfulRequests: true,
         handler(req, res) {
+            recordAdminEvent(auditStore, req, {
+                action: "admin.authentication",
+                outcome: "rate-limited",
+                status: 429
+            });
             res.status(429).json({
                 error: {
                     code: ERROR_CODES.ADMIN_RATE_LIMIT,
@@ -137,13 +202,19 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
         const basePath = config.admin.path;
         const apiPath = `${basePath}/api/config`;
         const cacheApiPath = `${basePath}/api/cache`;
+        const auditApiPath = `${basePath}/api/audit`;
+        const bansApiPath = `${basePath}/api/bans`;
         const pageRequest = req.path === basePath || req.path === `${basePath}/`;
-        const apiRequest = req.path === apiPath;
-        const cacheApiRequest = req.path === cacheApiPath;
+        const adminApiRequest = req.path.startsWith(`${basePath}/api/`);
         if (
             (pageRequest && !adminPageSourceAllowed(req, basePath))
-            || ((apiRequest || cacheApiRequest) && !adminApiSourceAllowed(req, basePath))
+            || (adminApiRequest && !adminApiSourceAllowed(req, basePath))
         ) {
+            recordAdminEvent(auditStore, req, {
+                action: "admin.source-check",
+                outcome: "failed",
+                status: 403
+            });
             return next(adminError(
                 ERROR_CODES.ADMIN_ORIGIN_DENIED,
                 "Admin request source is not allowed",
@@ -152,6 +223,11 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
         }
         return loginLimiter(req, res, () => {
             if (!authenticateAdmin(req, config)) {
+                recordAdminEvent(auditStore, req, {
+                    action: "admin.authentication",
+                    outcome: "failed",
+                    status: 401
+                });
                 res.setHeader("WWW-Authenticate", 'Basic realm="FireflyProxy Admin", charset="UTF-8"');
                 return res.status(401).json({
                     error: {
@@ -168,13 +244,178 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
                 if (req.session?.fireflyProxyAdminPreviousPath) {
                     delete req.session.fireflyProxyAdminPreviousPath;
                 }
+                recordAdminEvent(auditStore, req, {
+                    action: "admin.authentication",
+                    outcome: "success",
+                    status: 200
+                });
                 return res.type("html").send(createAdminPage());
             }
             if (req.method === "GET" && req.path === apiPath) {
                 return res.json({
                     ...createAdminSnapshot(config),
-                    restartOnly: ["port", "trustProxy", "session", "runtimeState"]
+                    restartOnly: ["port", "trustProxy", "session", "runtimeState", "audit.backend/sqlitePath"]
                 });
+            }
+            if (req.method === "GET" && req.path === auditApiPath) {
+                try {
+                    return res.json({
+                        ...auditStore.query(req.query || {}),
+                        enabled: config.audit.enabled,
+                        backend: auditStore.backend
+                    });
+                } catch (error) {
+                    return next(auditUnavailable(error));
+                }
+            }
+            if (req.method === "DELETE" && req.path === auditApiPath) {
+                if (!mutationSourceAllowed(req)) {
+                    recordAdminEvent(auditStore, req, {
+                        action: "admin.source-check",
+                        outcome: "failed",
+                        status: 403,
+                        detail: "operation=audit.clear"
+                    });
+                    return next(adminError(
+                        ERROR_CODES.ADMIN_ORIGIN_DENIED,
+                        "Admin audit clearing origin is not allowed",
+                        403
+                    ));
+                }
+                let removed;
+                try {
+                    removed = auditStore.clearEvents();
+                } catch (error) {
+                    return next(auditUnavailable(error));
+                }
+                recordAdminEvent(auditStore, req, {
+                    action: "audit.clear",
+                    outcome: "success",
+                    status: 200,
+                    detail: `removed=${removed}`
+                });
+                return res.json({ ok: true, removed });
+            }
+            if (req.method === "GET" && req.path === bansApiPath) {
+                try {
+                    return res.json({
+                        enabled: config.clientAccessControl.enabled,
+                        backend: auditStore.backend,
+                        items: auditStore.listBans(),
+                        protectedAddresses: localInterfaceAddresses(),
+                        neverBlock: config.clientAccessControl.neverBlock
+                    });
+                } catch (error) {
+                    return next(auditUnavailable(error));
+                }
+            }
+            if (req.method === "POST" && req.path === bansApiPath) {
+                if (!mutationSourceAllowed(req)) {
+                    recordAdminEvent(auditStore, req, {
+                        action: "admin.source-check",
+                        outcome: "failed",
+                        status: 403,
+                        detail: "operation=client-ban.create"
+                    });
+                    return next(adminError(
+                        ERROR_CODES.ADMIN_ORIGIN_DENIED,
+                        "Admin client ban origin is not allowed",
+                        403
+                    ));
+                }
+                return jsonParser(req, res, error => {
+                    if (error) return next(adminError(
+                        ERROR_CODES.ADMIN_CONFIG_INVALID,
+                        "Admin client ban payload is invalid",
+                        error.status || 400,
+                        error
+                    ));
+                    try {
+                        const durationMs = req.body?.durationMs;
+                        if (
+                            durationMs !== null && durationMs !== undefined
+                            && (!Number.isSafeInteger(durationMs) || durationMs < 60000 || durationMs > 31536000000)
+                        ) {
+                            throw adminError(
+                                ERROR_CODES.ADMIN_CONFIG_INVALID,
+                                "Ban duration must be null or between one minute and 365 days",
+                                400
+                            );
+                        }
+                        const rule = assertClientRuleCanBeBlocked(req.body?.rule, {
+                            currentAdminIp: req.ip || req.socket?.remoteAddress,
+                            localAddress: req.socket?.localAddress,
+                            neverBlock: config.clientAccessControl.neverBlock
+                        });
+                        const existingBans = auditStore.listBans();
+                        if (existingBans.length >= 1000 && !existingBans.some(item => item.rule === rule)) {
+                            throw adminError(
+                                ERROR_CODES.ADMIN_CONFIG_INVALID,
+                                "At most 1000 active client bans are allowed",
+                                400
+                            );
+                        }
+                        const createdAt = Date.now();
+                        const ban = auditStore.addBan({
+                            rule,
+                            reason: req.body?.reason,
+                            createdAt,
+                            expiresAt: durationMs == null ? null : createdAt + durationMs
+                        });
+                        recordAdminEvent(auditStore, req, {
+                            action: "client-ban.create",
+                            outcome: "success",
+                            status: 200,
+                            detail: `rule=${ban.rule}`
+                        });
+                        logger.info("[ClientAccess] Ban created", { requestId: req.id, rule: ban.rule });
+                        return res.json({ ok: true, item: ban });
+                    } catch (banError) {
+                        recordAdminEvent(auditStore, req, {
+                            action: "client-ban.create",
+                            outcome: "failed",
+                            status: banError.statusCode || 400
+                        });
+                        return next(banError instanceof ProxyError ? banError : auditUnavailable(banError));
+                    }
+                });
+            }
+            if (req.method === "DELETE" && req.path === bansApiPath) {
+                if (!mutationSourceAllowed(req)) {
+                    recordAdminEvent(auditStore, req, {
+                        action: "admin.source-check",
+                        outcome: "failed",
+                        status: 403,
+                        detail: "operation=client-ban.remove"
+                    });
+                    return next(adminError(
+                        ERROR_CODES.ADMIN_ORIGIN_DENIED,
+                        "Admin client unban origin is not allowed",
+                        403
+                    ));
+                }
+                const id = typeof req.query?.id === "string" ? req.query.id : "";
+                let removed = false;
+                try {
+                    removed = id ? auditStore.removeBan(id) : false;
+                } catch (error) {
+                    return next(auditUnavailable(error));
+                }
+                if (!removed) {
+                    return next(adminError(
+                        ERROR_CODES.ADMIN_CONFIG_INVALID,
+                        "Client ban was not found",
+                        404
+                    ));
+                }
+                recordAdminEvent(auditStore, req, {
+                    action: "client-ban.remove",
+                    outcome: "success",
+                    status: 200,
+                    detail: `id=${id}`
+                });
+                logger.info("[ClientAccess] Ban removed", { requestId: req.id, banId: id });
+                return res.json({ ok: true });
             }
             if (req.method === "GET" && req.path === cacheApiPath) {
                 return publicStaticCache.stats(config)
@@ -185,12 +426,13 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
                     .catch(next);
             }
             if (req.method === "DELETE" && req.path === cacheApiPath) {
-                const expectedOrigin = requestOrigin(req);
-                if (
-                    !expectedOrigin
-                    || req.headers.origin !== expectedOrigin
-                    || req.headers["x-fireflyproxy-admin"] !== "1"
-                ) {
+                if (!mutationSourceAllowed(req)) {
+                    recordAdminEvent(auditStore, req, {
+                        action: "admin.source-check",
+                        outcome: "failed",
+                        status: 403,
+                        detail: "operation=cache.invalidate"
+                    });
                     return next(adminError(
                         ERROR_CODES.ADMIN_ORIGIN_DENIED,
                         "Admin cache invalidation origin is not allowed",
@@ -206,8 +448,19 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
                     ));
                     try {
                         const result = await publicStaticCache.invalidate(req.body || {});
+                        recordAdminEvent(auditStore, req, {
+                            action: "cache.invalidate",
+                            outcome: "success",
+                            status: 200,
+                            detail: `removed=${result.removed || 0}`
+                        });
                         return res.json({ ok: true, ...result });
                     } catch (cacheError) {
+                        recordAdminEvent(auditStore, req, {
+                            action: "cache.invalidate",
+                            outcome: "failed",
+                            status: cacheError instanceof TypeError ? 400 : 500
+                        });
                         return next(adminError(
                             ERROR_CODES.ADMIN_CONFIG_INVALID,
                             cacheError instanceof TypeError
@@ -220,12 +473,13 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
                 });
             }
             if (req.method === "PUT" && req.path === apiPath) {
-                const expectedOrigin = requestOrigin(req);
-                if (
-                    !expectedOrigin
-                    || req.headers.origin !== expectedOrigin
-                    || req.headers["x-fireflyproxy-admin"] !== "1"
-                ) {
+                if (!mutationSourceAllowed(req)) {
+                    recordAdminEvent(auditStore, req, {
+                        action: "admin.source-check",
+                        outcome: "failed",
+                        status: 403,
+                        detail: "operation=config.update"
+                    });
                     return next(adminError(
                         ERROR_CODES.ADMIN_ORIGIN_DENIED,
                         "Admin configuration update origin is not allowed",
@@ -240,6 +494,7 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
                         error
                     ));
                     try {
+                        const previousConfig = config;
                         const result = await saveConfig(req.body?.config);
                         if (result.config.admin.path !== basePath && req.session) {
                             req.session.fireflyProxyAdminPreviousPath = {
@@ -247,6 +502,12 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
                                 expiresAt: Date.now() + 60_000
                             };
                         }
+                        recordAdminEvent(auditStore, req, {
+                            action: "config.update",
+                            outcome: "success",
+                            status: 200,
+                            detail: `fields=${changedConfigPaths(previousConfig, result.config).join(",")}`
+                        });
                         return res.json({
                             ok: true,
                             adminEnabled: result.config.admin.enabled,
@@ -256,6 +517,11 @@ function createAdminRouter({ getConfig, saveConfig, publicStaticCache }) {
                             warnings: result.warnings
                         });
                     } catch (saveError) {
+                        recordAdminEvent(auditStore, req, {
+                            action: "config.update",
+                            outcome: "failed",
+                            status: saveError instanceof ConfigLoadError ? 400 : 500
+                        });
                         const publicMessage = saveError instanceof ConfigLoadError
                             ? saveError.message
                             : "Unable to save configuration";

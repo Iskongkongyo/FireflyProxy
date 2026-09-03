@@ -76,6 +76,10 @@ test("admin page ships a standalone syntactically valid management client", () =
     assert.match(html, /browser\.publicCache\.maxObjectBytes/);
     assert.match(html, /runtimeState\.backend/);
     assert.match(html, /runtimeState\.sqlitePath/);
+    assert.match(html, /audit\.enabled/);
+    assert.match(html, /clientAccessControl\.neverBlock/);
+    assert.match(html, /请求与操作记录/);
+    assert.match(html, /data-record-tab="bans"/);
     assert.match(html, /FireflyProxy 管理面板/);
     assert.match(html, /开启（true）/);
     assert.match(html, /data-unit-for/);
@@ -155,11 +159,13 @@ test("restart detection includes startup-bound state settings and the cache dire
     restart.port += 1;
     restart.session.maxAgeMs += 1;
     restart.runtimeState.backend = "sqlite";
+    restart.audit.backend = "sqlite";
     restart.browser.publicCache.directory = "./another-cache";
     assert.deepEqual(changedRestartFields(current, restart), [
         "port",
         "session",
         "runtimeState",
+        "audit.backend/sqlitePath",
         "browser.publicCache.directory"
     ]);
 });

@@ -39,6 +39,18 @@ function createDefaultConfig(env = process.env) {
             message: "Too many requests, please try again later.",
             statusCode: 429
         },
+        audit: {
+            enabled: false,
+            backend: "memory",
+            sqlitePath: "./.fireflyproxy-audit/audit.sqlite",
+            retentionDays: 7,
+            maxRecords: 20000,
+            recordTargetOrigin: true
+        },
+        clientAccessControl: {
+            enabled: false,
+            neverBlock: []
+        },
         security: {
             ssrf: true,
             allowPrivateNetworks: false,

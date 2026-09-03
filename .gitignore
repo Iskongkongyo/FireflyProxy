@@ -115,6 +115,7 @@ Desktop.ini
 .proxyweb-state/
 .fireflyproxy-cache/
 .fireflyproxy-state/
+.fireflyproxy-audit/
 
 # 临时文件
 *.tmp

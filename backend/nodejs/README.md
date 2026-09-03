@@ -83,6 +83,18 @@ npm start
     "message": "Too many requests, please try again later.",
     "statusCode": 429
   },
+  "audit": {
+    "enabled": false,
+    "backend": "memory",
+    "sqlitePath": "./.fireflyproxy-audit/audit.sqlite",
+    "retentionDays": 7,
+    "maxRecords": 20000,
+    "recordTargetOrigin": true
+  },
+  "clientAccessControl": {
+    "enabled": false,
+    "neverBlock": []
+  },
   "security": {
     "ssrf": true,
     "allowPrivateNetworks": false,
@@ -124,6 +136,13 @@ npm start
 | `limiter.enabled` | Boolean | 是否启用按客户端 IP 的窗口限流；保存配置后热加载，默认 `true` |
 | `limiter.windowMs` | Number，毫秒 | 限流窗口；保存配置后重建限流器 |
 | `limiter.max` | Number | 每个窗口允许的请求数 |
+| `audit.enabled` | Boolean | 是否记录代理请求和管理操作元数据；默认关闭，可热加载 |
+| `audit.backend` | `memory` / `sqlite` | 审计事件与客户端封禁的存储后端；修改后需重启 |
+| `audit.sqlitePath` | String | 独立审计数据库路径；相对配置文件目录解析，修改后需重启 |
+| `audit.retentionDays` / `maxRecords` | Number | 事件保留天数与最大条数；后续写入时清理，可热加载 |
+| `audit.recordTargetOrigin` | Boolean | 是否记录目标 scheme/host/port；从不记录路径、查询参数或片段 |
+| `clientAccessControl.enabled` | Boolean | 是否在认证、Session 和业务逻辑前执行活动来源封禁；可热加载 |
+| `clientAccessControl.neverBlock` | String[] | 永不封禁的 IPv4、IPv6 或 CIDR；每次请求读取，可热加载 |
 | `security.accessControl.enabled` | Boolean | 是否启用目标白/黑名单；默认 `false`，可热加载 |
 | `security.accessControl.allowed` | String[] | 白名单；非空时未命中目标默认拒绝，支持域名、IP、CIDR 与端口 |
 | `security.accessControl.blocked` | String[] | 黑名单；始终优先于白名单，支持域名、IP、CIDR 与端口 |
@@ -166,6 +185,24 @@ npm start
 | `[2606:4700:4700::/48]:8443` | 匹配指定端口的 IPv6 CIDR |
 
 规则启用后，黑名单先判定并拒绝。白名单为空时只执行黑名单；白名单非空时，仅当请求 hostname 命中域名规则，或该域名的全部 DNS 地址均命中 IP/CIDR 白名单时才允许。IP/CIDR 黑名单只要命中任一 DNS 结果就拒绝，避免多地址域名随机落到未授权地址。访问规则不会关闭 HTTP(S)、公网地址、DNS 全量校验、Redirect 逐跳校验或连接 Pinning，因此白名单不能用来放行 localhost 和私网地址。
+
+### 请求与操作记录、客户端封禁
+
+管理面板的“请求与操作记录”分为代理请求、管理操作、安全拒绝和 IP 封禁。审计默认关闭；启用后仅保存时间、来源 IP、方法、代理模式、目标 Origin、HTTP 状态、耗时、request ID，以及受限的操作说明。不会保存请求头、请求体、Authorization、API Key、Cookie、完整 URL 路径、查询参数或 Fragment。`memory` 后端重启即清空；`sqlite` 使用独立数据库并受 `retentionDays` 与 `maxRecords` 限制。
+
+客户端封禁只接受精确 IPv4、IPv6 或 CIDR，可设置 1 分钟至 365 天或永久期限，记录原因、命中次数和最近命中时间，并同时覆盖普通 HTTP 与 WebSocket Upgrade。它控制“谁可以访问 FireflyProxy”，不同于 `security.accessControl` 控制“FireflyProxy 可以访问哪些目标”。loopback、服务器所有网卡地址、当前连接的本机地址、执行封禁的当前管理员 IP，以及 `clientAccessControl.neverBlock` 覆盖的地址无法从管理 API 封禁；会覆盖这些地址的宽 CIDR 同样被拒绝。最多保留 1000 条活动封禁。
+
+管理接口使用原有独立 Basic Auth、同源 Referer 和变更请求 Origin 双重校验：
+
+```text
+GET    <admin.path>/api/audit?category=request|admin|security&outcome=&query=&limit=&offset=
+DELETE <admin.path>/api/audit
+GET    <admin.path>/api/bans
+POST   <admin.path>/api/bans
+DELETE <admin.path>/api/bans?id=<ban-id>
+```
+
+`POST /api/bans` 的 JSON 为 `{"rule":"203.0.113.8","reason":"异常请求","durationMs":3600000}`；永久封禁使用 `durationMs: null`。所有 DELETE/POST 操作还必须携带管理页自动发送的 `X-FireflyProxy-Admin: 1`，不应把这些 API 暴露给第三方前端。
 
 ### 旧配置迁移
 
@@ -417,6 +454,8 @@ location /__proxyweb/ {
 - 400 `PROXY_REQUEST_CONTROL_INVALID`：API Redirect 控制重复、类型错误或超出规定范围。
 - 403 `PROXY_PROTOCOL_BLOCKED`：目标不是 HTTP(S) URL。
 - 403 `PROXY_SSRF_BLOCKED`：目标是 localhost、非公网字面 IP、域名的任一 DNS 结果为非公网地址、命中黑名单，或未命中非空白名单。
+- 403 `PROXY_CLIENT_BLOCKED`：当前来源 IP 命中管理面板中的活动客户端封禁。
+- 503 `PROXY_AUDIT_UNAVAILABLE`：审计/封禁存储不可用；启用客户端封禁时会安全拒绝请求，避免存储故障绕过规则。
 - 502 `PROXY_DNS_FAILED`：域名解析失败、超时、返回空列表或非法地址记录。
 - 502 `PROXY_REDIRECT_BLOCKED`：上游返回无法解析的 Redirect `Location`。
 - 504 `PROXY_CONNECT_TIMEOUT` / `PROXY_REQUEST_TIMEOUT`：连接阶段或上游请求超过配置上限。
@@ -457,6 +496,6 @@ location /__proxyweb/ {
 
 测试完全使用本地动态端口，不依赖公网服务或系统 hosts。当前契约覆盖 GET/POST/PUT/PATCH/DELETE/HEAD、Body/Header、错误状态与安全错误格式、request ID、Redirect、Streaming、Range、Session、Basic Auth、CORS、限流、配置热加载、HTML 属性/base/srcset/Meta Refresh、内联/独立 CSS、Location、Cookie Jar 隔离、Origin/Referer 映射、Runtime Bridge、WebSocket Upgrade、Origin Isolation Host 双绑定与 SQLite Shared Runtime State，以及超时、超限、并发、客户端断开、上游断流、畸形流和受控 shutdown。P1/P2 E2E 额外通过真实 Chromium 验证页面级资源、导航、表单、登录会话、媒体片段、下载、SSE、脚本动态 URL、WebSocket、独立 Origin/Storage 与 SOP 边界。
 
-后端当前 269 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，IP/域名/CIDR/端口白黑名单、可热加载限流开关、请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、结构化浏览器受限请求头、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Scoped Response Transform、Public Static Cache、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SQLite 多进程状态共享、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
+后端当前 283 项测试通过、0 项 TODO、0 项失败；除 URL/DNS/Pinning/Redirect/CORS/认证与日志边界外，IP/域名/CIDR/端口目标白黑名单、隐私最小化请求/管理审计、内存与 SQLite 审计存储、来源 IP/CIDR 封禁与服务器/管理员防误封、可热加载限流开关、请求级 Redirect 收紧控制、有序诊断链、保留 Header 防伪与有界编码、结构化浏览器受限请求头、请求/连接超时、Body/并发上限、客户端断开、上游中断、畸形流、Session 过期、模式路由隔离、Canonical 映射、HTML/CSS/Location Rewrite、Scoped Response Transform、Public Static Cache、Cookie 属性/隔离、Header 映射、Browser Session 偏好上限、Runtime Bridge、WebSocket、Origin Isolation、SQLite 多进程状态共享、SSE 时序、Range/Media 元数据、附件渐进传输、受限 Transform/Streaming 分界和 graceful/fatal shutdown 均已强制通过。2026-08-30 使用 npm 官方安全公告库审计生产依赖，结果为 0 个已知漏洞。
 
 路线图 2.8 的干净安装 P0 门禁已于 2026-08-29 通过 7/7；路线图 3.8 的 P1 门禁和 4.2–4.4 的 P2 门禁均于 2026-08-30 在完整前序回归后通过真实浏览器 E2E；路线图 5.3 的 P3 门禁继续复用 P2，并追加本地工作区 IndexedDB E2E。逐项证据记录在本地的 P0/P1/P2 自动化验收矩阵、工作区契约与 Origin Isolation 威胁模型中。前端构建仍有已记录的 bundle 体积 warning，不影响本次正确性门禁，后续应随构建工具链升级处理。

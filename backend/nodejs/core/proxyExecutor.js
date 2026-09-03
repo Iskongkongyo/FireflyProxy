@@ -63,6 +63,8 @@ function createProxyExecutor(options) {
         const policy = validatePolicy(options.policy);
         const requestConfig = options.requestConfig || getConfig();
         const target = options.target || await resolveTarget(options.targetValue, requestConfig);
+        res.locals.fireflyProxyTargetOrigin = new URL(target.url).origin;
+        res.locals.fireflyProxyMode = policy.mode;
         if (typeof options.onTargetValidated === "function") {
             options.onTargetValidated(target);
         }

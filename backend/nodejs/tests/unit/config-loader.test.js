@@ -32,6 +32,18 @@ test("default configuration uses explicit millisecond fields", () => {
         sqlitePath: "./.fireflyproxy-state/runtime.sqlite",
         busyTimeoutMs: 5000
     });
+    assert.deepEqual(config.audit, {
+        enabled: false,
+        backend: "memory",
+        sqlitePath: "./.fireflyproxy-audit/audit.sqlite",
+        retentionDays: 7,
+        maxRecords: 20000,
+        recordTargetOrigin: true
+    });
+    assert.deepEqual(config.clientAccessControl, {
+        enabled: false,
+        neverBlock: []
+    });
     assert.equal(config.browser.webSocket, false);
     assert.equal(config.browser.scriptCookieBridge, false);
     assert.equal(config.browser.webSocketMaxPayloadBytes, 1048576);
@@ -257,6 +269,36 @@ test("legacy migration emits structured deprecation records", () => {
     assert.equal(result.config.timeoutMs, 10000);
     assert.equal(result.config.api.maxRedirects, 2);
     assert.deepEqual(result.warnings.map(item => item.field), ["timeout", "max_redirects"]);
+});
+
+test("audit and client access controls validate bounded privacy settings", () => {
+    const config = parseConfigObject({
+        audit: {
+            enabled: true,
+            backend: "sqlite",
+            sqlitePath: "./audit/events.sqlite",
+            retentionDays: 30,
+            maxRecords: 50000,
+            recordTargetOrigin: false
+        },
+        clientAccessControl: {
+            enabled: true,
+            neverBlock: ["203.0.113.9", "2001:db8::/48"]
+        }
+    }).config;
+    assert.equal(config.audit.backend, "sqlite");
+    assert.deepEqual(config.clientAccessControl.neverBlock, ["203.0.113.9", "2001:db8::/48"]);
+
+    for (const value of [
+        { audit: { retentionDays: 0 } },
+        { audit: { maxRecords: 99 } },
+        { clientAccessControl: { neverBlock: ["example.com"] } }
+    ]) {
+        assert.throws(
+            () => parseConfigObject(value),
+            error => error instanceof ConfigLoadError
+        );
+    }
 });
 
 test("committed example configuration matches the current schema", () => {

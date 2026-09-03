@@ -1,5 +1,6 @@
 const { z } = require("zod");
 const { getPublicSuffix } = require("tough-cookie");
+const { normalizeClientRule } = require("../core/clientAccess");
 const { normalizeAccessRule, normalizeHostnameRule } = require("../core/targetValidator");
 
 const originSchema = z.string().refine(value => {
@@ -70,6 +71,30 @@ const limiterSchema = z.object({
     max: z.number().int().positive(),
     message: z.string(),
     statusCode: z.number().int().min(400).max(599)
+}).strict();
+
+const boundedPathSchema = z.string().min(1).max(1024).refine(
+    value => value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value),
+    "Expected a non-empty path without control characters"
+);
+
+const auditSchema = z.object({
+    enabled: z.boolean(),
+    backend: z.enum(["memory", "sqlite"]),
+    sqlitePath: boundedPathSchema,
+    retentionDays: z.number().int().min(1).max(365),
+    maxRecords: z.number().int().min(100).max(1000000),
+    recordTargetOrigin: z.boolean()
+}).strict();
+
+const clientRuleSchema = z.string().refine(
+    value => normalizeClientRule(value) !== null,
+    "Expected an IPv4/IPv6 address or CIDR"
+);
+
+const clientAccessControlSchema = z.object({
+    enabled: z.boolean(),
+    neverBlock: z.array(clientRuleSchema).max(1000)
 }).strict();
 
 const accessRuleSchema = z.string().refine(
@@ -213,6 +238,8 @@ const configSchema = z.object({
     runtimeState: runtimeStateSchema,
     cors: corsSchema,
     limiter: limiterSchema,
+    audit: auditSchema,
+    clientAccessControl: clientAccessControlSchema,
     security: securitySchema,
     api: apiSchema,
     browser: browserSchema

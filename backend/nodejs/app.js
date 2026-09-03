@@ -28,6 +28,8 @@ const { createWebSocketProxy } = require("./browser-proxy/webSocketProxy");
 const { createDefaultConfig } = require("./config/defaults");
 const { loadConfigFile, parseConfigObject } = require("./config/loader");
 const { createDnsResolver } = require("./core/dnsResolver");
+const { createAuditStore } = require("./core/auditStore");
+const { createClientBlockMiddleware } = require("./core/clientAccess");
 const { ERROR_CODES, ProxyError, createErrorMiddleware } = require("./core/errors");
 const { createLogger } = require("./core/logger");
 const { createPinnedConnection } = require("./core/pinnedConnection");
@@ -41,6 +43,7 @@ const { createProxyAuth } = require("./middleware/auth");
 const { createCorsMiddleware } = require("./middleware/cors");
 const { createLegacyAdapter, createLegacyReadiness } = require("./middleware/legacyAdapter");
 const { createRequestLogger } = require("./middleware/requestLogger");
+const { createRequestAudit } = require("./middleware/audit");
 
 /**
  * Create an isolated Express application runtime.
@@ -148,6 +151,11 @@ if (!initialLoad.ok) {
     logger.warn("[Config] Invalid startup configuration; continuing with validated defaults.");
 }
 
+const auditStore = options.auditStore || createAuditStore({
+    configPath: CONFIG_PATH,
+    getConfig: () => config
+});
+
 const runtimeState = options.runtimeState || createRuntimeState({
     config,
     configPath: CONFIG_PATH,
@@ -204,6 +212,8 @@ app.use(createBrowserRootRecoveryMarker({
     getConfig: () => config,
     originIsolationRegistry
 }));
+app.use(createRequestAudit({ getConfig: () => config, auditStore, logger }));
+app.use(createClientBlockMiddleware({ getConfig: () => config, auditStore, logger }));
 app.use(createOriginIsolationMiddleware({ getConfig: () => config }));
 
 // Session 配置
@@ -265,6 +275,8 @@ app.use((req, res, next) => {
 
 app.use(createAdminRouter({
     getConfig: () => config,
+    auditStore,
+    logger,
     publicStaticCache,
     saveConfig: submittedConfig => saveAdminConfig({
         configPath: CONFIG_PATH,
@@ -289,6 +301,7 @@ const webSocketProxy = createWebSocketProxy({
     connectionFactory,
     sessionMiddleware,
     sessionStateStore,
+    auditStore,
     logger
 });
 
@@ -321,6 +334,7 @@ app.use(createErrorMiddleware({ logger }));
         app,
         logger,
         publicStaticCache,
+        auditStore,
         runtimeState,
         getConfig: () => config,
         reloadConfig: loadConfig,
@@ -332,6 +346,7 @@ app.use(createErrorMiddleware({ logger }));
             webSocketProxy.close();
             proxyExecutor.close();
             await publicStaticCache.close?.();
+            await auditStore.close?.();
             await runtimeState.close?.();
             if (configWatcher) await configWatcher.close();
             if (ownsLogger) logger.close();

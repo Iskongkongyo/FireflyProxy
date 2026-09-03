@@ -28,6 +28,8 @@ const HTTP_ERROR_MESSAGES = {
 // 代理特定错误信息
 const PROXY_ERROR_MESSAGES = {
     SSRF_BLOCKED: '目标被网络安全策略拒绝，请检查白名单、黑名单与 SSRF 设置',
+    CLIENT_BLOCKED: '当前来源 IP 已被 FireflyProxy 管理员封禁',
+    AUDIT_UNAVAILABLE: '审计或封禁存储暂时不可用，请联系管理员',
     BLACKLISTED: '此域名在黑名单中，禁止访问',
     INVALID_URL: 'URL 格式无效，请输入正确的网址',
     CONNECTION_REFUSED: '无法连接到目标服务器',
@@ -67,9 +69,7 @@ export function parseError(error) {
                 }
             } else if (error.response.data.error?.code) {
                 const proxyCode = String(error.response.data.error.code).replace(/^PROXY_/, '');
-                if (proxyCode === 'SSRF_BLOCKED') {
-                    result.message = PROXY_ERROR_MESSAGES.SSRF_BLOCKED;
-                }
+                if (PROXY_ERROR_MESSAGES[proxyCode]) result.message = PROXY_ERROR_MESSAGES[proxyCode];
                 result.details = error.response.data.error.message || error.response.data.error.code;
             } else if (error.response.data.message) {
                 result.details = error.response.data.message;

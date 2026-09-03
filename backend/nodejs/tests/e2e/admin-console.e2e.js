@@ -66,6 +66,14 @@ async function run() {
             await page.locator('[data-unit-for="browser.publicCache.maxBytes"]').inputValue(),
             "1048576"
         );
+        await page.waitForFunction(() => document.querySelector("#audit-summary")?.textContent.includes("审计当前关闭"));
+        await page.locator('[data-record-tab="bans"]').click();
+        await page.waitForFunction(() => document.querySelector("#protected-list")?.textContent.includes("127.0.0.1"));
+        await page.locator("#ban-rule").fill("203.0.113.9");
+        await page.locator("#ban-reason").fill("管理页面端到端测试");
+        await page.locator("#ban-add").click();
+        await page.waitForSelector('[data-unban]');
+        assert.match(await page.locator("#ban-body").textContent(), /203\.0\.113\.9/);
 
         await page.locator('[data-template="html"]').click();
         const templateRules = JSON.parse(
