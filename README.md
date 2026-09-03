@@ -104,6 +104,25 @@ npm run build
 
 构建产物位于 `vue-request-app/dist/`。后端从 `backend/nodejs/webPro/` 提供静态前端，如需由同一 Node.js 进程托管，请将 `dist/` 内容部署到该目录。
 
+### 4. 生成 GitHub Release 运行包
+
+在项目根目录执行：
+
+```powershell
+.\scripts\build-release.ps1 -Version 0.1.0
+```
+
+脚本会准备锁定依赖、运行前后端测试与 lint、构建 Vue 前端、仅收集后端运行文件和生产依赖，并在 `release/` 生成：
+
+```text
+FireflyProxy-v0.1.0-portable.zip
+FireflyProxy-v0.1.0-portable.zip.sha256
+```
+
+压缩包解压后可使用 `start.cmd` 或 `sh start.sh` 启动，无需再次安装 npm 依赖；运行机器仍需 Node.js 22.16.0+。首次运行会生成带随机 Session Secret 的 `server/main.json`。如只想快速验证打包流程，可增加 `-SkipChecks`；正式 Release 不建议跳过检查。前端连接其他部署地址时可传入 `-ProxyApiUrl` 与 `-ProxyBrowseUrl`。
+
+脚本默认复用本地已有的 `node_modules`，全新检出时会自动通过 `npm ci` 安装；如需强制按锁文件重装前后端依赖，可添加 `-RefreshDependencies`。若开发服务器正在运行，请先关闭它，以免 Windows 占用依赖文件。
+
 ## ⚙️ 配置说明
 
 配置模板位于 [`backend/main.json.example`](./backend/main.json.example)，后端从其当前工作目录读取 `main.json`。
