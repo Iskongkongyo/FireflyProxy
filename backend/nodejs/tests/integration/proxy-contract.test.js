@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const http = require("node:http");
 const { after, before, test } = require("node:test");
 const cheerio = require("cheerio");
+const { DEFAULT_USER_AGENT } = require("../../api-proxy/policy");
 const { encodeScriptCookieName, scriptCookiePrefix } = require("../../browser-proxy/scriptCookieBridge");
 const { toProxyUrl } = require("../../core/urlMapper");
 const { createUpstreamFixture, RANGE_BODY } = require("../fixtures/upstream-server");
@@ -66,7 +67,10 @@ test("new API route forwards requests without creating legacy session state", as
         method: "POST",
         headers: {
             "content-type": "text/plain",
-            "x-api-route": "true"
+            "x-api-route": "true",
+            "accept-language": "zh-CN,zh;q=0.9",
+            priority: "u=1, i",
+            "user-agent": "Mozilla/5.0 Chrome/140.0.0.0"
         },
         body: "api-route-body"
     });
@@ -77,6 +81,9 @@ test("new API route forwards requests without creating legacy session state", as
     assert.equal(response.headers.get("set-cookie"), null);
     assert.equal(payload.method, "POST");
     assert.equal(payload.headers["x-api-route"], "true");
+    assert.equal(payload.headers["user-agent"], DEFAULT_USER_AGENT);
+    assert.equal(payload.headers["accept-language"], undefined);
+    assert.equal(payload.headers.priority, undefined);
     assert.equal(payload.body, "api-route-body");
 });
 

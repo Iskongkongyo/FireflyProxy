@@ -54,3 +54,11 @@ test('response byte size uses UTF-8 bytes and total timing is monotonic', async 
 	assert.equal(elapsedMilliseconds(10.01, 22.26), 12.3);
 	assert.equal(elapsedMilliseconds(20, 10), 0);
 });
+
+test('Cloudflare challenge detection trusts only the documented response marker', async () => {
+	const { isCloudflareChallenge } = await import('../src/utils/responseDiagnostics.mjs');
+	assert.equal(isCloudflareChallenge({ 'cf-mitigated': 'challenge' }), true);
+	assert.equal(isCloudflareChallenge({ 'CF-Mitigated': ' Challenge ' }), true);
+	assert.equal(isCloudflareChallenge({ 'cf-ray': 'example' }), false);
+	assert.equal(isCloudflareChallenge({ 'cf-mitigated': 'block' }), false);
+});

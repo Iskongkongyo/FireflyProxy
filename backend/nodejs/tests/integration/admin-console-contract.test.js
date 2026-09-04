@@ -33,8 +33,11 @@ test("admin console protects, redacts, validates and hot-moves its configuration
         });
         assert.equal(page.status, 200);
         assert.match(page.headers.get("content-security-policy"), /default-src 'none'/);
+        assert.match(page.headers.get("content-security-policy"), /img-src data:/);
         const pageHtml = await page.text();
         assert.match(pageHtml, /FireflyProxy 管理面板/);
+        assert.match(pageHtml, /<link rel="icon" type="image\/jpeg" href="data:image\/jpeg;base64,/);
+        assert.match(pageHtml, /<img class="brand-mark" src="data:image\/jpeg;base64,/);
         assert.match(pageHtml, /系统配置/);
         assert.match(pageHtml, /白名单与黑名单/);
         assert.match(pageHtml, /请求与操作记录/);

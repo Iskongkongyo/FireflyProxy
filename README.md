@@ -174,6 +174,8 @@ X-FireflyProxy-Upstream-Headers: <Base64URL UTF-8 JSON entries>
 - 审计默认关闭；启用后只记录时间、来源 IP、方法、模式、目标 Origin、状态、耗时和 request ID，不保存 Header、Body、Cookie、凭据、URL 路径或查询参数。
 - loopback、服务器网卡、本次连接的本机地址、当前执行封禁的管理员 IP 及 `neverBlock` 规则不能被管理页面封禁，避免误锁 VPS 管理入口。
 - Browser Proxy 会执行目标站点提供的不可信 JavaScript，生产环境必须与管理界面使用不同 Origin。
+- API 工作台不会把前端浏览器自动附带的 User-Agent、语言、压缩与 Fetch 上下文伪装成上游浏览器请求；默认使用一致的 FireflyProxy 客户端标识，编辑器中显式填写的合法请求头仍优先。
+- Cloudflare Challenge 等人机验证依赖目标域名、出口 IP、TLS/浏览器特征与 Clearance Cookie，无法保证通过改写域名的 Browser Proxy 完成；API 响应检测到 `cf-mitigated: challenge` 时会显示明确提示。
 - 工作区的持久化变量、请求集合和历史记录没有加密；“敏感”标记仅负责遮罩与风险提醒。
 - 公共静态缓存、Runtime Bridge、Script Cookie Bridge、WebSocket 和 Origin Isolation 均需按部署需要显式配置。
 - 不应把目标 Token、密码或其他凭据放入可分享 URL。

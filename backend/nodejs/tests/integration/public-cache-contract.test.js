@@ -126,7 +126,13 @@ test("Browser public cache fails closed for credentials, cookies, response polic
         const apiTarget = `${fixture.origin}/cache/public.js?case=api-mode`;
         const apiResponse = await fetch(
             `${proxy.origin}/__proxyweb/api?url=${encodeURIComponent(apiTarget)}`,
-            { headers: { "accept-language": "api-mode" } }
+            {
+                headers: {
+                    "x-fireflyproxy-upstream-headers": Buffer.from(JSON.stringify([
+                        ["Accept-Language", "api-mode"]
+                    ]), "utf8").toString("base64url")
+                }
+            }
         );
         assert.equal(apiResponse.headers.get("x-proxyweb-cache"), null);
         assert.equal(apiResponse.headers.get("x-fixture-cache-count"), "1");

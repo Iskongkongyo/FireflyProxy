@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { apiPolicy } = require("../../api-proxy/policy");
+const { apiPolicy, DEFAULT_USER_AGENT } = require("../../api-proxy/policy");
 const {
     COMPAT_RESPONSE_HEADERS,
     browserPolicy,
@@ -27,6 +27,28 @@ test("API response policy preserves security headers without transport metadata"
     assert.equal(passthrough["content-length"], "10");
     assert.equal(headers["x-frame-options"], "DENY");
     assert.equal(headers["content-security-policy"], "default-src 'none'");
+});
+
+test("API requests replace ambient browser identity with a coherent server client profile", () => {
+    const headers = apiPolicy.buildRequestHeaders({
+        accept: "application/json, text/plain, */*",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9",
+        "content-type": "application/json",
+        dnt: "1",
+        priority: "u=1, i",
+        "upgrade-insecure-requests": "1",
+        "user-agent": "Mozilla/5.0 Chrome/140.0.0.0"
+    });
+
+    assert.equal(headers["user-agent"], DEFAULT_USER_AGENT);
+    assert.equal(headers.accept, undefined);
+    assert.equal(headers["accept-encoding"], undefined);
+    assert.equal(headers["accept-language"], undefined);
+    assert.equal(headers.dnt, undefined);
+    assert.equal(headers.priority, undefined);
+    assert.equal(headers["upgrade-insecure-requests"], undefined);
+    assert.equal(headers["content-type"], "application/json");
 });
 
 test("Browser and legacy response policies are independently configurable", () => {

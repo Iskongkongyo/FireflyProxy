@@ -69,7 +69,7 @@ function secureAdminResponse(res) {
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     res.setHeader(
         "Content-Security-Policy",
-        "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "default-src 'none'; connect-src 'self'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
 }
 

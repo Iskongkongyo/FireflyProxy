@@ -81,6 +81,15 @@ test("admin page ships a standalone syntactically valid management client", () =
     assert.match(html, /请求与操作记录/);
     assert.match(html, /data-record-tab="bans"/);
     assert.match(html, /FireflyProxy 管理面板/);
+    const iconSources = [...html.matchAll(/(?:href|src)="(data:image\/jpeg;base64,[^"]+)"/g)];
+    assert.equal(iconSources.length, 2);
+    assert.equal(iconSources[0][1], iconSources[1][1]);
+    const encodedIcon = iconSources[0][1].split(",")[1];
+    assert.equal(encodedIcon.length % 4, 0);
+    const decodedIcon = Buffer.from(encodedIcon, "base64");
+    assert.equal(decodedIcon.subarray(0, 3).toString("hex"), "ffd8ff");
+    assert.equal(decodedIcon.subarray(-2).toString("hex"), "ffd9");
+    assert.doesNotMatch(html, /class="brand-mark">F/);
     assert.match(html, /开启（true）/);
     assert.match(html, /data-unit-for/);
     assert.match(html, /HTML 文字替换/);

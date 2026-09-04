@@ -86,6 +86,10 @@ export function parseResponseDiagnostics(headers, fallbackUrl = '') {
 	};
 }
 
+export function isCloudflareChallenge(headers) {
+	return String(getHeader(headers, 'cf-mitigated') || '').trim().toLowerCase() === 'challenge';
+}
+
 export function responseByteLength(value) {
 	if (value == null) return 0;
 	if (typeof Blob !== 'undefined' && value instanceof Blob) return value.size;

@@ -164,6 +164,11 @@
 			<WorkspacePanel ref="workspace" @load-request="applySavedRequest"
 				@environment-change="activeEnvironment = $event" />
 
+			<el-alert v-if="cloudflareChallenge" class="cloudflare-challenge-alert"
+				title="目标站点返回了 Cloudflare 人机挑战"
+				description="该验证依赖目标域名、出口 IP、TLS 与真实浏览器环境，无法由跨域代理可靠完成。请直接访问目标站点验证，或联系站点/API 管理员放行当前服务器出口 IP。"
+				type="warning" :closable="false" show-icon />
+
 			<!-- 响应内容 -->
 			<ResponseViewer
 				:type="getViewerType()"
@@ -227,6 +232,7 @@
 	import {
 		applyRedirectSettings,
 		elapsedMilliseconds,
+		isCloudflareChallenge,
 		normalizeRedirectSettings,
 		parseResponseDiagnostics,
 		responseByteLength
@@ -334,6 +340,7 @@
 				responseRedirectChain: [],
 				responseContentType: '',
 				responseDiagnosticsTruncated: false,
+				cloudflareChallenge: false,
 			};
 		},
 		mounted() {
@@ -665,6 +672,7 @@
 				this.responseRedirectChain = [];
 				this.responseContentType = '';
 				this.responseDiagnosticsTruncated = false;
+				this.cloudflareChallenge = false;
 			},
 			captureResponseDiagnostics(res, fallbackUrl, startTime) {
 				const diagnostics = parseResponseDiagnostics(res.headers, fallbackUrl);
@@ -674,6 +682,7 @@
 				this.responseRedirectChain = diagnostics.redirectChain;
 				this.responseDiagnosticsTruncated = diagnostics.truncated;
 				this.responseContentType = res.headers['content-type'] || '';
+				this.cloudflareChallenge = isCloudflareChallenge(res.headers);
 				this.responseTime = elapsedMilliseconds(startTime, performance.now());
 				this.responseSize = responseByteLength(res.data);
 				this.resHead = res.headers;
@@ -941,6 +950,10 @@
 		max-width: 720px;
 		display: grid;
 		gap: 12px;
+	}
+
+	.cloudflare-challenge-alert {
+		margin: 16px 0;
 	}
 
 	.el-row {

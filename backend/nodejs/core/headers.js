@@ -189,7 +189,11 @@ function decodeUpstreamHeaders(value) {
 }
 
 function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}, options = {}) {
-    const merged = { ...(inboundHeaders || {}), ...(customHeaders || {}) };
+    const sanitizedInboundHeaders = omitHeaders(
+        inboundHeaders,
+        options.omitInboundHeaders || []
+    );
+    const merged = { ...sanitizedInboundHeaders, ...(customHeaders || {}) };
     const upstreamAuthorization = getHeader(inboundHeaders, UPSTREAM_AUTHORIZATION_HEADER)
         || getHeader(inboundHeaders, LEGACY_UPSTREAM_AUTHORIZATION_HEADER);
     const upstreamReferer = options.allowUpstreamReferer
@@ -221,6 +225,10 @@ function buildUpstreamRequestHeaders(inboundHeaders, customHeaders = {}, options
     const authorization = upstreamAuthorization || legacyAuthorization;
     if (authorization) result.authorization = authorization;
     if (upstreamReferer && !result.referer) result.referer = upstreamReferer;
+    if (options.defaultUserAgent && !getHeader(result, "user-agent")) {
+        const defaultUserAgent = normalizeUpstreamHeaderValue("user-agent", options.defaultUserAgent);
+        if (defaultUserAgent !== undefined) result["user-agent"] = defaultUserAgent;
+    }
     return result;
 }
 
